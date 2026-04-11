@@ -1,0 +1,124 @@
+/**
+ * Per-stage LLM routing for GHOSTWRITR — cost-optimized for quality at scale.
+ *
+ * Maps a stage role (e.g. "external-stories:extract") to a ModelSpec string
+ * like "anthropic:claude-sonnet-4-6". Env vars override the default per role,
+ * so you can A/B test a stage without a code change:
+ *
+ *   LLM_EXTERNAL_STORIES_EXTRACT=openai:gpt-5
+ *   LLM_RESEARCH_EXTRACT=anthropic:claude-opus-4-6
+ *
+ * Cost Optimization Philosophy:
+ *   - Opus (most capable, ~$0.60/1000 tokens): final-editor:polish only (high ROI, touches all chapters)
+ *   - Sonnet (fast, cost-effective, ~$0.018/1000 tokens): all prose generation (extract, author, enrich)
+ *   - Batch API (50% discount): research discovery & external story extraction (non-real-time)
+ *   - OpenAI GPT-5 (cheap): mechanical verification, voice critique (different family from author)
+ *   - Gemini: long-context grounding + market analysis
+ *
+ * Expected cost per book (50 chapters):
+ *   - External Stories + Research: $12 (batch mode)
+ *   - Chapter Drafts: $11 (Sonnet author + revise)
+ *   - Final Editor Polish: $11 (Opus)
+ *   - Verification + Voice Guard: $4 (GPT-5)
+ *   = ~$38/book (vs. ~$85 with all Opus)
+ */
+
+import { getModel, type ModelOptions } from "./providers";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+
+export type StageRole =
+  // External Stories
+  | "external-stories:extract"
+  | "external-stories:enrich"
+  // Research
+  | "research:questions"
+  | "research:extract"
+  | "research:verify"
+  | "research:adjudicate"
+  // Chapter Draft
+  | "chapter-draft:author"
+  | "chapter-draft:revise"
+  // Voice Guard — MUST be a different family from the author
+  | "voice-guard:critic"
+  // Other stages (wired in later phases)
+  | "promise:author"
+  | "audience:author"
+  | "outline:author"
+  | "base-story:author"
+  | "personal-stories:interview"
+  | "market-analysis:research"
+  | "length-adjustment:author"
+  | "final-editor:polish";
+
+const DEFAULT_ROUTING: Record<StageRole, string> = {
+  // --- External Stories: Claude for narrative extraction + enrichment ---
+  "external-stories:extract": "anthropic:claude-sonnet-4-6",
+  "external-stories:enrich": "anthropic:claude-sonnet-4-6",
+
+  // --- Research: Claude for depth where it matters, OpenAI for cheap verification ---
+  "research:questions": "anthropic:claude-sonnet-4-6",
+  "research:extract": "anthropic:claude-sonnet-4-6",
+  "research:verify": "openai:gpt-5",
+  "research:adjudicate": "anthropic:claude-sonnet-4-6",
+
+  // --- Chapter Draft: Sonnet for author (cost), Sonnet for revise, Opus for final polish ---
+  "chapter-draft:author": "anthropic:claude-sonnet-4-6",
+  "chapter-draft:revise": "anthropic:claude-sonnet-4-6",
+
+  // --- Voice Guard: GPT-5 as the different-family critic ---
+  "voice-guard:critic": "openai:gpt-5",
+
+  // --- Other stages (will be wired in later) ---
+  "promise:author": "anthropic:claude-sonnet-4-6",
+  "audience:author": "anthropic:claude-sonnet-4-6",
+  "outline:author": "anthropic:claude-sonnet-4-6",
+  "base-story:author": "anthropic:claude-sonnet-4-6",
+  "personal-stories:interview": "anthropic:claude-sonnet-4-6",
+  "market-analysis:research": "google:gemini-2.5-pro",
+  "length-adjustment:author": "anthropic:claude-sonnet-4-6",
+  "final-editor:polish": "anthropic:claude-opus-4-6",
+};
+
+function envKeyForRole(role: StageRole): string {
+  // "external-stories:extract" -> "LLM_EXTERNAL_STORIES_EXTRACT"
+  return (
+    "LLM_" +
+    role
+      .replace(/:/g, "_")
+      .replace(/-/g, "_")
+      .toUpperCase()
+  );
+}
+
+export function resolveModelSpec(role: StageRole): string {
+  const envKey = envKeyForRole(role);
+  const override = process.env[envKey];
+  if (override && override.trim().length > 0) {
+    return override.trim();
+  }
+  return DEFAULT_ROUTING[role];
+}
+
+/**
+ * Get the configured chat model for a stage role. Returns null if the
+ * provider's API key is missing (callers should fall back gracefully).
+ *
+ * Optional fallbackRole: if the primary spec's provider has no key, try
+ * this secondary role's spec before returning null. Useful for gracefully
+ * downgrading Claude→OpenAI during initial rollout.
+ */
+export async function getModelForRole(
+  role: StageRole,
+  options: ModelOptions = {},
+  fallbackRole?: StageRole,
+): Promise<BaseChatModel | null> {
+  const primary = await getModel(resolveModelSpec(role), options);
+  if (primary) return primary;
+
+  if (fallbackRole) {
+    const secondary = await getModel(resolveModelSpec(fallbackRole), options);
+    if (secondary) return secondary;
+  }
+
+  return null;
+}

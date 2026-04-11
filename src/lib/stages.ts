@@ -1,0 +1,24 @@
+export const STAGE_ORDER = [
+  "BOOK_SETUP",
+  "PROMISE",
+  "AUDIENCE",
+  "MARKET_ANALYSIS",
+  "OUTLINE",
+  "BASE_STORY",
+  "RESEARCH",
+  "EXTERNAL_STORIES",
+  "PERSONAL_STORIES",
+  "CHAPTER_DRAFT",
+  "EDITING",
+] as const;
+
+export type StageKey = (typeof STAGE_ORDER)[number];
+
+export const PROMISE_ARTIFACT_TYPES = [
+  "PROMISE_BRIEF",
+  "PROMISE_CHAT",
+  "PERSONA_PACK",
+  "MARKET_REPORT",
+  "POSITIONING_RECOMMENDATIONS",
+  "PROMISE_SCORECARD",
+] as const;

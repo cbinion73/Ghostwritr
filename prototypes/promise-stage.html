@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GHOSTWRITR - Promise Stage</title>
+    <style>
+      :root {
+        --bg: #f2ede3;
+        --panel: rgba(255, 252, 246, 0.82);
+        --panel-strong: #f7f2e8;
+        --paper: #fbf6ee;
+        --ink: #2c241c;
+        --muted: #746658;
+        --line: rgba(67, 49, 31, 0.12);
+        --accent: #173a52;
+        --accent-soft: #d9e6ee;
+        --gold: #9b7a38;
+        --shadow: 0 20px 60px rgba(69, 47, 25, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.6), transparent 28%),
+          linear-gradient(180deg, #efe8db 0%, #ede5d8 46%, #ece3d3 100%);
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr) 380px;
+        gap: 24px;
+        padding: 24px;
+      }
+
+      .sidebar,
+      .rightbar {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+      }
+
+      .sidebar {
+        padding: 24px 18px;
+      }
+
+      .brand {
+        margin-bottom: 28px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        letter-spacing: 0.08em;
+      }
+
+      .brand p,
+      .small {
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.45;
+      }
+
+      .stage-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .stage {
+        padding: 12px 14px;
+        border-radius: 14px;
+        color: var(--muted);
+        border: 1px solid transparent;
+      }
+
+      .stage.active {
+        background: linear-gradient(180deg, rgba(23, 58, 82, 0.1), rgba(23, 58, 82, 0.04));
+        color: var(--accent);
+        border-color: rgba(23, 58, 82, 0.16);
+        font-weight: 600;
+      }
+
+      .main {
+        display: grid;
+        gap: 22px;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+        padding: 18px 22px;
+      }
+
+      .topbar h2 {
+        margin: 0 0 6px;
+        font-size: 1.6rem;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      button {
+        border: none;
+        border-radius: 999px;
+        padding: 11px 16px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .ghost {
+        background: rgba(255, 255, 255, 0.6);
+        border: 1px solid var(--line);
+        color: var(--ink);
+      }
+
+      .primary {
+        background: var(--accent);
+        color: #f9f7f3;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 1.2fr 0.95fr;
+        gap: 22px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel-header {
+        padding: 18px 22px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-header h3 {
+        margin: 0 0 6px;
+        font-size: 1.2rem;
+      }
+
+      .conversation {
+        padding: 22px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .message {
+        padding: 16px 18px;
+        border-radius: 18px;
+        line-height: 1.6;
+        max-width: 92%;
+      }
+
+      .assistant {
+        background: rgba(23, 58, 82, 0.07);
+        border: 1px solid rgba(23, 58, 82, 0.1);
+      }
+
+      .user {
+        justify-self: end;
+        background: rgba(155, 122, 56, 0.08);
+        border: 1px solid rgba(155, 122, 56, 0.12);
+      }
+
+      .composer {
+        margin-top: 6px;
+        padding: 18px 22px 22px;
+        border-top: 1px solid var(--line);
+        background: rgba(251, 247, 239, 0.75);
+      }
+
+      .input {
+        min-height: 112px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.68);
+        padding: 16px 18px;
+        color: var(--muted);
+      }
+
+      .cards {
+        padding: 20px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .card {
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 16px 18px;
+      }
+
+      .card h4 {
+        margin: 0 0 10px;
+        font-size: 1rem;
+      }
+
+      .metric-row,
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .metric,
+      .pill {
+        padding: 8px 11px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.7);
+        border: 1px solid var(--line);
+        font-size: 0.9rem;
+      }
+
+      .score {
+        display: grid;
+        gap: 12px;
+      }
+
+      .score-line {
+        display: grid;
+        grid-template-columns: 120px 1fr 36px;
+        gap: 10px;
+        align-items: center;
+        font-size: 0.94rem;
+      }
+
+      .bar {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(23, 58, 82, 0.08);
+        overflow: hidden;
+      }
+
+      .bar span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #7f6330, #173a52);
+      }
+
+      .rightbar {
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+        align-content: start;
+      }
+
+      .section-title {
+        margin: 0 0 8px;
+        font-size: 1.02rem;
+      }
+
+      .recommendation {
+        border-left: 3px solid var(--gold);
+        padding-left: 12px;
+        line-height: 1.55;
+        color: var(--muted);
+      }
+
+      .paper {
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.74), rgba(255,255,255,0.2)),
+          var(--paper);
+        border: 1px solid rgba(72, 52, 32, 0.14);
+        border-radius: 10px;
+        box-shadow:
+          0 2px 0 rgba(255, 255, 255, 0.55) inset,
+          0 16px 36px rgba(72, 52, 32, 0.1);
+        padding: 52px 64px;
+        min-height: 500px;
+      }
+
+      .paper h3 {
+        margin-top: 0;
+        font-size: 1.55rem;
+        text-align: center;
+      }
+
+      .paper p {
+        font-size: 1.06rem;
+        line-height: 1.88;
+        color: #322820;
+        text-wrap: pretty;
+      }
+
+      .label {
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      @media (max-width: 1280px) {
+        .app {
+          grid-template-columns: 220px 1fr;
+        }
+
+        .rightbar {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 920px) {
+        .app,
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>GHOSTWRITR</h1>
+          <p>Book workspace for strategy, drafting, research, stories, and editorial commitment.</p>
+        </div>
+
+        <div class="small">Book: <strong>Signal in the Noise</strong></div>
+        <div class="small" style="margin: 6px 0 20px;">Status: Promise in refinement</div>
+
+        <div class="stage-list">
+          <div class="stage active">Promise</div>
+          <div class="stage">Audience</div>
+          <div class="stage">Market Analysis</div>
+          <div class="stage">Outline</div>
+          <div class="stage">Base Story</div>
+          <div class="stage">Research</div>
+          <div class="stage">External Stories</div>
+          <div class="stage">Personal Stories</div>
+          <div class="stage">Chapter Draft</div>
+          <div class="stage">Editing</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="topbar">
+          <div>
+            <div class="label">Stage Workspace</div>
+            <h2>Book Promise</h2>
+            <div class="small">Collaborative refinement, audience fit, commercial positioning, and final commitment.</div>
+          </div>
+          <div class="actions">
+            <button class="ghost">Run Market Scan</button>
+            <button class="ghost">Compare Versions</button>
+            <button class="primary">Commit Promise</button>
+          </div>
+        </section>
+
+        <section class="workspace">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Promise Conversation</h3>
+              <div class="small">A ChatGPT-like loop where the idea gets sharpened before it becomes a committed artifact.</div>
+            </div>
+
+            <div class="conversation">
+              <div class="message user">
+                I want to write a book for a clearly defined professional audience with a recurring costly problem that can be solved with a practical framework.
+              </div>
+
+              <div class="message assistant">
+                That idea has real traction. The strongest early promise is not “general improvement,” but a sharper claim about who the book is for, what costly problem it solves, and what concrete transformation the reader should expect.
+              </div>
+
+              <div class="message user">
+                I like that, but I want it to feel practical, not abstract. I want readers to feel more capable and more certain about what to do next.
+              </div>
+
+              <div class="message assistant">
+                Then the promise should combine practical usefulness with a clear reader payoff. We can aim for: “This book gives professionals a practical system to solve a costly recurring problem, improve measurable outcomes, and lead with clarity people can follow.”
+              </div>
+            </div>
+
+            <div class="composer">
+              <div class="input">
+                Draft your next refinement here. The system would extract updated fields like audience, transformation, differentiation, and core truth after every turn.
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Promise Artifact</h3>
+              <div class="small">The structured result we commit and hand to downstream stages.</div>
+            </div>
+
+            <div class="cards">
+              <div class="card">
+                <h4>Working Promise</h4>
+                <p style="margin: 0; line-height: 1.65;">
+                  In a world crowded by digital noise, hype, and nonstop change, leaders do not need more inputs. They need a clearer way to think. This book offers a practical framework for discerning signal from noise, making better decisions under uncertainty, and leading teams with calm, courage, and clarity.
+                </p>
+              </div>
+
+              <div class="card">
+                <h4>Core Fields</h4>
+                <div class="pill-row">
+                  <div class="pill">Audience: Enterprise leaders</div>
+                  <div class="pill">Transformation: reactive to clear</div>
+                  <div class="pill">Category: leadership</div>
+                  <div class="pill">Core Truth: clarity beats noise</div>
+                  <div class="pill">Positioning: practical + credible</div>
+                </div>
+              </div>
+
+              <div class="card">
+                <h4>Promise Scorecard</h4>
+                <div class="score">
+                  <div class="score-line"><span>Clarity</span><div class="bar"><span style="width: 86%"></span></div><strong>8.6</strong></div>
+                  <div class="score-line"><span>Audience Fit</span><div class="bar"><span style="width: 82%"></span></div><strong>8.2</strong></div>
+                  <div class="score-line"><span>Distinctiveness</span><div class="bar"><span style="width: 71%"></span></div><strong>7.1</strong></div>
+                  <div class="score-line"><span>Commercial Pull</span><div class="bar"><span style="width: 74%"></span></div><strong>7.4</strong></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <h4>Market Signals</h4>
+                <div class="metric-row">
+                  <div class="metric">Persona overlap: high with VPs and innovation leaders</div>
+                  <div class="metric">Risk: could read too broad without stronger niche framing</div>
+                  <div class="metric">Opportunity: “clarity under uncertainty” has strong executive appeal</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h3>Committed View Preview</h3>
+            <div class="small">Once approved, the promise can also be read as a polished manuscript sheet instead of only as fields and scorecards.</div>
+          </div>
+          <div style="padding: 28px; background: rgba(242, 235, 222, 0.62);">
+            <article class="paper">
+              <div class="label">Book Promise</div>
+              <h3>Signal in the Noise</h3>
+              <p>
+                Leadership has become loud. Not because leaders are weak, but because the environment around them has grown crowded with too many inputs, too many urgencies, and too many competing claims on attention. In that kind of world, the most valuable skill is no longer speed. It is clarity.
+              </p>
+              <p>
+                This book is for leaders who feel buried beneath dashboards, updates, vendor promises, AI hype, and shifting expectations. It offers a practical way to separate signal from noise, slow down poor decisions before they spread, and create the kind of calm direction that helps teams think, act, and trust more clearly.
+              </p>
+              <p>
+                The promise is simple: you do not need to know everything in order to lead well. You need a better way to discern what matters, align people around it, and move forward with courage when certainty is unavailable.
+              </p>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <aside class="rightbar">
+        <div class="card">
+          <h3 class="section-title">Personas</h3>
+          <div class="metric-row">
+            <div class="metric">Innovation leader</div>
+            <div class="metric">Digital transformation VP</div>
+            <div class="metric">Operational executive</div>
+            <div class="metric">Team leader under tech pressure</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Recommendations</h3>
+          <div class="recommendation">
+            Narrow the primary reader slightly. “Leaders” is strong but wide. The promise becomes more marketable if it clearly privileges enterprise decision-makers facing technology overload.
+          </div>
+          <div class="recommendation" style="margin-top: 12px;">
+            Keep emotional relief in the promise. “Calm clarity” differentiates the book from purely tactical innovation books.
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Commit Checklist</h3>
+          <div class="small">Before this stage is committed:</div>
+          <ul style="margin: 12px 0 0; padding-left: 18px; line-height: 1.7; color: var(--muted);">
+            <li>Promise statement approved</li>
+            <li>Audience named</li>
+            <li>Transformation clear</li>
+            <li>Core truth extracted</li>
+            <li>Market scan reviewed</li>
+            <li>Downstream outline brief generated</li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

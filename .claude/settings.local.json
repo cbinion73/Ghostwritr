@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls -la /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/promise/)",
+      "Bash(wc -l /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/promise/page.tsx)",
+      "Read(//tmp/**)",
+      "Bash(npm run:*)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(grep \"OPENAI_API_KEY\" /Users/chris/Desktop/GHOSTWRITR/.env*)",
+      "Bash(grep -n \"const styles\\\\|borderBottom\\\\|tabActive\" /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/promise/promise-tabs.tsx)",
+      "Bash(grep -n \"tabsBar\\\\|tabActive\\\\|borderBottom\" /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/promise/promise-tabs.tsx)",
+      "Bash(wc -l /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/promise/promise-tabs.tsx)",
+      "Bash(grep -r \"DATABASE_URL\\\\|prisma\" /Users/chris/Desktop/GHOSTWRITR/.env*)",
+      "Bash(psql \"postgresql://chris@localhost:5432/book_platform_builder?schema=public\" -c \"SELECT id, slug FROM \\\\\"Book\\\\\" WHERE slug = 'lean-labs-2' LIMIT 1;\")",
+      "Bash(npx prisma:*)",
+      "Bash(node check-personas.js)",
+      "Bash(node check-personas-full.js)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(node check-personas-stage.js)",
+      "Bash(node check-personas-content.js)",
+      "Bash(node test-getPromiseArtifacts.js)",
+      "Bash(git init:*)",
+      "Bash(git remote:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

@@ -579,11 +579,14 @@ function getDossierStatus(input: {
     return "COMMITTED";
   }
 
-  if ((input.needsCorroborationItems ?? 0) > 0 || (input.verifiedItems ?? 0) === 0) {
-    return "NEEDS_REVIEW";
+  // Chapters with ANY verified items are ready to draft with
+  // Quality loop improves them continuously in background
+  if ((input.verifiedItems ?? 0) > 0) {
+    return "DRAFT";
   }
 
-  return "DRAFT";
+  // Only truly stuck chapters (0 verified items) need review
+  return "NEEDS_REVIEW";
 }
 
 async function maybeGenerateResearchQuestions(

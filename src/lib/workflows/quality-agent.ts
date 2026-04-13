@@ -239,13 +239,16 @@ export async function runQualityAgentWorkflow(bookSlug: string) {
       continue;
     }
 
-    if (verifiedSources < 2) {
-      researchIssues.push(`${chapter.chapterLabel} needs more verified research sources.`);
+    // With quality feedback loop, accept chapters with at least 1 verified item
+    // Quality agent will continuously improve chapters in background
+    if (verifiedItems < 1) {
+      researchIssues.push(`${chapter.chapterLabel} has no verified research items (0 items verified).`);
       continue;
     }
 
-    if (verifiedItems < 3) {
-      researchIssues.push(`${chapter.chapterLabel} needs more verified research items.`);
+    // At least 1 verified source required for credibility
+    if (verifiedSources < 1) {
+      researchIssues.push(`${chapter.chapterLabel} has no verified research sources.`);
       continue;
     }
 

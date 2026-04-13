@@ -1,87 +1,90 @@
-# Research Quality Agent - Adversarial Verification
-## Automated Fact-Checking & Link Validation Loop
+# Research Quality Agent - Three-Agent Verification Pipeline
+## Automated Fact-Checking with Source Extraction
 
 ---
 
 ## PHASE OVERVIEW
 
-After research generation completes per chapter, an adversarial Quality Agent independently verifies all facts, links, and information.
+After research generation completes per chapter, a **three-agent pipeline** independently verifies all facts, links, and information by actually retrieving and comparing source material.
 
-The Quality Agent acts as a **skeptical critic**, catching errors that might slip through generation. If issues are found, it flags them and sends the chapter back to the Research Agent for correction.
+**Pipeline:**
+1. **Agent 1 (Researcher):** GPT-5.4 generates claims + citations (with web search)
+2. **Agent 2 (Extractor):** Lightweight model opens URLs and pulls relevant passages  
+3. **Agent 3 (Verifier):** Haiku compares actual claim against actual excerpt from source
 
-This creates a **closed-loop verification cycle**: Research Agent → Quality Agent → [pass/flag back] → repeat until verified.
+This prevents **citation hallucination** by requiring Agent 2 to actually retrieve the source material, which Agent 3 then fact-checks against.
 
 ---
 
 ## WORKFLOW
 
-### Step 1: Research Agent Generates
+### Step 1: Researcher Agent Generates (GPT-5.4 + web_search)
 
-Agent 1 creates research dossier per chapter with:
-- Facts, citations, sources
-- APA bibliography
+**Input:** Chapter topic, outline, base story
+**Output:** Research dossier with claims + citations
+
+Agent 1 creates:
+- Atomic facts with citations
+- Source URLs
+- APA bibliography  
 - Traceability matrix
 - Strength ratings
 
-### Step 2: Quality Agent Verification (Adversarial)
+**Key:** Claims include specific URLs pointing to evidence
 
-Quality Agent independently checks **every fact** in the research dossier:
+---
 
-**1) Link Validation**
-- Verify each URL in bibliography is:
-  - Valid URL format (https://, http://)
-  - Accessible (HTTP 200 response, not 404/403/410)
-  - Not redirecting to wrong domain
-  - Not timing out or blocking crawlers
-- Flag broken, inaccessible, or redirected links
+### Step 2: Extractor Agent Retrieves (Lightweight model)
 
-**2) Citation Accuracy**
-- Match cited fact to actual source content
-- Verify quote is accurate (not misquoted or out of context)
-- Verify scope: does source actually support this claim?
-- Check if interpretation is faithful to source
-- Flag: misquotes, out-of-context claims, unsupported assertions
+**Input:** Claims with URLs from Agent 1
+**Output:** Actual passages extracted from sources
 
-**3) Fact Verification**
-- Cross-reference atomic facts against sources
-- Verify statistics are current/accurate
-- Check dates, names, numbers for accuracy
-- Verify definitions match authoritative sources
-- Flag: outdated info, factual errors, unsupported claims
+Agent 2 for each claim:
+1. Opens the cited URL
+2. Finds relevant passage in source
+3. Extracts exact quote/context
+4. Returns passage to Agent 3
 
-**4) APA Bibliography Validation**
-- Check each citation has:
-  - Author name(s)
-  - Publication year
-  - Title
-  - DOI or stable URL
-  - Format matches APA 7th edition
-- Flag: incomplete citations, formatting errors, missing info
+**Key:** Agent 2 **actually retrieves** source material (prevents citation hallucination)
 
-**5) Counterargument Validation**
-- Verify counterarguments are real (not strawman versions)
-- Check evidence supporting each counterpoint
-- Ensure counterpoints are credible/well-sourced
-- Flag: fake counterarguments, misrepresented opposing views
+---
 
-**6) Source Tier Verification**
-- Verify Tier A sources are actually primary/authoritative
-- Verify Tier B sources are credible secondary sources
-- Flag: sources assigned wrong tier, questionable sources in any tier
+### Step 3: Verifier Agent Compares (Haiku)
 
-**7) Strength Rating Justification**
-- Verify strength ratings match evidence quality
-- "Definitive" claims require strong evidence
-- "Provisional" claims properly flagged
-- Flag: overstated claims, unjustified confidence levels
+**Input:** Claim from Agent 1 + Actual excerpt from Agent 2
+**Output:** Verdict (PASS/NEEDS_FIX) with explanation
 
-**8) Scope Notes Accuracy**
-- Verify scope notes accurately describe:
-  - Population (who/what was studied)
-  - Geography (where findings apply)
-  - Timeframe (when this is true)
-  - Conditions (under what circumstances)
-- Flag: misleading scope claims, overgeneralized findings
+Agent 3 independently verifies:
+
+**Verification Checks (Haiku compares claim vs actual excerpt):**
+
+✅ **Claim-to-Source Match**
+- Does the excerpt actually support the claim?
+- Is the claim accurately represented?
+- Or is it misquoted/out of context?
+
+✅ **Scope Validity**
+- Does excerpt apply to the population described?
+- Are limitations honored (geography, timeframe, conditions)?
+- Or is the claim overgeneralized?
+
+✅ **Citation Accuracy**
+- Is the URL correct?
+- Did Agent 2 actually find the passage?
+- Or does passage not exist at that URL?
+
+✅ **Quote Integrity**
+- If quoted, is quote exact?
+- Taken in proper context?
+- Or distorted?
+
+✅ **Verdict Options:**
+
+- **PASS** → Claim matches excerpt, properly cited, in scope
+- **NEEDS_FIX: Misquoted** → Excerpt says something different
+- **NEEDS_FIX: Out of context** → Excerpt is valid but claim overstates it
+- **NEEDS_FIX: Not found** → URL doesn't contain claimed passage
+- **NEEDS_FIX: Wrong scope** → Excerpt applies to different population/geography/time
 
 ### Step 3: Quality Agent Issues Report
 

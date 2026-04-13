@@ -151,7 +151,12 @@
       "Bash(pkill -9 -f \"next-server\")",
       "Bash(pkill -9 -f \"next-server|next dev\")",
       "Bash(export ANTHROPIC_API_KEY=\"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\")",
-      "Bash(psql \"postgresql://postgres:StarTrekEnterprise%231@db.epoxlbaensbrechvppmq.supabase.co:5432/postgres\" -c \"SELECT COUNT\\(*\\) as chapter_artifacts FROM artifact WHERE \\\\\"artifactType\\\\\" = 'CHAPTER_PARAGRAPH_PLAN';\")"
+      "Bash(psql \"postgresql://postgres:StarTrekEnterprise%231@db.epoxlbaensbrechvppmq.supabase.co:5432/postgres\" -c \"SELECT COUNT\\(*\\) as chapter_artifacts FROM artifact WHERE \\\\\"artifactType\\\\\" = 'CHAPTER_PARAGRAPH_PLAN';\")",
+      "Bash(ls -la /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/base-story/)",
+      "Bash(sqlite3 /Users/chris/Desktop/GHOSTWRITR/.sqlite3 \"SELECT slug, status FROM books WHERE slug='4-pillars';\")",
+      "Bash(grep -i \"database\" /Users/chris/Desktop/GHOSTWRITR/.env*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(ls /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/research/)"
     ]
   }
 }

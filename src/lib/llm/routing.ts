@@ -36,7 +36,9 @@ export type StageRole =
   | "research:extract"
   | "research:verify"
   | "research:adjudicate"
-  | "research:quality-agent"
+  | "research:agent-1-researcher"
+  | "research:agent-2-extractor"
+  | "research:agent-3-verifier"
   // Chapter Draft
   | "chapter-draft:author"
   | "chapter-draft:revise"
@@ -61,12 +63,17 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "external-stories:extract": "anthropic:claude-sonnet-4-6",
   "external-stories:enrich": "anthropic:claude-sonnet-4-6",
 
-  // --- Research: GPT-5.4 with web search for comprehensive research, Haiku for quality verification ---
+  // --- Research: Three-agent pipeline for verified claims ---
+  // Legacy research roles (kept for compatibility)
   "research:questions": "openai:gpt-5.4",
   "research:extract": "openai:gpt-5.4",
   "research:verify": "openai:gpt-5.4",
   "research:adjudicate": "openai:gpt-5.4",
-  "research:quality-agent": "anthropic:claude-haiku-4-5-20251001",
+
+  // New three-agent verification pipeline
+  "research:agent-1-researcher": "openai:gpt-5.4", // Finds sources, synthesizes, produces claims + citations (with web search)
+  "research:agent-2-extractor": "openai:gpt-5.4-mini", // Lightweight: opens URLs, pulls relevant passages
+  "research:agent-3-verifier": "anthropic:claude-haiku-4-5-20251001", // Compares claim vs excerpt, outputs verdict
 
   // --- Chapter Draft: Sonnet for author (cost), Sonnet for revise, Opus for final polish ---
   "chapter-draft:author": "anthropic:claude-sonnet-4-6",

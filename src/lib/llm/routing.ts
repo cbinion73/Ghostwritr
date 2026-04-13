@@ -10,9 +10,9 @@
  *
  * Cost Optimization Philosophy:
  *   - Opus (most capable, ~$0.60/1000 tokens): final-editor:polish only (high ROI, touches all chapters)
- *   - Sonnet (fast, cost-effective, ~$0.018/1000 tokens): all prose generation (extract, author, enrich)
- *   - Batch API (50% discount): research discovery & external story extraction (non-real-time)
- *   - OpenAI GPT-5 (cheap): mechanical verification, voice critique (different family from author)
+ *   - Sonnet (fast, cost-effective, ~$0.018/1000 tokens): prose generation (extract, author, enrich)
+ *   - Haiku (fastest, ~$0.005/1000 tokens): quality verification, fact-checking, detail review
+ *   - GPT-5.4 (web search capable): comprehensive research generation with live web context
  *   - Gemini: long-context grounding + market analysis
  *
  * Expected cost per book (50 chapters):
@@ -36,6 +36,7 @@ export type StageRole =
   | "research:extract"
   | "research:verify"
   | "research:adjudicate"
+  | "research:quality-agent"
   // Chapter Draft
   | "chapter-draft:author"
   | "chapter-draft:revise"
@@ -60,11 +61,12 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "external-stories:extract": "anthropic:claude-sonnet-4-6",
   "external-stories:enrich": "anthropic:claude-sonnet-4-6",
 
-  // --- Research: Claude for depth where it matters, OpenAI for cheap verification ---
-  "research:questions": "anthropic:claude-sonnet-4-6",
-  "research:extract": "anthropic:claude-sonnet-4-6",
-  "research:verify": "openai:gpt-5",
-  "research:adjudicate": "anthropic:claude-sonnet-4-6",
+  // --- Research: GPT-5.4 with web search for comprehensive research, Haiku for quality verification ---
+  "research:questions": "openai:gpt-5.4",
+  "research:extract": "openai:gpt-5.4",
+  "research:verify": "openai:gpt-5.4",
+  "research:adjudicate": "openai:gpt-5.4",
+  "research:quality-agent": "anthropic:claude-haiku-4-5-20251001",
 
   // --- Chapter Draft: Sonnet for author (cost), Sonnet for revise, Opus for final polish ---
   "chapter-draft:author": "anthropic:claude-sonnet-4-6",

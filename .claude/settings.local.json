@@ -170,7 +170,19 @@
       "Bash(mv \"src/app/books/[slug]/research/page.tsx.bak\" \"src/app/books/[slug]/research/page.tsx\")",
       "Bash(sed -i.bak2 '440,605d' \"src/app/books/[slug]/research/page.tsx\")",
       "Bash(cp .git/objects/pack/*.pack /tmp/restore.pack)",
-      "Bash(sed -n '435,445p' \"src/app/books/[slug]/research/page.tsx\")"
+      "Bash(sed -n '435,445p' \"src/app/books/[slug]/research/page.tsx\")",
+      "Bash(curl -X POST http://localhost:3000/api/books/4-pillars/research/regenerate -H 'Content-Type: application/json')",
+      "Bash(curl -s http://localhost:3000/books/4-pillars/research -w \"\\\\nStatus: %{http_code}\\\\n\")",
+      "Bash(timeout 10 curl -s http://localhost:3000/books/4-pillars/research)",
+      "Bash(nc -zv -w 3 db.epoxlbaensbrechvppmq.supabase.co 5432)",
+      "Bash(psql \"postgresql://postgres:StarTrekEnterprise%231@db.epoxlbaensbrechvppmq.supabase.co:5432/postgres\" -c \"SELECT 1\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/books/4-pillars/research)",
+      "Bash(pkill -f \"prisma migrate\")",
+      "Bash(killall -9 node)",
+      "Bash(tee /tmp/dev-server.log)",
+      "Bash(curl -s http://localhost:3000 -o /dev/null -w \"Status: %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:3001 -o /dev/null -w \"Status: %{http_code}\\\\n\")",
+      "Bash(curl -s http://localhost:3001/books/4-pillars/research -I)"
     ]
   }
 }

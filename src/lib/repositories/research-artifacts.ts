@@ -181,49 +181,80 @@ export async function getResearchPackVersions(
   chapterKey: string,
   limit = 6,
 ) {
-  const artifact = await db.artifact.findFirst({
+  // Use a more efficient query strategy:
+  // 1. Find artifacts by bookId and type (uses existing index)
+  // 2. Filter by chapter key pattern in memory
+  // 3. Return versions for the matching artifact
+  const artifacts = await db.artifact.findMany({
     where: {
       bookId,
       artifactType: ArtifactType.RESEARCH_PACK,
-      title: {
-        startsWith: `Research Pack: ${chapterKey} - `,
-      },
     },
-    include: {
-      versions: {
-        orderBy: { versionNumber: "desc" },
-        take: limit,
-      },
+    select: {
+      id: true,
+      title: true,
     },
+    orderBy: { createdAt: "desc" },
+    take: 50, // Reasonable limit to avoid scanning entire table
   });
 
-  return artifact?.versions ?? [];
+  // Find the artifact matching this chapter
+  const titlePrefix = `Research Pack: ${chapterKey} - `;
+  const matchingArtifact = artifacts.find((a) => a.title?.startsWith(titlePrefix));
+
+  if (!matchingArtifact) {
+    return [];
+  }
+
+  // Now fetch versions for the matching artifact
+  const versions = await db.artifactVersion.findMany({
+    where: {
+      artifactId: matchingArtifact.id,
+    },
+    orderBy: { versionNumber: "desc" },
+    take: limit,
+  });
+
+  return versions;
 }
 
 export async function getCommittedResearchPack(bookId: string, chapterKey: string) {
-  const artifact = await db.artifact.findFirst({
+  // Use optimized query to avoid expensive title string matching
+  const artifacts = await db.artifact.findMany({
     where: {
       bookId,
       artifactType: ArtifactType.RESEARCH_PACK,
-      title: {
-        startsWith: `Research Pack: ${chapterKey} - `,
-      },
       committedVersionId: {
         not: null,
       },
     },
-    include: {
-      versions: {
-        where: {
-          lifecycleState: ArtifactStatus.COMMITTED,
-        },
-        orderBy: { versionNumber: "desc" },
-        take: 1,
-      },
+    select: {
+      id: true,
+      title: true,
+      committedVersionId: true,
     },
+    orderBy: { createdAt: "desc" },
+    take: 50,
   });
 
-  return artifact?.versions[0] ?? null;
+  // Find the artifact matching this chapter
+  const titlePrefix = `Research Pack: ${chapterKey} - `;
+  const matchingArtifact = artifacts.find((a) => a.title?.startsWith(titlePrefix));
+
+  if (!matchingArtifact || !matchingArtifact.committedVersionId) {
+    return null;
+  }
+
+  // Fetch the committed version
+  const committedVersion = await db.artifactVersion.findFirst({
+    where: {
+      artifactId: matchingArtifact.id,
+      lifecycleState: ArtifactStatus.COMMITTED,
+    },
+    orderBy: { versionNumber: "desc" },
+  });
+
+  return committedVersion ?? null;
 }
 
 export async function getResearchSourcesForVersion(researchArtifactVersionId: string) {

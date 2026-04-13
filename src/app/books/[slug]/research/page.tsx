@@ -14,6 +14,7 @@ import {
   separateResearchBinderTab,
 } from "./actions";
 import { ResearchAutoRefresh } from "./auto-refresh";
+import { ResearchProgressBar } from "@/app/books/research-progress-bar";
 import { SubmitButton } from "@/app/components/submit-button";
 import { CollapsibleRightbar } from "@/app/components/collapsible-rightbar";
 
@@ -158,6 +159,18 @@ export default async function ResearchStagePage({
                 </form>
               </>
             ) : null}
+          </div>
+        </section>
+
+        <section className="glass-panel progress-section" style={{ marginBottom: "16px" }}>
+          <div style={{ padding: "16px" }}>
+            <h3 style={{ marginTop: 0, marginBottom: "16px" }}>Research Progress</h3>
+            <ResearchProgressBar
+              completedChapters={workspace.progress.completedChapters}
+              totalChapters={workspace.progress.totalChapters}
+              failedChapters={workspace.progress.failedChapters.length}
+              provisionalChapters={workspace.progress.provisionalChapters.length}
+            />
           </div>
         </section>
 

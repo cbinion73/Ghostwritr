@@ -157,7 +157,13 @@
       "Bash(grep -i \"database\" /Users/chris/Desktop/GHOSTWRITR/.env*)",
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
       "Bash(ls /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/research/)",
-      "Bash(curl -s http://localhost:3000 -w \"\\\\nStatus: %{http_code}\\\\n\")"
+      "Bash(curl -s http://localhost:3000 -w \"\\\\nStatus: %{http_code}\\\\n\")",
+      "Bash(wc -l /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/research/page.tsx)",
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -type f -name \"page.tsx\" -path \"*research*\" -exec head -200 {} \\\\;)",
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -type f -name \"page.tsx\" -path \"*research*\" -exec wc -l {} \\\\;)",
+      "Bash(grep -n \"research-stage-progress\\\\|stage-progress\\\\|completedChapters\" \"/Users/chris/Desktop/GHOSTWRITR/src/app/books\"*\"/research/page.tsx\")",
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -exec grep -n \"research-stage-progress\\\\|completedChapters\" {} +)",
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -type f -exec cat {} \\\\;)"
     ]
   }
 }

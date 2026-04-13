@@ -163,7 +163,14 @@
       "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -type f -name \"page.tsx\" -path \"*research*\" -exec wc -l {} \\\\;)",
       "Bash(grep -n \"research-stage-progress\\\\|stage-progress\\\\|completedChapters\" \"/Users/chris/Desktop/GHOSTWRITR/src/app/books\"*\"/research/page.tsx\")",
       "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -exec grep -n \"research-stage-progress\\\\|completedChapters\" {} +)",
-      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -type f -exec cat {} \\\\;)"
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -type f -exec cat {} \\\\;)",
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -exec sed -n '430,610p' {} \\\\;)",
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -exec wc -l {} \\\\;)",
+      "Bash(find /Users/chris/Desktop/GHOSTWRITR/src/app -name \"page.tsx\" -path \"*research*\" -exec tail -20 {} \\\\;)",
+      "Bash(mv \"src/app/books/[slug]/research/page.tsx.bak\" \"src/app/books/[slug]/research/page.tsx\")",
+      "Bash(sed -i.bak2 '440,605d' \"src/app/books/[slug]/research/page.tsx\")",
+      "Bash(cp .git/objects/pack/*.pack /tmp/restore.pack)",
+      "Bash(sed -n '435,445p' \"src/app/books/[slug]/research/page.tsx\")"
     ]
   }
 }

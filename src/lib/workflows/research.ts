@@ -317,15 +317,17 @@ function getResearchReasoningEffort(purpose: ResearchModelPurpose): ResearchReas
 
 function roleForPurpose(purpose: ResearchModelPurpose): StageRole {
   if (purpose === "questions") return "research:questions";
-  if (purpose === "verification") return "research:verify";
+  if (purpose === "verification") return "research:agent-3-verifier"; // Three-agent pipeline: Verifier agent
   if (purpose === "adjudication") return "research:adjudicate";
   return "research:extract";
 }
 
 async function getChatModel(purpose: ResearchModelPurpose) {
-  // Routed via the provider layer so Claude handles depth work (questions,
-  // extraction, adjudication) while OpenAI handles the cheap mechanical
-  // verification pass. Each role is independently overridable via env.
+  // Three-agent research pipeline:
+  // - Agent 1 (Researcher): questions + extraction with web search
+  // - Agent 2 (Extractor): lightweight URL extraction and passage retrieval
+  // - Agent 3 (Verifier): Haiku compares claims against actual source excerpts
+  // Each role is independently overridable via env (LLM_RESEARCH_* variables).
   const timeoutMs =
     purpose === "adjudication" ? 120000 : purpose === "extraction" ? 120000 : 60000;
   const reasoningEffort = getResearchReasoningEffort(purpose);

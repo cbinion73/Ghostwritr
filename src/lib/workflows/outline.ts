@@ -130,8 +130,9 @@ Structure rules:
 - Each section needs:
   - title
   - optional subtitle
+  - bigIdea (the single overarching insight that organizes this section)
   - description (what big idea(s) this section explores)
-  - whyThisSectionExists (the big idea that organizes this section)
+  - whyThisSectionExists (why this section exists in the book's narrative)
   - whatItCovers
   - howItServesTheLargerStory
   - stageCoverage
@@ -140,8 +141,9 @@ Structure rules:
 - Each chapter needs:
   - title
   - optional subtitle
-  - description (the big idea this chapter delivers)
-  - whyThisChapterExists (the big idea the chapter teaches)
+  - bigIdea (the single powerful insight this chapter teaches)
+  - description (how this chapter delivers its big idea)
+  - whyThisChapterExists (why this chapter exists in the section)
   - coreIdea (explicit statement of the chapter's core big idea)
   - whatGetsConveyed
   - storytellingTechnique
@@ -198,19 +200,22 @@ Generate only the minimum fields needed for a strong Phase 1 outline:
 
 For each section, return only:
 - title
-- whyThisSectionExists (the overarching big idea of the section)
+- subtitle (optional, max 10 words)
+- bigIdea (the single overarching theme that organizes this section)
+- whyThisSectionExists (why this section is essential)
 - stageCoverage
 - wordCountTarget
 - chapters
 
 For each chapter, return only:
 - title
-- whyThisChapterExists (the big idea this chapter delivers)
-- coreIdea (explicit statement of the big idea)
+- subtitle (optional, max 10 words)
+- bigIdea (the single powerful insight this chapter teaches)
+- whyThisChapterExists (why this chapter is essential to the section)
+- coreIdea (restatement of the big idea as a core principle)
 - wordCountTarget
 
 Strictly do not include:
-- subtitles
 - descriptions
 - whatItCovers
 - howItServesTheLargerStory
@@ -229,10 +234,13 @@ Keep every field concise:
 - overview: max 70 words (describe the big ideas journey through the book)
 - structureRationale: max 70 words (why these big ideas, in this order)
 - readerTransformation: max 35 words
-- whyThisSectionExists: max 20 words (name the overarching big idea)
+- subtitle: max 10 words (adds specificity or angle to the title)
+- bigIdea (section): max 18 words (the single overarching theme)
+- whyThisSectionExists: max 18 words (the section's role in the book)
 - stageCoverage: 1-2 stages per section
-- whyThisChapterExists: max 18 words (name the chapter's big idea)
-- coreIdea: max 18 words (the single insight this chapter teaches)
+- bigIdea (chapter): max 18 words (the single insight this chapter teaches)
+- whyThisChapterExists: max 18 words (the chapter's role in the section)
+- coreIdea: max 18 words (restatement of the chapter's big idea)
 
 Requirements:
 - Determine sections and chapters organically from the Knowledge Base big ideas.

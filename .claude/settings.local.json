@@ -156,7 +156,8 @@
       "Bash(sqlite3 /Users/chris/Desktop/GHOSTWRITR/.sqlite3 \"SELECT slug, status FROM books WHERE slug='4-pillars';\")",
       "Bash(grep -i \"database\" /Users/chris/Desktop/GHOSTWRITR/.env*)",
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
-      "Bash(ls /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/research/)"
+      "Bash(ls /Users/chris/Desktop/GHOSTWRITR/src/app/books/[slug]/research/)",
+      "Bash(curl -s http://localhost:3000 -w \"\\\\nStatus: %{http_code}\\\\n\")"
     ]
   }
 }

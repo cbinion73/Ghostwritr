@@ -238,6 +238,31 @@ Rules:
 - Confirm whether the source tier still looks correct based on publisher reputation and evidence type.
 - Be strict. A false positive poisons the draft; a false negative just means more research.`;
 
+function enhancePromptWithQualityFeedback(
+  basePrompt: string,
+  qualityFeedback?: unknown,
+): string {
+  if (!qualityFeedback || typeof qualityFeedback !== "object") {
+    return basePrompt;
+  }
+
+  const feedback = qualityFeedback as Record<string, unknown>;
+  const guidance = feedback.guidance ? String(feedback.guidance) : null;
+  const issues = Array.isArray(feedback.issues) ? feedback.issues : [];
+
+  if (!guidance && issues.length === 0) {
+    return basePrompt;
+  }
+
+  const feedbackText = `
+
+QUALITY FEEDBACK FROM PREVIOUS ATTEMPT:
+${guidance ? `Priority: ${guidance}` : ""}
+${issues.length > 0 ? `Issues to fix:\n${issues.map((issue) => `- ${issue}`).join("\n")}` : ""}`;
+
+  return basePrompt + feedbackText;
+}
+
 function getResearchChapterTimeoutMs() {
   const rawValue = Number(process.env.RESEARCH_CHAPTER_TIMEOUT_MS ?? 120000);
   if (!Number.isFinite(rawValue) || rawValue <= 0) {
@@ -768,6 +793,7 @@ async function verifySourceIntegrity(source: FetchedSource): Promise<ChapterRese
 async function extractItemsFromSource(
   chapter: ChapterContext,
   source: FetchedSource,
+  qualityFeedback?: unknown,
 ): Promise<ChapterResearchItem[]> {
   const model = await getChatModel("extraction");
 
@@ -806,8 +832,9 @@ async function extractItemsFromSource(
 
   try {
     const structuredModel = model.withStructuredOutput(ExtractedItemsSchema);
+    const enhancedPrompt = enhancePromptWithQualityFeedback(EXTRACTION_SYSTEM_PROMPT, qualityFeedback);
     const result = await structuredModel.invoke([
-      new SystemMessage(EXTRACTION_SYSTEM_PROMPT),
+      new SystemMessage(enhancedPrompt),
       new HumanMessage(
         JSON.stringify({
           chapterTitle: chapter.chapterTitle,
@@ -879,11 +906,16 @@ async function verifyItemsForSource(
   chapter: ChapterContext,
   source: FetchedSource,
   items: ChapterResearchItem[],
+  qualityFeedback?: unknown,
 ): Promise<{
   items: ChapterResearchItem[];
   verifications: ChapterResearchVerification[];
 }> {
   const model = await getChatModel("verification");
+  const enhancedVerificationPrompt = enhancePromptWithQualityFeedback(
+    VERIFICATION_SYSTEM_PROMPT,
+    qualityFeedback,
+  );
 
   if (!model) {
     return {
@@ -909,7 +941,7 @@ async function verifyItemsForSource(
   try {
     const structuredModel = model.withStructuredOutput(VerificationSchema);
     const result = await structuredModel.invoke([
-      new SystemMessage(VERIFICATION_SYSTEM_PROMPT),
+      new SystemMessage(enhancedVerificationPrompt),
       new HumanMessage(
         JSON.stringify({
           chapterTitle: chapter.chapterTitle,
@@ -1425,11 +1457,21 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
     throw new Error(`Committed chapter ${chapterKey} was not found`);
   }
 
+  // Read quality feedback if this is a retry
+  const stage = await getStageForBook(book.id, StageKey.RESEARCH);
+  const qualityFeedback =
+    stage?.metadataJson && typeof stage.metadataJson === "object"
+      ? (stage.metadataJson as Record<string, unknown>).lastQualityFeedback
+      : null;
+
+  const retryMessage = qualityFeedback && typeof qualityFeedback === "object"
+    ? ` (Quality Retry: ${(qualityFeedback as Record<string, unknown>).guidance})`
+    : "";
   await pulseResearchStage({
     bookId: book.id,
     currentChapterKey: chapter.chapterKey,
     currentAction: "Framing research questions",
-    message: `Framing research questions for ${chapter.chapterTitle}`,
+    message: `Framing research questions for ${chapter.chapterTitle}${retryMessage}`,
   });
   const questions = await maybeGenerateResearchQuestions(chapter);
   let dossier: ChapterResearchDossier;
@@ -1527,8 +1569,8 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
         });
         const extractionResults = await Promise.all(
           verifiedSources.map(async (source) => {
-            const items = await extractItemsFromSource(chapter, source);
-            const verification = await verifyItemsForSource(chapter, source, items);
+            const items = await extractItemsFromSource(chapter, source, qualityFeedback);
+            const verification = await verifyItemsForSource(chapter, source, items, qualityFeedback);
             const adjudicated = await adjudicateAmbiguousItems(
               chapter,
               source,

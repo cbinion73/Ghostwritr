@@ -309,7 +309,7 @@ export async function runQualityAgentWorkflow(bookSlug: string) {
     baseShouldCommit = true;
   }
 
-  const maxAutoRetries = 1;
+  const maxAutoRetries = 2;
 
   const researchHasBlockingMetadata = stageHasBlockingMetadata(researchStage?.metadataJson);
   const externalHasBlockingMetadata = stageHasBlockingMetadata(externalStage?.metadataJson);
@@ -323,6 +323,16 @@ export async function runQualityAgentWorkflow(bookSlug: string) {
       typeof metadata.qualityRetryCount === "number" ? metadata.qualityRetryCount : 0;
     if (retryCount < maxAutoRetries) {
       await bumpRetryCount(book.id, StageKey.RESEARCH);
+      await updateStageForBook(book.id, StageKey.RESEARCH, {
+        metadataJson: mergeMetadata(researchStage?.metadataJson, {
+          lastQualityFeedback: {
+            issues: researchIssues,
+            retryAttempt: retryCount + 1,
+            guidance: "Focus on stronger sources (Tier A preferred). Ensure each claim has evidence from source. Prioritize claims that are directly quoted or explicitly supported.",
+            failedAt: new Date().toISOString(),
+          },
+        }),
+      });
       await enqueueStageRetry(book.id, bookSlug, StageKey.RESEARCH);
     }
   } else if (researchIssues.length === 0) {

@@ -3,10 +3,12 @@ import {
   commitPromiseStage,
   seedPromiseWorkspace,
   togglePromiseReferenceMaterial,
+  refinePromiseToExcellence,
 } from "./actions";
 import { ChatSidebar } from "./chat-sidebar";
 import { PromiseWizard } from "./promise-wizard";
 import { PromiseTabs } from "./promise-tabs";
+import { RefineButton } from "./refine-button";
 
 import type { PromiseBrief } from "@/lib/promise-types";
 import { getPromiseWorkspace } from "@/lib/workflows/promise";
@@ -14,21 +16,22 @@ import { STAGE_LINKS } from "@/lib/navigation";
 
 export default async function PromiseStagePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ wizard?: string }>;
 }) {
   const { slug } = await params;
+  const resolvedSearchParams = await searchParams;
   const workspace = await getPromiseWorkspace(slug);
   const isCommitted = workspace.stage?.status === "COMMITTED";
-  const hasConversation = workspace.conversationMessages.length > 0;
 
-  // Show wizard if no conversation started yet
-  if (!hasConversation) {
-    return <PromiseWizard slug={slug} />;
-  }
+  // Show wizard only if explicitly requested via ?wizard=true query param
+  const showWizard = resolvedSearchParams?.wizard === "true";
 
   return (
-    <div style={styles.pageContainer}>
+    <>
+      <div style={styles.pageContainer}>
       {/* Left Navigation Sidebar */}
       <aside style={styles.navSidebar} className="glass-panel">
         <div style={styles.brandMark}>
@@ -63,6 +66,7 @@ export default async function PromiseStagePage({
         </nav>
 
         <div style={styles.actionsBottom}>
+          <RefineButton slug={slug} />
           <form action={seedPromiseWorkspace.bind(null, slug)}>
             <button style={styles.btnSmall} type="submit">
               Seed Sample
@@ -96,10 +100,34 @@ export default async function PromiseStagePage({
         <section style={styles.tabsSection} className="glass-panel">
           <PromiseTabs
             slug={slug}
-            promise={workspace.promiseBrief}
+            promise={workspace.promiseBrief || {
+              workingTitle: workspace.book.titleWorking || "Untitled",
+              audiencePrimary: "",
+              audienceSecondary: [],
+              category: "",
+              readerProblem: "",
+              readerDesire: "",
+              bigIdea: "",
+              coreTruth: "",
+              transformationBefore: "",
+              transformationAfter: "",
+              differentiation: "",
+              promiseStatement: "",
+              stakes: "",
+              tone: [],
+              openQuestions: [],
+            }}
             personas={workspace.personas}
             market={workspace.market}
             recommendations={workspace.recommendations}
+            audienceResearch={workspace.audienceResearch}
+            coreTruths={workspace.coreTruths}
+            transformationArc={workspace.transformationArc}
+            titleSubtitleFinalization={workspace.titleSubtitleFinalization}
+            bookPromiseReport={workspace.bookPromiseReport}
+            phaseApprovals={workspace.phaseApprovals}
+            artifactAvailability={workspace.artifactAvailability}
+            messages={workspace.conversationMessages}
           />
         </section>
       </main>
@@ -109,7 +137,11 @@ export default async function PromiseStagePage({
         slug={slug}
         messages={workspace.conversationMessages}
       />
-    </div>
+      </div>
+
+      {/* Promise Wizard Modal */}
+      {showWizard && <PromiseWizard slug={slug} />}
+    </>
   );
 }
 
@@ -176,7 +208,7 @@ const styles = {
   stageLinkActive: {
     backgroundColor: "var(--accent, #16384f)",
     color: "white",
-    borderColor: "var(--accent, #16384f)",
+    border: "1px solid var(--accent, #16384f)",
   },
   actionsBottom: {
     display: "grid" as const,
@@ -247,6 +279,6 @@ const styles = {
   btnPrimary: {
     backgroundColor: "var(--accent, #16384f)",
     color: "white",
-    borderColor: "var(--accent, #16384f)",
+    border: "1px solid var(--accent, #16384f)",
   },
 };

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { createBookAction, deleteBookAction } from "./actions";
+import { createBookAction, createBookWithWizardAction, deleteBookAction } from "./actions";
 
 import { listBooks } from "@/lib/repositories/books";
 
@@ -60,28 +60,49 @@ export default async function HomePage() {
             <div className="section-header">
               <h3>Start A New Book</h3>
               <div className="muted">
-                New books open directly into the Promise stage so you can begin shaping
-                the concept immediately.
+                Create a book and set up basic metadata, or jump straight into the
+                Promise Wizard to define your book's core concept.
               </div>
             </div>
 
-            <form action={createBookAction} className="stack">
-              <input
-                className="editor-input"
-                name="titleWorking"
-                placeholder="Working title"
-                type="text"
-              />
-              <input
-                className="editor-input"
-                name="subtitle"
-                placeholder="Subtitle (optional)"
-                type="text"
-              />
-              <button className="btn btn-primary" type="submit">
-                Create Book
-              </button>
-            </form>
+            <div className="stack">
+              <div>
+                <div className="label" style={{ marginBottom: 8 }}>With Setup First</div>
+                <form action={createBookAction} className="stack">
+                  <input
+                    className="editor-input"
+                    name="titleWorking"
+                    placeholder="Working title"
+                    type="text"
+                  />
+                  <input
+                    className="editor-input"
+                    name="subtitle"
+                    placeholder="Subtitle (optional)"
+                    type="text"
+                  />
+                  <button className="btn btn-primary" type="submit">
+                    Create Book & Setup
+                  </button>
+                </form>
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(45, 36, 29, 0.1)", paddingTop: 16, marginTop: 16 }}>
+                <div className="label" style={{ marginBottom: 8 }}>Or Jump to Wizard</div>
+                <form action={createBookWithWizardAction} className="stack">
+                  <input
+                    className="editor-input"
+                    name="titleWorking"
+                    placeholder="Working title"
+                    type="text"
+                    required
+                  />
+                  <button className="btn" type="submit">
+                    Start with Promise Wizard ✨
+                  </button>
+                </form>
+              </div>
+            </div>
           </section>
 
           <section className="glass-panel section-panel">
@@ -122,6 +143,9 @@ export default async function HomePage() {
                       </Link>
                       <Link className="btn" href={`/books/${book.slug}/chapter-draft`}>
                         Open Draft
+                      </Link>
+                      <Link className="btn" href={`/books/${book.slug}/promise?wizard=true`} title="Restart the Promise Wizard">
+                        Restart Wizard
                       </Link>
                       <form action={deleteBookAction}>
                         <input name="slug" type="hidden" value={book.slug} />

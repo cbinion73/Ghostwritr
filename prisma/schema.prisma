@@ -43,8 +43,13 @@ enum ArtifactType {
   MARKET_REPORT
   POSITIONING_RECOMMENDATIONS
   PROMISE_SCORECARD
+  AUDIENCE_RESEARCH
+  CORE_TRUTHS
+  TRANSFORMATION_ARC
+  BOOK_PROMISE_REPORT
   OUTLINE
   OUTLINE_EXPANSION
+  CHAPTER_PARAGRAPH_PLAN
   BASE_STORY
   RESEARCH_PACK
   STORY_PACK
@@ -207,9 +212,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  books     Book[]
-  decisions Decision[]
+  books          Book[]
+  decisions      Decision[]
   directionEvents DirectionEvent[]
+  authorProfiles AuthorProfile[]
 }
 
 model WriterPersona {
@@ -718,4 +724,45 @@ model ExternalStoryVerification {
   @@index([sourceRecordId])
   @@index([externalStoryId])
   @@index([status, verifierType])
+}
+
+/// Author Profile - Persistent author information across books
+/// Stores background, writing preferences, constraints, and brand voice
+/// Linked to User and optionally to BookSetupProfile for personalization
+model AuthorProfile {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String?   @db.Uuid
+
+  // Core Information
+  displayName           String    // How author wants to be called
+  backgroundSummary     String?   // 200-300 word biography/background
+  expertise             Json      @default("[]")  // Array of expertise areas
+  targetAudience        String?   // Description of typical audience
+
+  // Writing Preferences
+  tonePreference        String?   // e.g., "Direct, practical, slightly irreverent"
+  proseStyle            String?   // e.g., "Clear structure, avoid flowery language"
+  preferredMetaphors    Json      @default("[]")  // Array of preferred metaphor types
+
+  // Values & Constraints
+  avoidPatterns         Json      @default("[]")  // Array of things to avoid
+  mustInclude           Json      @default("[]")  // Array of things to always include
+  brandVoice            String?   // Overall brand voice description
+
+  // Multi-Book Consistency (for series/related books)
+  characterNames        Json      @default("[]")  // Array of character names (consistency across books)
+  terminology           Json      @default("[]")  // Array of custom glossary terms
+  recurringMetaphors    Json      @default("[]")  // Array of metaphors to repeat
+  styleGuideNotes       String?   // Custom formatting, structure notes
+
+  // Metadata
+  isDefault             Boolean   @default(false) // Can have multiple profiles, one default
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  user                  User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([isDefault])
 }

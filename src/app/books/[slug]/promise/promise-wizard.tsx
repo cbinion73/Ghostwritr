@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { submitPromiseMessage } from "./actions";
 
 interface PromiseWizardProps {
   slug: string;
@@ -17,9 +18,35 @@ export function PromiseWizard({ slug, onComplete }: PromiseWizardProps) {
   const [direction, setDirection] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  // Add spinner animation styles
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.currentTarget.files || []);
-    setFiles(selectedFiles);
+    // Add new files to existing files (don't replace)
+    setFiles((prevFiles) => {
+      const newFiles = [...prevFiles, ...selectedFiles];
+      // Remove duplicates by filename
+      const uniqueFiles = Array.from(
+        new Map(newFiles.map((file) => [file.name, file])).values()
+      );
+      return uniqueFiles;
+    });
+  };
+
+  const removeFile = (fileName: string) => {
+    setFiles((prevFiles) => prevFiles.filter((file) => file.name !== fileName));
   };
 
   const handleUploadNext = () => {
@@ -36,33 +63,20 @@ export function PromiseWizard({ slug, onComplete }: PromiseWizardProps) {
     setIsLoading(true);
 
     try {
-      // Upload files if any
-      if (files.length > 0) {
-        const formData = new FormData();
-        files.forEach((file) => formData.append("files", file));
-        formData.append("note", "Uploaded during promise setup");
-
-        await fetch(`/api/books/${slug}/promise-references`, {
-          method: "POST",
-          body: formData,
-        });
-      }
-
-      // Submit initial direction
+      // Submit initial direction using server action
       const directionFormData = new FormData();
       directionFormData.append("message", direction);
 
-      await fetch(`/books/${slug}/promise`, {
-        method: "POST",
-        body: directionFormData,
-      });
+      await submitPromiseMessage(slug, directionFormData);
 
-      // Redirect to promise editor
+      // Note: Files can be uploaded separately in the Files interface (/books/[slug]/files)
+      // Redirect to Book Setup (next step in linear workflow: Library → Setup → Promise → Outline)
       setStep("complete");
-      router.push(`/books/${slug}/promise`);
+      router.push(`/books/${slug}/setup`);
       onComplete?.();
     } catch (error) {
       console.error("Wizard error:", error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
       setIsLoading(false);
     }
   };
@@ -97,7 +111,22 @@ export function PromiseWizard({ slug, onComplete }: PromiseWizardProps) {
                 <div style={styles.fileList}>
                   {files.map((file, i) => (
                     <div key={i} style={styles.fileItem}>
-                      {file.name}
+                      <span>{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(file.name)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#dc3545",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          padding: "0 4px",
+                        }}
+                        title="Remove file"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -151,14 +180,15 @@ export function PromiseWizard({ slug, onComplete }: PromiseWizardProps) {
                   </button>
                   <button
                     type="submit"
-                    style={styles.btnPrimary}
+                    style={{...styles.btnPrimary, opacity: isLoading ? 0.6 : 1}}
                     disabled={!direction.trim() || isLoading}
                   >
-                    {isLoading ? "Creating..." : "Create Promise"}
+                    {isLoading ? "⏳ Creating your promise..." : "Create Promise"}
                   </button>
                 </div>
               </form>
             </div>
+
           </div>
         )}
       </div>
@@ -188,6 +218,7 @@ const styles = {
     padding: "40px",
     maxHeight: "90vh",
     overflowY: "auto" as const,
+    position: "relative" as const,
   },
   step: {
     display: "grid",

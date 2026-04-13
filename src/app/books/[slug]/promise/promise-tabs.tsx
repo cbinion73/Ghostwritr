@@ -1,20 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   savePromiseStatement,
   generatePromiseTemplate,
   validatePromise,
   refinePomiseWithAI,
   autoGeneratePersonasAction,
-  autoOptimizeMarketAction,
+  generateAudienceResearchPhase1Action,
+  generateMarketAnalysisAction,
   autoImprovePromiseAction,
+  generateCoreTruthsAction,
+  generateTransformationArcAction,
+  generatePositioningRecommendationsAction,
+  compileBookPromiseReportAction,
+  commitPromiseStage,
+  approvePromisePhaseAction,
+  rejectPromisePhaseAction,
 } from "./actions";
 import { ValidationDashboard } from "./validation-dashboard";
-import type { PromiseBrief, PersonaPack, MarketReport, PositioningRecommendations } from "@/lib/promise-types";
+import { type ApprovalStatus } from "./approval-buttons";
+import { PersonaCardVisual } from "./persona-card-visual";
+import { TransformationArcDiagram } from "./transformation-arc-diagram";
+import { SectionStatusTracker, type SectionStatus } from "./section-status-tracker";
+import { ExportMenu } from "./export-menu";
+import AudienceResearchContainer from "./audience-research-container";
+import TruthPhaseContainer from "./truth-phase-container";
+import TransformationPhaseContainer from "./transformation-phase-container";
+import MarketPhaseContainer from "./market-phase-container";
+import RecommendationsPhaseContainer from "./recommendations-phase-container";
+import BookPitchPhaseContainer from "./book-pitch-phase-container";
+import PromiseStatementContainer from "./promise-statement-container";
+import type {
+  AudienceResearchArtifact,
+  BookPromiseReport,
+  CoreTruthsArtifact,
+  MarketReport,
+  PersonaPack,
+  PositioningRecommendations,
+  PromiseArtifactAvailability,
+  PromiseBrief,
+  PromisePhaseApprovals,
+  PromiseTabName,
+  TitleSubtitleFinalization,
+  TransformationArtifact,
+} from "@/lib/promise-types";
 import type { ValidationScores } from "@/lib/validation/promise-validator";
-
-type TabName = "promise" | "audience" | "truth" | "transformation" | "market" | "recommendations";
 
 interface PromiseTabsProps {
   slug: string;
@@ -22,6 +53,14 @@ interface PromiseTabsProps {
   personas: PersonaPack;
   market: MarketReport;
   recommendations: PositioningRecommendations;
+  audienceResearch?: AudienceResearchArtifact;
+  coreTruths?: CoreTruthsArtifact;
+  transformationArc?: TransformationArtifact;
+  titleSubtitleFinalization?: TitleSubtitleFinalization;
+  bookPromiseReport?: BookPromiseReport;
+  phaseApprovals: PromisePhaseApprovals;
+  artifactAvailability: PromiseArtifactAvailability;
+  messages?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
 export function PromiseTabs({
@@ -30,27 +69,314 @@ export function PromiseTabs({
   personas,
   market,
   recommendations,
+  audienceResearch,
+  coreTruths,
+  transformationArc,
+  titleSubtitleFinalization,
+  bookPromiseReport,
+  phaseApprovals,
+  artifactAvailability,
+  messages = [],
 }: PromiseTabsProps) {
-  const [activeTab, setActiveTab] = useState<TabName>("promise");
+  const tabOrder: PromiseTabName[] = [
+    "promise-statement",
+    "audience",
+    "truth",
+    "transformation",
+    "market",
+    "recommendations",
+    "book-promise",
+  ];
+
+  const initialApprovalStatuses = tabOrder.reduce<Record<PromiseTabName, ApprovalStatus>>(
+    (accumulator, tab) => {
+      accumulator[tab] = phaseApprovals[tab]?.status ?? "pending";
+      return accumulator;
+    },
+    {} as Record<PromiseTabName, ApprovalStatus>,
+  );
+
+  const initialApprovalFeedback = tabOrder.reduce<Record<PromiseTabName, string>>(
+    (accumulator, tab) => {
+      accumulator[tab] = phaseApprovals[tab]?.feedback ?? "";
+      return accumulator;
+    },
+    {} as Record<PromiseTabName, string>,
+  );
+
+  const firstPendingTab =
+    tabOrder.find((tab) => initialApprovalStatuses[tab] !== "approved") ?? "book-promise";
+
+  const [activeTab, setActiveTab] = useState<PromiseTabName>(firstPendingTab);
   const [editingPromise, setEditingPromise] = useState(promise.promiseStatement);
+  const [audienceData, setAudienceData] = useState(audienceResearch);
+  const [truthData, setTruthData] = useState(coreTruths);
+  const [transformationData, setTransformationData] = useState(transformationArc);
+  const [marketData, setMarketData] = useState(market);
+  const [recommendationsData, setRecommendationsData] = useState(recommendations);
+  const [titleSubtitleData, setTitleSubtitleData] = useState(titleSubtitleFinalization);
+  const [bookPromiseReportData, setBookPromiseReportData] = useState(bookPromiseReport);
+  const [currentBookTitle, setCurrentBookTitle] = useState(
+    titleSubtitleFinalization?.finalizedTitle || bookPromiseReport?.title || promise.workingTitle,
+  );
+  const [availableArtifacts, setAvailableArtifacts] = useState(artifactAvailability);
   const [validationScores, setValidationScores] = useState<ValidationScores | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
-  const tabs: Array<{ id: TabName; label: string }> = [
-    { id: "promise", label: "Promise" },
-    { id: "audience", label: "Audience" },
-    { id: "truth", label: "Truth" },
-    { id: "transformation", label: "Transformation" },
-    { id: "market", label: "Market" },
-    { id: "recommendations", label: "Recommendations" },
+  // Approval state management
+  const [approvalStatuses, setApprovalStatuses] =
+    useState<Record<PromiseTabName, ApprovalStatus>>(initialApprovalStatuses);
+
+  const [approvalFeedback, setApprovalFeedback] =
+    useState<Record<PromiseTabName, string>>(initialApprovalFeedback);
+
+  // Track which tabs are currently generating
+  const [isGenerating, setIsGenerating] = useState<Record<PromiseTabName, boolean>>({
+    "promise-statement": false,
+    audience: false,
+    truth: false,
+    transformation: false,
+    market: false,
+    recommendations: false,
+    "book-promise": false,
+  });
+
+  const bookPitchStaleAfterTitleFinalization = Boolean(
+    titleSubtitleData?.metadata?.updatedAt &&
+      bookPromiseReportData?.metadata?.updatedAt &&
+      Date.parse(titleSubtitleData.metadata.updatedAt) >
+        Date.parse(bookPromiseReportData.metadata.updatedAt),
+  );
+
+  useEffect(() => {
+    setTitleSubtitleData(titleSubtitleFinalization);
+  }, [titleSubtitleFinalization]);
+
+  useEffect(() => {
+    if (titleSubtitleData?.finalizedTitle) {
+      setCurrentBookTitle(titleSubtitleData.finalizedTitle);
+      return;
+    }
+
+    if (bookPromiseReportData?.title) {
+      setCurrentBookTitle(bookPromiseReportData.title);
+      return;
+    }
+
+    setCurrentBookTitle(promise.workingTitle);
+  }, [titleSubtitleData, bookPromiseReportData, promise.workingTitle]);
+
+  const tabs: Array<{ id: PromiseTabName; label: string; stepNumber: number }> = [
+    { id: "promise-statement", label: "Promise Statement", stepNumber: 1 },
+    { id: "audience", label: "Audience", stepNumber: 2 },
+    { id: "truth", label: "Truth", stepNumber: 3 },
+    { id: "transformation", label: "Transformation", stepNumber: 4 },
+    { id: "market", label: "Market", stepNumber: 5 },
+    { id: "recommendations", label: "Recommendations", stepNumber: 6 },
+    { id: "book-promise", label: "Book Pitch", stepNumber: 7 },
   ];
+
+  // Linear gating: tab is unlocked if previous tab is approved
+  const isTabUnlocked = (tabName: PromiseTabName): boolean => {
+    const currentIndex = tabOrder.indexOf(tabName);
+    if (currentIndex === 0) return true; // First tab always unlocked
+    const previousTab = tabOrder[currentIndex - 1];
+    return approvalStatuses[previousTab] === "approved";
+  };
+
+  const applyPersistedApprovals = (nextApprovals: PromisePhaseApprovals) => {
+    setApprovalStatuses((prev) => {
+      const updated = { ...prev };
+      for (const tab of tabOrder) {
+        updated[tab] = nextApprovals[tab]?.status ?? "pending";
+      }
+      return updated;
+    });
+
+    setApprovalFeedback((prev) => {
+      const updated = { ...prev };
+      for (const tab of tabOrder) {
+        updated[tab] = nextApprovals[tab]?.feedback ?? "";
+      }
+      return updated;
+    });
+  };
+
+  const launchAutomationForTab = async (tab: PromiseTabName) => {
+    setIsGenerating((prev) => ({ ...prev, [tab]: true }));
+
+    try {
+      if (tab === "audience" && !availableArtifacts.audienceResearch) {
+        const phase1 = await generateAudienceResearchPhase1Action(slug);
+        setAudienceData({
+          phase: 1,
+          phase1,
+          metadata: {
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        setAvailableArtifacts((prev) => ({ ...prev, audienceResearch: true }));
+        return;
+      }
+
+      if (tab === "truth" && !availableArtifacts.coreTruths) {
+        const generatedTruth = await generateCoreTruthsAction(slug);
+        setTruthData(generatedTruth);
+        setAvailableArtifacts((prev) => ({ ...prev, coreTruths: true }));
+        return;
+      }
+
+      if (tab === "transformation" && !availableArtifacts.transformationArc) {
+        const generatedTransformation = await generateTransformationArcAction(slug);
+        setTransformationData(generatedTransformation);
+        setAvailableArtifacts((prev) => ({ ...prev, transformationArc: true }));
+        return;
+      }
+
+      const marketNeedsRefresh =
+        !availableArtifacts.market ||
+        !marketData?.metadata?.model?.toLowerCase().includes("gemini");
+
+      if (tab === "market" && marketNeedsRefresh) {
+        const generatedMarket = await generateMarketAnalysisAction(slug);
+        setMarketData(generatedMarket);
+        setAvailableArtifacts((prev) => ({ ...prev, market: true }));
+        return;
+      }
+
+      const recommendationsNeedRefresh =
+        !availableArtifacts.recommendations ||
+        !recommendationsData?.metadata?.model?.toLowerCase().includes("claude");
+
+      if (tab === "recommendations" && recommendationsNeedRefresh) {
+        const generatedRecommendations = await generatePositioningRecommendationsAction(slug);
+        setRecommendationsData(generatedRecommendations);
+        setAvailableArtifacts((prev) => ({ ...prev, recommendations: true }));
+        return;
+      }
+
+      const bookPitchNeedsRefresh =
+        !availableArtifacts.bookPromiseReport ||
+        !bookPromiseReportData?.documentMarkdown ||
+        bookPromiseReportData?.metadata?.model?.toLowerCase().startsWith("fallback") ||
+        bookPitchStaleAfterTitleFinalization;
+
+      if (tab === "book-promise" && bookPitchNeedsRefresh) {
+        const report = await compileBookPromiseReportAction(slug);
+        setBookPromiseReportData(report);
+        setAvailableArtifacts((prev) => ({ ...prev, bookPromiseReport: true }));
+      }
+    } catch (error) {
+      console.error(`Failed to auto-generate ${tab}:`, error);
+    } finally {
+      setIsGenerating((prev) => ({ ...prev, [tab]: false }));
+    }
+  };
+
+  const handleApproveSection = async (sectionId: string) => {
+    const phaseId = sectionId as PromiseTabName;
+    setIsGenerating((prev) => ({ ...prev, [phaseId]: true }));
+
+    try {
+      if (phaseId === "promise-statement" && editingPromise.trim()) {
+        await savePromiseStatement(slug, editingPromise);
+        setAvailableArtifacts((prev) => ({ ...prev, promiseBrief: true }));
+      }
+
+      const nextApprovals = await approvePromisePhaseAction(slug, phaseId);
+      applyPersistedApprovals(nextApprovals);
+
+      const currentIndex = tabOrder.indexOf(phaseId);
+      if (currentIndex < tabOrder.length - 1) {
+        const nextTab = tabOrder[currentIndex + 1];
+        setActiveTab(nextTab);
+        await launchAutomationForTab(nextTab);
+      }
+    } catch (error) {
+      console.error(`Failed to approve ${phaseId}:`, error);
+    } finally {
+      setIsGenerating((prev) => ({ ...prev, [phaseId]: false }));
+    }
+  };
+
+  const handleRejectSection = async (sectionId: string, feedback: string) => {
+    const phaseId = sectionId as PromiseTabName;
+    setIsGenerating((prev) => ({ ...prev, [phaseId]: true }));
+
+    try {
+      const nextApprovals = await rejectPromisePhaseAction(slug, phaseId, feedback);
+      applyPersistedApprovals(nextApprovals);
+    } catch (error) {
+      console.error(`Failed to request changes for ${phaseId}:`, error);
+    } finally {
+      setIsGenerating((prev) => ({ ...prev, [phaseId]: false }));
+    }
+  };
+
+  const handleRegenerateSection = async (sectionId: string): Promise<void> => {
+    const phaseId = sectionId as PromiseTabName;
+    setIsGenerating((prev) => ({ ...prev, [phaseId]: true }));
+    setIsOptimizing(true);
+
+    try {
+      // Regenerate based on section type
+      if (sectionId === "promise-statement") {
+        const improved = await autoImprovePromiseAction(slug);
+        setEditingPromise(improved);
+      } else if (sectionId === "audience") {
+        const phase1 = await generateAudienceResearchPhase1Action(slug);
+        setAudienceData({
+          phase: 1,
+          phase1,
+          metadata: {
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        setAvailableArtifacts((prev) => ({ ...prev, audienceResearch: true }));
+      } else if (sectionId === "truth") {
+        const regeneratedTruth = await generateCoreTruthsAction(slug);
+        setTruthData(regeneratedTruth);
+        setAvailableArtifacts((prev) => ({ ...prev, coreTruths: true }));
+      } else if (sectionId === "transformation") {
+        const regeneratedTransformation = await generateTransformationArcAction(slug);
+        setTransformationData(regeneratedTransformation);
+        setAvailableArtifacts((prev) => ({ ...prev, transformationArc: true }));
+      } else if (sectionId === "market") {
+        const regeneratedMarket = await generateMarketAnalysisAction(slug);
+        setMarketData(regeneratedMarket);
+        setAvailableArtifacts((prev) => ({ ...prev, market: true }));
+      } else if (sectionId === "recommendations") {
+        const regeneratedRecommendations = await generatePositioningRecommendationsAction(slug);
+        setRecommendationsData(regeneratedRecommendations);
+        setAvailableArtifacts((prev) => ({ ...prev, recommendations: true }));
+      } else if (sectionId === "book-promise") {
+        const regeneratedReport = await compileBookPromiseReportAction(slug);
+        setBookPromiseReportData(regeneratedReport);
+        setAvailableArtifacts((prev) => ({ ...prev, bookPromiseReport: true }));
+      }
+
+      // Reset approval status for this section
+      setApprovalStatuses((prev) => ({
+        ...prev,
+        [sectionId as PromiseTabName]: "pending",
+      }));
+      setApprovalFeedback((prev) => ({
+        ...prev,
+        [sectionId as PromiseTabName]: "",
+      }));
+    } catch (error) {
+      console.error("Regeneration failed:", error);
+      throw error;
+    } finally {
+      setIsGenerating((prev) => ({ ...prev, [phaseId]: false }));
+      setIsOptimizing(false);
+    }
+  };
 
   const handleSavePromise = async () => {
     await savePromiseStatement(slug, editingPromise);
-
-    // Auto-validate after saving to show updated scores
     setTimeout(async () => {
       setIsValidating(true);
       try {
@@ -66,8 +392,6 @@ export function PromiseTabs({
 
   const handleGenerateTemplate = async () => {
     await generatePromiseTemplate(slug);
-
-    // Auto-validate after generating template to show initial scores
     setTimeout(async () => {
       setIsValidating(true);
       try {
@@ -78,7 +402,7 @@ export function PromiseTabs({
       } finally {
         setIsValidating(false);
       }
-    }, 500); // Small delay to ensure template is persisted
+    }, 500);
   };
 
   const handleValidatePromise = async () => {
@@ -101,7 +425,6 @@ export function PromiseTabs({
 
     setIsRefining(true);
     try {
-      // Extract all gaps - both issues and suggestions
       const allFeedback = [
         ...validationScores.personaMatch.feedback,
         ...validationScores.marketViability.feedback,
@@ -110,25 +433,18 @@ export function PromiseTabs({
         ...validationScores.triangulation.suggestions,
       ];
 
-      console.log("[handleRefinePromise] Starting refinement with gaps:", allFeedback);
-
       const refined = await refinePomiseWithAI(slug, editingPromise, allFeedback);
-
-      console.log("[handleRefinePromise] Refinement complete. Original length:", editingPromise.length, "Refined length:", refined.length);
 
       if (refined && refined !== editingPromise) {
         setEditingPromise(refined);
-        console.log("[handleRefinePromise] Promise updated successfully");
         alert("✓ Promise refined! Review changes and click Save Promise.");
       } else if (refined === editingPromise) {
-        console.log("[handleRefinePromise] Refined text same as original");
         alert("Promise is already strong. Check the score details for specific improvements needed.");
       } else {
-        console.log("[handleRefinePromise] Refined text is empty");
         alert("Could not refine promise. Check console for details.");
       }
     } catch (error) {
-      console.error("[handleRefinePromise] Refinement failed:", error);
+      console.error("Refinement failed:", error);
       alert("Failed to refine promise. Check browser console (F12) for error details.");
     } finally {
       setIsRefining(false);
@@ -143,16 +459,14 @@ export function PromiseTabs({
         setEditingPromise(improved);
         alert("✓ Promise auto-improved! Click Save Promise to apply.");
       } else if (type === "personas") {
-        const personas = await autoGeneratePersonasAction(slug);
-        console.log("Generated personas:", personas);
+        await autoGeneratePersonasAction(slug);
         alert("✓ Personas auto-generated! Validate again to see updated scores.");
       } else if (type === "market") {
-        const market = await autoOptimizeMarketAction(slug);
-        console.log("Optimized market analysis:", market);
+        const refreshedMarket = await generateMarketAnalysisAction(slug);
+        setMarketData(refreshedMarket);
         alert("✓ Market analysis optimized! Validate again to see updated scores.");
       }
 
-      // Re-validate after optimization
       setTimeout(async () => {
         try {
           const scores = await validatePromise(slug);
@@ -169,329 +483,309 @@ export function PromiseTabs({
     }
   };
 
+  // Build section status array for tracker
+  const sectionStatuses: SectionStatus[] = tabs.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    status: approvalStatuses[tab.id],
+  }));
+
+  // Determine if all sections are approved
+  const allApproved = Object.values(approvalStatuses).every((status) => status === "approved");
+
+  const markSectionPending = (sectionId: PromiseTabName) => {
+    setApprovalStatuses((prev) => ({
+      ...prev,
+      [sectionId]: "pending",
+    }));
+    setApprovalFeedback((prev) => ({
+      ...prev,
+      [sectionId]: "",
+    }));
+  };
+
   return (
     <div style={styles.container}>
-      {/* Tabs */}
+      {/* Section Status Tracker */}
+      <div style={styles.trackerSection}>
+        <SectionStatusTracker
+          sections={sectionStatuses}
+          isGenerating={isGenerating}
+          onSectionClick={(sectionId) => setActiveTab(sectionId as PromiseTabName)}
+        />
+      </div>
+
+      {/* Tabs Bar */}
       <div style={styles.tabsBar}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              ...styles.tab,
-              ...(activeTab === tab.id ? styles.tabActive : {}),
+        {tabs.map((tab) => {
+          const isUnlocked = isTabUnlocked(tab.id);
+          const status = approvalStatuses[tab.id];
+          const isGen = isGenerating[tab.id];
+
+          // Determine status indicator color
+          let statusColor = "#ef4444"; // Red (pending)
+          if (isGen) statusColor = "#f59e0b"; // Yellow (generating)
+          if (status === "approved") statusColor = "#16a34a"; // Green (approved)
+
+          return (
+            <button
+              key={tab.id}
+              onClick={() => isUnlocked && setActiveTab(tab.id)}
+              disabled={!isUnlocked}
+              style={{
+                ...styles.tab,
+                ...(activeTab === tab.id ? styles.tabActive : {}),
+                opacity: isUnlocked ? 1 : 0.4,
+                cursor: isUnlocked ? "pointer" : "not-allowed",
+              }}
+              title={!isUnlocked ? `Complete step ${tab.stepNumber - 1} to unlock` : ""}
+            >
+              <span style={{ fontSize: "12px", color: "#999", marginRight: "4px" }}>
+                ({tab.stepNumber}/7)
+              </span>
+              <span>{tab.label}</span>
+              <span style={{ color: statusColor, marginLeft: "8px", fontSize: "14px" }}>
+                {isGen ? "🟡" : status === "approved" ? "🟢" : "🔴"}
+              </span>
+            </button>
+          );
+        })}
+
+        {/* Export Menu (Top Right) */}
+        <div style={styles.exportContainer}>
+          <ExportMenu
+            slug={slug}
+            bookTitle={currentBookTitle}
+            bookPromiseReport={bookPromiseReportData}
+            promiseData={{
+              promiseStatement: editingPromise,
+              audiencePrimary: promise.audiencePrimary,
+              audienceSecondary: promise.audienceSecondary,
+              coreTruth: promise.coreTruth,
+              readerProblem: promise.readerProblem,
+              readerDesire: promise.readerDesire,
+              transformationBefore: promise.transformationBefore,
+              transformationAfter: promise.transformationAfter,
+              marketCategory: marketData?.marketCategory,
             }}
-          >
-            {tab.label}
-          </button>
-        ))}
+          />
+        </div>
       </div>
 
       {/* Content */}
       <div style={styles.content}>
-        {activeTab === "promise" && (
+        {/* PROMISE STATEMENT TAB */}
+        {activeTab === "promise-statement" && (
           <div style={styles.tabContent}>
-            <h2 style={styles.title}>Final Book Promise</h2>
-
-            {validationScores && (
-              <ValidationDashboard
-                scores={validationScores}
-                onAutoOptimize={handleAutoOptimize}
-                isOptimizing={isOptimizing}
-              />
-            )}
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSavePromise();
+            <PromiseStatementContainer
+              slug={slug}
+              promise={{
+                ...promise,
+                promiseStatement: editingPromise,
               }}
-              style={styles.form}
-            >
-              <textarea
-                value={editingPromise}
-                onChange={(e) => setEditingPromise(e.target.value)}
-                style={styles.textarea}
-              />
-              <div style={styles.buttonGroup}>
-                <button
-                  type="button"
-                  onClick={handleGenerateTemplate}
-                  style={styles.secondaryButton}
-                >
-                  Generate Template
-                </button>
-                <button
-                  type="button"
-                  onClick={handleValidatePromise}
-                  disabled={isValidating}
-                  style={{
-                    ...styles.secondaryButton,
-                    ...(isValidating && styles.disabledButton),
-                  }}
-                >
-                  {isValidating ? "Validating..." : "Validate Promise"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRefinePromise}
-                  disabled={isRefining || !validationScores}
-                  style={{
-                    ...styles.secondaryButton,
-                    ...(isRefining || !validationScores ? styles.disabledButton : {}),
-                  }}
-                >
-                  {isRefining ? "Refining..." : "Refine with AI"}
-                </button>
-                <button type="submit" style={styles.saveButton}>
-                  Save Promise
-                </button>
-              </div>
-            </form>
+              isGenerating={isGenerating["promise-statement"]}
+              approvalStatus={approvalStatuses["promise-statement"]}
+              approvalFeedback={approvalFeedback["promise-statement"]}
+              onApprove={handleApproveSection}
+              onReject={handleRejectSection}
+              onRegenerate={handleRegenerateSection}
+              onGeneratingStatusChange={(isGen) => setIsGenerating((prev) => ({ ...prev, "promise-statement": isGen }))}
+              onPromiseChange={setEditingPromise}
+              messages={messages}
+            />
           </div>
         )}
 
+        {/* AUDIENCE TAB */}
         {activeTab === "audience" && (
           <div style={styles.tabContent}>
-            <h2 style={styles.title}>Audience & Personas</h2>
-
-            {/* Primary Audience */}
-            <h3 style={styles.subtitle}>Primary Audience</h3>
-            {promise.audiencePrimary ? (
-              <p style={styles.text}>{promise.audiencePrimary}</p>
-            ) : (
-              <p style={styles.text}>Primary audience will appear here as you refine the promise.</p>
-            )}
-
-            {/* Secondary Audiences */}
-            {promise.audienceSecondary && promise.audienceSecondary.length > 0 && (
-              <>
-                <h3 style={styles.subtitle}>Secondary Audiences</h3>
-                <ul style={styles.list}>
-                  {promise.audienceSecondary.map((aud, i) => (
-                    <li key={i} style={styles.listItem}>
-                      {aud}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {/* Reader Personas */}
-            <h3 style={styles.subtitle}>Reader Personas</h3>
-            {personas?.personas && personas.personas.length > 0 ? (
-              <div style={styles.personas}>
-                {personas.personas.map((persona) => (
-                  <div key={persona.id} style={styles.personaCard}>
-                    <h3 style={styles.personaName}>
-                      {persona.name}
-                      <span style={styles.personaPriority}>
-                        {persona.priority === "primary" ? "Primary" : "Secondary"}
-                      </span>
-                    </h3>
-                    <p style={styles.personaContext}>{persona.context}</p>
-
-                    {persona.painPoints.length > 0 && (
-                      <>
-                        <h4 style={styles.personaSubheading}>Pain Points</h4>
-                        <ul style={styles.personaList}>
-                          {persona.painPoints.map((point, i) => (
-                            <li key={i}>{point}</li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-
-                    {persona.desiredOutcomes.length > 0 && (
-                      <>
-                        <h4 style={styles.personaSubheading}>Desired Outcomes</h4>
-                        <ul style={styles.personaList}>
-                          {persona.desiredOutcomes.map((outcome, i) => (
-                            <li key={i}>{outcome}</li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-
-                    {persona.languageCues && persona.languageCues.length > 0 && (
-                      <>
-                        <h4 style={styles.personaSubheading}>Language Cues</h4>
-                        <p style={styles.text}>{persona.languageCues.join(", ")}</p>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={styles.text}>Personas will appear here as you refine the promise.</p>
-            )}
+            <AudienceResearchContainer
+              slug={slug}
+              initialData={audienceData}
+              onApprove={handleApproveSection}
+              onReject={handleRejectSection}
+              onRegenerate={handleRegenerateSection}
+              approvalStatus={approvalStatuses.audience}
+              approvalFeedback={approvalFeedback.audience}
+              onDataChange={setAudienceData}
+            />
           </div>
         )}
 
+        {/* TRUTH TAB */}
         {activeTab === "truth" && (
           <div style={styles.tabContent}>
-            <h2 style={styles.title}>Core Truth</h2>
-            {promise.coreTruth ? (
-              <>
-                <p style={styles.text}>{promise.coreTruth}</p>
-                {promise.readerProblem && (
-                  <>
-                    <h3 style={styles.subtitle}>Reader Problem</h3>
-                    <p style={styles.text}>{promise.readerProblem}</p>
-                  </>
-                )}
-                {promise.readerDesire && (
-                  <>
-                    <h3 style={styles.subtitle}>Reader Desire</h3>
-                    <p style={styles.text}>{promise.readerDesire}</p>
-                  </>
-                )}
-              </>
-            ) : (
-              <p style={styles.text}>Core truth information will appear here as you refine the promise.</p>
-            )}
+            <TruthPhaseContainer
+              slug={slug}
+              data={truthData}
+              isGenerating={isGenerating.truth}
+              approvalStatus={approvalStatuses.truth}
+              approvalFeedback={approvalFeedback.truth}
+              onApprove={handleApproveSection}
+              onReject={handleRejectSection}
+              onRegenerate={handleRegenerateSection}
+              onDataChange={setTruthData}
+            />
           </div>
         )}
 
+        {/* TRANSFORMATION TAB */}
         {activeTab === "transformation" && (
           <div style={styles.tabContent}>
-            <h2 style={styles.title}>Transformation</h2>
-            {promise.transformationBefore && promise.transformationAfter ? (
-              <div style={styles.transformationBox}>
-                <div style={styles.transformationPart}>
-                  <h3 style={styles.subtitle}>From</h3>
-                  <p style={styles.text}>{promise.transformationBefore}</p>
-                </div>
-                <div style={styles.arrow}>→</div>
-                <div style={styles.transformationPart}>
-                  <h3 style={styles.subtitle}>To</h3>
-                  <p style={styles.text}>{promise.transformationAfter}</p>
-                </div>
-              </div>
-            ) : (
-              <p style={styles.text}>Transformation will appear here as you refine the promise.</p>
-            )}
+            <TransformationPhaseContainer
+              slug={slug}
+              data={transformationData}
+              isGenerating={isGenerating.transformation}
+              approvalStatus={approvalStatuses.transformation}
+              approvalFeedback={approvalFeedback.transformation}
+              onApprove={handleApproveSection}
+              onReject={handleRejectSection}
+              onRegenerate={handleRegenerateSection}
+              onDataChange={setTransformationData}
+            />
           </div>
         )}
 
+        {/* MARKET TAB */}
         {activeTab === "market" && (
           <div style={styles.tabContent}>
-            <h2 style={styles.title}>Market Analysis</h2>
-            {market ? (
-            <div style={styles.marketSection}>
-              <h3 style={styles.subtitle}>Category</h3>
-              <p style={styles.text}>{market.marketCategory || "—"}</p>
-
-              <h3 style={styles.subtitle}>Comparable Titles</h3>
-              <div style={styles.comparables}>
-                {market.comparisonTitles.map((comp, i) => (
-                  <div key={i} style={styles.comparable}>
-                    <strong>{comp.title}</strong> by {comp.author}
-                    <p style={styles.mutedText}>{comp.whyRelevant}</p>
-                    <p style={styles.mutedText}>
-                      <strong>Difference opportunity:</strong> {comp.differenceOpportunity}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              {market.attractionDrivers.length > 0 && (
-                <>
-                  <h3 style={styles.subtitle}>Market Drivers</h3>
-                  <ul style={styles.list}>
-                    {market.attractionDrivers.map((driver, i) => (
-                      <li key={i} style={styles.listItem}>
-                        {driver}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-
-              {market.commercialRisks.length > 0 && (
-                <>
-                  <h3 style={styles.subtitle}>Commercial Risks</h3>
-                  <ul style={styles.riskList}>
-                    {market.commercialRisks.map((risk, i) => (
-                      <li key={i} style={styles.riskItem}>
-                        {risk}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-            ) : (
-              <p style={styles.text}>Market analysis will appear here as you refine the promise.</p>
-            )}
+            <MarketPhaseContainer
+              slug={slug}
+              title={promise.workingTitle}
+              data={marketData}
+              isGenerating={isGenerating.market}
+              approvalStatus={approvalStatuses.market}
+              approvalFeedback={approvalFeedback.market}
+              onApprove={handleApproveSection}
+              onReject={handleRejectSection}
+              onRegenerate={handleRegenerateSection}
+              onDataChange={setMarketData}
+            />
           </div>
         )}
 
+        {/* RECOMMENDATIONS TAB */}
         {activeTab === "recommendations" && (
           <div style={styles.tabContent}>
-            <h2 style={styles.title}>Positioning Recommendations</h2>
-            {recommendations ? (
-              <>
-            <div style={styles.summaryBox}>
-              <p style={styles.summaryText}>{recommendations.summary || "—"}</p>
-            </div>
+            <RecommendationsPhaseContainer
+              slug={slug}
+              data={recommendationsData}
+              titleSubtitleFinalization={titleSubtitleData}
+              isGenerating={isGenerating.recommendations}
+              approvalStatus={approvalStatuses.recommendations}
+              approvalFeedback={approvalFeedback.recommendations}
+              onApprove={handleApproveSection}
+              onReject={handleRejectSection}
+              onRegenerate={handleRegenerateSection}
+              onDataChange={setRecommendationsData}
+              onTitleSubtitleFinalizationChange={(data) => {
+                setTitleSubtitleData(data);
+                setCurrentBookTitle(data.finalizedTitle);
+                markSectionPending("book-promise");
+              }}
+              onInvalidateApproval={(sectionId) =>
+                markSectionPending(sectionId as PromiseTabName)
+              }
+            />
+          </div>
+        )}
 
-            {recommendations.recommendations && recommendations.recommendations.length > 0 && (
-              <>
-                <h3 style={styles.subtitle}>Key Recommendations</h3>
-                <ul style={styles.list}>
-                  {recommendations.recommendations.map((rec, i) => (
-                    <li key={i} style={styles.listItem}>
-                      {rec}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-              </>
-            ) : (
-              <p style={styles.text}>Positioning recommendations will appear here as you refine the promise.</p>
-            )}
+        {/* BOOK PROMISE TAB */}
+        {activeTab === "book-promise" && (
+          <div style={styles.tabContent}>
+            <BookPitchPhaseContainer
+              slug={slug}
+              data={bookPromiseReportData}
+              shouldRefresh={bookPitchStaleAfterTitleFinalization}
+              isGenerating={isGenerating["book-promise"]}
+              approvalStatus={approvalStatuses["book-promise"]}
+              approvalFeedback={approvalFeedback["book-promise"]}
+              onApprove={handleApproveSection}
+              onReject={handleRejectSection}
+              onRegenerate={handleRegenerateSection}
+              onDataChange={setBookPromiseReportData}
+              onInvalidateApproval={(sectionId) =>
+                markSectionPending(sectionId as PromiseTabName)
+              }
+            />
           </div>
         )}
       </div>
+
+      {/* Final Commit Banner */}
+      {allApproved && (
+        <div style={styles.commitBanner}>
+          <div style={styles.commitContent}>
+            <h3 style={styles.commitTitle}>🎉 All Sections Approved!</h3>
+            <p style={styles.commitDescription}>
+              Your Book Pitch is complete and ready to commit. Click the button below to proceed to the Outline stage.
+            </p>
+          </div>
+          <form action={commitPromiseStage.bind(null, slug)}>
+            <button
+              type="submit"
+              style={styles.commitButton}
+              title="Commit this Promise and move to Outline stage"
+            >
+              ✓ Commit Promise
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
   container: {
-    display: "flex",
+    display: "flex" as const,
     flexDirection: "column" as const,
     height: "100%",
     backgroundColor: "var(--panel, #fefbf5)",
   },
+  trackerSection: {
+    padding: "16px 32px",
+    backgroundColor: "var(--panel, #fefbf5)",
+    borderBottom: "1px solid rgba(45, 36, 29, 0.1)",
+  },
   tabsBar: {
-    display: "flex",
+    display: "flex" as const,
     gap: "8px",
     padding: "12px 16px",
     borderBottom: "1px solid rgba(45, 36, 29, 0.1)",
     backgroundColor: "var(--paper, #fbf6ef)",
     overflowX: "auto" as const,
     flexShrink: 0,
+    justifyContent: "space-between" as const,
+    alignItems: "center" as const,
   },
   tab: {
     padding: "8px 16px",
     backgroundColor: "transparent",
     border: "none",
-    borderBottomWidth: "2px",
-    borderBottomStyle: "solid",
-    borderBottomColor: "transparent",
+    borderBottom: "2px solid transparent",
     color: "var(--muted, #6f6256)",
     fontSize: "13px",
     fontWeight: 500,
     cursor: "pointer",
     transition: "all 0.2s",
     whiteSpace: "nowrap" as const,
+    display: "flex" as const,
+    alignItems: "center" as const,
+    gap: "6px",
   },
   tabActive: {
     color: "var(--accent, #16384f)",
-    borderBottomColor: "var(--accent, #16384f)",
+    borderBottom: "2px solid var(--accent, #16384f)",
+  },
+  tabCheckmark: {
+    fontSize: "12px",
+    color: "#16a34a",
+  },
+  exportContainer: {
+    marginLeft: "auto",
+    display: "flex",
+    alignItems: "center",
   },
   content: {
     flex: 1,
@@ -526,10 +820,19 @@ const styles = {
     lineHeight: 1.8,
     color: "var(--ink, #2d241d)",
   },
-  mutedText: {
-    fontSize: "13px",
-    color: "var(--muted, #6f6256)",
-    lineHeight: 1.6,
+  truthBox: {
+    padding: "24px",
+    backgroundColor: "rgba(22, 163, 74, 0.05)",
+    border: "1px solid rgba(22, 163, 74, 0.2)",
+    borderRadius: "12px",
+    marginBottom: "24px",
+  },
+  truthStatement: {
+    margin: 0,
+    fontSize: "18px",
+    fontWeight: 600,
+    color: "#2d241d",
+    lineHeight: 1.8,
   },
   form: {
     display: "flex" as const,
@@ -597,82 +900,14 @@ const styles = {
     fontSize: "14px",
     color: "#c92a2a",
   },
-  transformationBox: {
-    display: "grid",
-    gridTemplateColumns: "1fr auto 1fr",
-    gap: "24px",
-    alignItems: "center",
-    marginTop: "24px",
-    padding: "24px",
-    backgroundColor: "var(--paper, #fbf6ef)",
-    borderRadius: "8px",
-  },
-  transformationPart: {
-    display: "grid",
-    gap: "8px",
-  },
-  arrow: {
-    fontSize: "24px",
-    fontWeight: "bold",
-    color: "var(--accent, #16384f)",
-    textAlign: "center" as const,
-  },
   personas: {
-    display: "grid",
+    display: "grid" as const,
     gap: "20px",
     marginTop: "20px",
   },
-  personaCard: {
-    padding: "20px",
-    backgroundColor: "var(--paper, #fbf6ef)",
-    borderRadius: "8px",
-    borderLeft: "4px solid var(--accent, #16384f)",
-  },
-  personaName: {
-    margin: "0 0 8px",
-    fontSize: "16px",
-    fontWeight: 600,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  personaPriority: {
-    fontSize: "12px",
-    fontWeight: 400,
-    color: "var(--muted, #6f6256)",
-    backgroundColor: "rgba(139, 109, 50, 0.1)",
-    padding: "2px 8px",
-    borderRadius: "4px",
-  },
-  personaContext: {
-    margin: "0 0 16px",
-    fontSize: "14px",
-    lineHeight: 1.6,
-    color: "var(--muted, #6f6256)",
-  },
-  personaSubheading: {
-    margin: "12px 0 8px",
-    fontSize: "13px",
-    fontWeight: 600,
-    color: "var(--ink, #2d241d)",
-  },
-  personaList: {
-    margin: "0 0 12px",
-    paddingLeft: "16px",
-  },
   marketSection: {
-    display: "grid",
+    display: "grid" as const,
     gap: "20px",
-  },
-  comparables: {
-    display: "grid",
-    gap: "16px",
-    marginTop: "12px",
-  },
-  comparable: {
-    padding: "16px",
-    backgroundColor: "var(--paper, #fbf6ef)",
-    borderRadius: "6px",
   },
   summaryBox: {
     padding: "20px",
@@ -687,4 +922,55 @@ const styles = {
     lineHeight: 1.8,
     color: "var(--ink, #2d241d)",
   },
+  commitBanner: {
+    display: "flex" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    gap: "24px",
+    padding: "20px 32px",
+    backgroundColor: "#dcfce7",
+    borderTop: "2px solid rgba(22, 163, 74, 0.3)",
+    flexShrink: 0,
+  },
+  commitContent: {
+    flex: 1,
+  },
+  commitTitle: {
+    margin: "0 0 4px",
+    fontSize: "16px",
+    fontWeight: 700,
+    color: "#166534",
+  },
+  commitDescription: {
+    margin: 0,
+    fontSize: "13px",
+    color: "#15803d",
+    lineHeight: 1.5,
+  },
+  commitButton: {
+    padding: "12px 28px",
+    backgroundColor: "#16a34a",
+    color: "white",
+    border: "none",
+    borderRadius: "6px",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    whiteSpace: "nowrap" as const,
+    transition: "all 0.2s",
+  } as const,
+  placeholderBox: {
+    padding: "24px",
+    backgroundColor: "rgba(59, 44, 31, 0.04)",
+    border: "2px dashed rgba(59, 44, 31, 0.2)",
+    borderRadius: "8px",
+    marginTop: "24px",
+  } as const,
+  placeholderText: {
+    margin: 0,
+    fontSize: "14px",
+    color: "rgba(59, 44, 31, 0.6)",
+    fontStyle: "italic" as const,
+    textAlign: "center" as const,
+  } as const,
 };

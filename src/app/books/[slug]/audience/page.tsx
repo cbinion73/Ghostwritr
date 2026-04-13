@@ -38,7 +38,7 @@ export default async function AudienceStagePage({
             <Link
               key={stage.key}
               href={stage.href(slug)}
-              className={`stage-chip ${stage.key === "AUDIENCE" ? "active" : ""}`}
+              className={`stage-chip ${stage.key === "PROMISE" ? "active" : ""}`}
             >
               {stage.label}
             </Link>
@@ -119,7 +119,7 @@ export default async function AudienceStagePage({
               <div className="toc-kicker">Reader Personas</div>
               <h3>Audience Fit</h3>
               <div className="persona-grid">
-                {workspace.personaPack.personas.map((persona) => (
+                {workspace.personas.personas.map((persona) => (
                   <section className="persona-card" key={persona.id}>
                     <div className="persona-header">
                       <div>

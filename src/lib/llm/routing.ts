@@ -16,6 +16,7 @@
  *   - Gemini: long-context grounding + market analysis
  *
  * Expected cost per book (50 chapters):
+ *   - Outline (Phase 1, 2, 3): $0.05 (Haiku structural planning)
  *   - External Stories + Research: $12 (batch mode)
  *   - Chapter Drafts: $11 (Sonnet author + revise)
  *   - Final Editor Polish: $11 (Opus)
@@ -40,10 +41,14 @@ export type StageRole =
   | "chapter-draft:revise"
   // Voice Guard — MUST be a different family from the author
   | "voice-guard:critic"
+  // Setup & Voice Blending
+  | "setup:voice-blending"
   // Other stages (wired in later phases)
   | "promise:author"
   | "audience:author"
-  | "outline:author"
+  | "outline:phase-1"
+  | "outline:phase-2"
+  | "outline:phase-3"
   | "base-story:author"
   | "personal-stories:interview"
   | "market-analysis:research"
@@ -68,10 +73,15 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   // --- Voice Guard: GPT-5 as the different-family critic ---
   "voice-guard:critic": "openai:gpt-5",
 
+  // --- Setup & Voice Blending: Sonnet for cost-effective preview generation + persona suggestions ---
+  "setup:voice-blending": "anthropic:claude-sonnet-4-6",
+
   // --- Other stages (will be wired in later) ---
   "promise:author": "anthropic:claude-sonnet-4-6",
   "audience:author": "anthropic:claude-sonnet-4-6",
-  "outline:author": "anthropic:claude-sonnet-4-6",
+  "outline:phase-1": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
+  "outline:phase-2": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
+  "outline:phase-3": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
   "base-story:author": "anthropic:claude-sonnet-4-6",
   "personal-stories:interview": "anthropic:claude-sonnet-4-6",
   "market-analysis:research": "google:gemini-2.5-pro",

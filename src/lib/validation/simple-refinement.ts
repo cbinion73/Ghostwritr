@@ -135,8 +135,10 @@ Return JSON with:
 {
   "marketCategory": "category",
   "comparisonTitles": [{"title": "Book", "author": "Author", "whyRelevant": "why", "differenceOpportunity": "how"}],
+  "saturationAssessment": "assessment",
   "attractionDrivers": ["driver1", "driver2"],
-  "commercialRisks": ["risk1"]
+  "commercialRisks": ["risk1"],
+  "recommendations": ["rec1", "rec2"]
 }
 
 ONLY return valid JSON.`;

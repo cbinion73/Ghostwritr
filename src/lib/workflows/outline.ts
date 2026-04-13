@@ -13,6 +13,8 @@ import {
   type OutlineSection,
   type OutlineStructureBlock,
   type OutlineGenerationMeta,
+  type ReaderJourneyPhase,
+  type OutlinePhaseMapping,
 } from "../outline-types";
 import type { BookSetupProfile } from "../book-setup-types";
 import type { BookPromiseReport, PromiseBrief } from "../promise-types";
@@ -58,15 +60,12 @@ const WorkflowState = Annotation.Root({
   outline: Annotation<BookOutline | undefined>,
 });
 
-const OUTLINE_STAGE_LABELS = [
-  "Stage 1: False Belief / Current State",
-  "Stage 2: Friction / Awakening",
-  "Stage 3: Recognition / Admission",
-  "Stage 4: Resistance / Doubt",
-  "Stage 5: Encountering the New Truth",
-  "Stage 6: Experimentation / Application",
-  "Stage 7: Breakthrough / Evidence",
-  "Stage 8: Integration / New Normal",
+const READER_JOURNEY_PHASES = [
+  "Phase 1: Current Reality",
+  "Phase 2: Disruption",
+  "Phase 3: Revelation",
+  "Phase 4: Application",
+  "Phase 5: Transformation"
 ] as const;
 
 const OUTLINE_FULL_SYSTEM_PROMPT = `
@@ -110,7 +109,8 @@ Requirements:
 - Determine the number of sections organically from the material. Do not force a formula.
 - Determine the number of chapters per section organically from the material. Do not force symmetry.
 - Every section and chapter must have a clear big idea and job in the reader journey.
-- The outline must cover all 8 transformation stages somewhere across the book.
+- The outline must guide the reader through all 5 phases of transformation (Current Reality → Disruption → Revelation → Application → Transformation) somewhere across the book.
+- Each section should span 1-3 phases, and each chapter should emphasize ONE specific phase.
 - The outline must respect the book's target word count and cascade the math correctly.
 
 Word count rules:
@@ -135,7 +135,7 @@ Structure rules:
   - whyThisSectionExists (why this section exists in the book's narrative)
   - whatItCovers
   - howItServesTheLargerStory
-  - stageCoverage
+  - readerJourneyPhases (which 1-3 phases this section primarily covers)
   - wordCountTarget
   - chapters
 - Each chapter needs:
@@ -150,7 +150,7 @@ Structure rules:
   - personasThatResonate
   - voiceBlendEmphasis
   - readerTransformationByEnd
-  - stageCoverage
+  - readerJourneyPhase (which single phase this chapter emphasizes)
   - wordCountTarget
   - internalStructureLabel
   - internalStructure
@@ -203,7 +203,7 @@ For each section, return only:
 - subtitle (optional, max 10 words)
 - bigIdea (the single overarching theme that organizes this section)
 - whyThisSectionExists (why this section is essential)
-- stageCoverage
+- readerJourneyPhases (1-3 phases this section covers, e.g., ["Current Reality", "Disruption"] or ["Revelation"])
 - wordCountTarget
 - chapters
 
@@ -213,6 +213,7 @@ For each chapter, return only:
 - bigIdea (the single powerful insight this chapter teaches)
 - whyThisChapterExists (why this chapter is essential to the section)
 - coreIdea (restatement of the big idea as a core principle)
+- readerJourneyPhase (which single phase this chapter emphasizes)
 - wordCountTarget
 
 Strictly do not include:
@@ -221,7 +222,6 @@ Strictly do not include:
 - howItServesTheLargerStory
 - whatGetsConveyed
 - storytellingTechnique
-- chapter stageCoverage
 - openingHook
 - closingBridge
 - paragraphs
@@ -237,17 +237,19 @@ Keep every field concise:
 - subtitle: max 10 words (adds specificity or angle to the title)
 - bigIdea (section): max 18 words (the single overarching theme)
 - whyThisSectionExists: max 18 words (the section's role in the book)
-- stageCoverage: 1-2 stages per section
+- readerJourneyPhases: 1-3 phases like ["Current Reality", "Disruption"] or ["Revelation", "Application"]
 - bigIdea (chapter): max 18 words (the single insight this chapter teaches)
 - whyThisChapterExists: max 18 words (the chapter's role in the section)
 - coreIdea: max 18 words (restatement of the chapter's big idea)
+- readerJourneyPhase: one of the 5 phases (Current Reality, Disruption, Revelation, Application, Transformation)
 
 Requirements:
 - Determine sections and chapters organically from the Knowledge Base big ideas.
 - Avoid obvious symmetry in chapter counts and chapter lengths.
 - Respect the book target word count exactly at the book > section > chapter level.
-- Cover the full reader journey across the 8 stages using section stageCoverage.
+- Cover the full reader journey across all 5 phases using section readerJourneyPhases and chapter readerJourneyPhase assignments.
 - Every title, whyThisChapterExists, and coreIdea should articulate a genuine big idea.
+- Each chapter's readerJourneyPhase should align with how that chapter delivers its big idea to the reader.
 `;
 
 type JsonExtractionDetails = {
@@ -383,7 +385,7 @@ function summarizeOutlineForPrompt(
     number: section.number,
     title: truncateText(section.title, 120),
     wordCountTarget: section.wordCountTarget,
-    stageCoverage: section.stageCoverage.slice(0, 3),
+    readerJourneyPhases: section.readerJourneyPhases.slice(0, 3),
     chapters: section.chapters.map((chapter) => ({
       id: chapter.id,
       number: chapter.number,
@@ -732,23 +734,25 @@ function buildInternalStructureFromParagraphs(paragraphs: OutlineParagraph[]): O
   return blocks;
 }
 
-function buildStageMappingFromSections(sections: OutlineSection[]) {
-  return OUTLINE_STAGE_LABELS.map((stage, index) => {
+function buildPhaseMapping(sections: OutlineSection[]) {
+  const phases: ReaderJourneyPhase[] = ["Current Reality", "Disruption", "Revelation", "Application", "Transformation"];
+
+  return phases.map((phase) => {
     const sectionNumbers = sections
       .filter((section) =>
-        (section.stageCoverage ?? []).some(
-          (entry) => entry.toLowerCase() === stage.toLowerCase(),
+        (section.readerJourneyPhases ?? []).some(
+          (entry) => entry === phase,
         ),
       )
       .map((section) => section.number);
 
     return {
-      stage,
+      phase,
       sectionNumbers,
       explanation:
         sectionNumbers.length > 0
-          ? `This stage is primarily carried by Section${sectionNumbers.length > 1 ? "s" : ""} ${sectionNumbers.join(", ")}.`
-          : `This stage is woven across the book rather than isolated in a single section.`,
+          ? `This phase is primarily carried by Section${sectionNumbers.length > 1 ? "s" : ""} ${sectionNumbers.join(", ")}.`
+          : `This phase is woven across the book rather than isolated in a single section.`,
     };
   });
 }
@@ -770,8 +774,8 @@ function buildFallbackOutline(
       covers:
         "The lived cost of the current false belief, the pressures that keep it alive, and the first signs that the old approach is no longer working.",
       story:
-        "This section covers Stages 1 and 2 by helping the reader see the current state clearly and feel the awakening friction that makes change necessary.",
-      stages: [OUTLINE_STAGE_LABELS[0], OUTLINE_STAGE_LABELS[1]],
+        "This section guides the reader through Current Reality and Disruption by helping them see the current state clearly and feel the awakening friction that makes change necessary.",
+      readerJourneyPhases: ["Current Reality" as const, "Disruption" as const],
       weight: 16,
       chapters: [
         {
@@ -805,8 +809,8 @@ function buildFallbackOutline(
       covers:
         "The shared tension across audience segments, the different ways it manifests, and the emotional question that primes the truth.",
       story:
-        "This section carries Stages 3 and 4 by deepening recognition, surfacing resistance, and setting up the moment where the truth can land.",
-      stages: [OUTLINE_STAGE_LABELS[2], OUTLINE_STAGE_LABELS[3]],
+        "This section guides the reader through Disruption and Revelation by deepening recognition, surfacing resistance, and setting up the moment where the truth can land.",
+      readerJourneyPhases: ["Disruption" as const, "Revelation" as const],
       weight: 18,
       chapters: [
         {
@@ -851,8 +855,8 @@ function buildFallbackOutline(
       covers:
         "The central truth, the paradox, the proof, the framework logic, and the reason this truth changes what the reader can do next.",
       story:
-        "This is the Stage 5 section where the new truth is encountered and the reader's understanding is reframed.",
-      stages: [OUTLINE_STAGE_LABELS[4]],
+        "This section emphasizes the Revelation phase where the new truth is encountered and the reader's understanding is reframed.",
+      readerJourneyPhases: ["Revelation" as const],
       weight: 26,
       chapters: [
         {
@@ -886,8 +890,8 @@ function buildFallbackOutline(
       covers:
         "Application steps, experiments, implementation resistance, and the habits or decisions that make the truth operational.",
       story:
-        "This section covers Stages 6 and 7 by guiding experimentation, resistance, and the evidence that breakthrough is actually happening.",
-      stages: [OUTLINE_STAGE_LABELS[5], OUTLINE_STAGE_LABELS[6]],
+        "This section guides the reader through Application and Transformation by translating insight into practical behavior change.",
+      readerJourneyPhases: ["Application" as const, "Transformation" as const],
       weight: 24,
       chapters: [
         {
@@ -933,8 +937,8 @@ function buildFallbackOutline(
       covers:
         "Integrated success, new identity, collective vision, and the enduring future the book wants the reader to inhabit.",
       story:
-        "This closing section covers Stage 8 by showing how the truth becomes a stable operating pattern and a broader vision.",
-      stages: [OUTLINE_STAGE_LABELS[7]],
+        "This closing section emphasizes Transformation by showing how the truth becomes a stable operating pattern and a broader vision.",
+      readerJourneyPhases: ["Transformation" as const],
       weight: 16,
       chapters: [
         {
@@ -997,6 +1001,7 @@ function buildFallbackOutline(
         number: chapterIndex + 1,
         title: chapterPlan.title,
         subtitle: chapterPlan.subtitle,
+        bigIdea: chapterPlan.coreIdea,
         description: `${chapterPlan.why} ${chapterPlan.coreIdea}`,
         whyThisChapterExists: chapterPlan.why,
         coreIdea: chapterPlan.coreIdea,
@@ -1023,10 +1028,10 @@ function buildFallbackOutline(
         },
         readerTransformationByEnd:
           "The reader leaves with a clearer lens for this part of the problem and a stronger sense of what the next chapter must build.",
-        stageCoverage:
+        readerJourneyPhase:
           chapterIndex === 0
-            ? [sectionPlan.stages[0]]
-            : [sectionPlan.stages[Math.min(sectionPlan.stages.length - 1, 1)]],
+            ? sectionPlan.readerJourneyPhases[0] ?? "Revelation"
+            : sectionPlan.readerJourneyPhases[Math.min(sectionPlan.readerJourneyPhases.length - 1, 1)] ?? "Revelation",
         wordCountTarget: chapterWordCounts[chapterIndex],
         calculationDisplay: "",
         internalStructureLabel: "ME-WE-TRUTH-YOU-WE",
@@ -1042,11 +1047,12 @@ function buildFallbackOutline(
       number: sectionIndex + 1,
       title: sectionPlan.title,
       subtitle: sectionPlan.subtitle,
+      bigIdea: sectionPlan.title,
       description: `${sectionPlan.why} ${sectionPlan.covers}`,
       whyThisSectionExists: sectionPlan.why,
       whatItCovers: sectionPlan.covers,
       howItServesTheLargerStory: sectionPlan.story,
-      stageCoverage: sectionPlan.stages,
+      readerJourneyPhases: sectionPlan.readerJourneyPhases,
       wordCountTarget: sectionWordCounts[sectionIndex],
       calculationDisplay: "",
       chapters,
@@ -1059,10 +1065,10 @@ function buildFallbackOutline(
     overview:
       "This outline opens by making the reader's current problem undeniable, widens that dilemma into a shared audience pattern, delivers the book's core truth at the right moment, and then spends enough space on application and integration for the transformation to feel earned rather than merely described.",
     structureRationale:
-      "The architecture follows a pressure -> recognition -> truth -> application -> integration progression so the book earns the reader's trust before it asks for change, gives the truth enough room to land, and then devotes substantial space to making the framework usable in the reader's actual context.",
+      "The architecture follows the reader's journey through Current Reality → Disruption → Revelation → Application → Transformation so the book earns the reader's trust before it asks for change, gives the truth enough room to land, and then devotes substantial space to making the framework usable in the reader's actual context.",
     readerTransformation: `${promise.transformationBefore} -> ${promise.transformationAfter}`,
     targetWordCount,
-    stageMapping: [],
+    readerJourneyMapping: [],
     wordCountVerification: calculateOutlineWordCountVerification({
       targetWordCount,
       sections,
@@ -1077,7 +1083,7 @@ function buildFallbackOutline(
 
   return renumberBookOutline({
     ...outline,
-    stageMapping: buildStageMappingFromSections(outline.sections),
+    readerJourneyMapping: buildPhaseMapping(outline.sections),
   });
 }
 
@@ -1180,6 +1186,13 @@ function normalizeChapter(
     subtitle:
       truncateText(coerceString(record.subtitle, fallbackChapter?.subtitle ?? ""), 120) ||
       undefined,
+    bigIdea: truncateText(
+      coerceString(
+        record.bigIdea,
+        fallbackChapter?.bigIdea ?? coreIdea,
+      ),
+      400,
+    ),
     description: truncateText(
       cleanDescription(
         coerceString(record.description, fallbackChapter?.description ?? `${coreIdea}`),
@@ -1255,10 +1268,13 @@ function normalizeChapter(
       ),
       180,
     ),
-    stageCoverage: coerceStringArray(
-      record.stageCoverage,
-      fallbackChapter?.stageCoverage ?? [],
-    ),
+    readerJourneyPhase: (() => {
+      const phase = record.readerJourneyPhase ?? fallbackChapter?.readerJourneyPhase;
+      if (phase === "Current Reality" || phase === "Disruption" || phase === "Revelation" || phase === "Application" || phase === "Transformation") {
+        return phase;
+      }
+      return "Revelation";
+    })(),
     wordCountTarget: coercePositiveInteger(
       record.wordCountTarget,
       fallbackChapter?.wordCountTarget ?? 2500,
@@ -1338,6 +1354,13 @@ function normalizeSection(
     subtitle:
       truncateText(coerceString(record.subtitle, fallbackSection?.subtitle ?? ""), 120) ||
       undefined,
+    bigIdea: truncateText(
+      coerceString(
+        record.bigIdea,
+        fallbackSection?.bigIdea ?? title,
+      ),
+      400,
+    ),
     description: truncateText(
       coerceString(
         record.description,
@@ -1369,10 +1392,15 @@ function normalizeSection(
       ),
       200,
     ),
-    stageCoverage: coerceStringArray(
-      record.stageCoverage,
-      fallbackSection?.stageCoverage ?? [],
-    ),
+    readerJourneyPhases: (() => {
+      const phases = Array.isArray(record.readerJourneyPhases) ? record.readerJourneyPhases : fallbackSection?.readerJourneyPhases;
+      if (Array.isArray(phases)) {
+        return phases.filter((phase): phase is ReaderJourneyPhase =>
+          phase === "Current Reality" || phase === "Disruption" || phase === "Revelation" || phase === "Application" || phase === "Transformation"
+        );
+      }
+      return [];
+    })(),
     wordCountTarget: coercePositiveInteger(
       record.wordCountTarget,
       fallbackSection?.wordCountTarget ?? 6000,
@@ -1465,7 +1493,7 @@ function normalizeOutline(
       fallback.readerTransformation,
     ),
     targetWordCount,
-    stageMapping: [],
+    readerJourneyMapping: [],
     wordCountVerification: calculateOutlineWordCountVerification({
       targetWordCount,
       sections,
@@ -1488,13 +1516,17 @@ function normalizeOutline(
           generatedAt: coerceString(rawGenerationMeta.generatedAt),
         }
       : { source: "unknown" };
-  const rawStageMapping = Array.isArray(raw.stageMapping) ? raw.stageMapping : [];
-  const stageMapping =
-    rawStageMapping.length > 0
-      ? rawStageMapping.map((entry, index) => {
+  const rawPhaseMapping = Array.isArray(raw.readerJourneyMapping) ? raw.readerJourneyMapping : [];
+  const readerJourneyMapping =
+    rawPhaseMapping.length > 0
+      ? rawPhaseMapping.map((entry) => {
           const record = objectRecord(entry);
+          const phase = record.phase;
+          if (phase !== "Current Reality" && phase !== "Disruption" && phase !== "Revelation" && phase !== "Application" && phase !== "Transformation") {
+            return null;
+          }
           return {
-            stage: coerceString(record.stage, OUTLINE_STAGE_LABELS[index] ?? `Stage ${index + 1}`),
+            phase,
             sectionNumbers: Array.isArray(record.sectionNumbers)
               ? record.sectionNumbers
                   .map((value) => (typeof value === "number" ? Math.round(value) : null))
@@ -1502,16 +1534,16 @@ function normalizeOutline(
               : [],
             explanation: coerceString(
               record.explanation,
-              "This stage is carried by the sections listed here.",
+              "This phase is carried by the sections listed here.",
             ),
           };
-        })
-      : buildStageMappingFromSections(rebalanced.sections);
+        }).filter((mapping): mapping is OutlinePhaseMapping => mapping !== null)
+      : buildPhaseMapping(rebalanced.sections);
 
   return renumberBookOutline({
     ...rebalanced,
     generationMeta,
-    stageMapping,
+    readerJourneyMapping,
   });
 }
 
@@ -1563,14 +1595,14 @@ async function buildOutlinePromptPayload(params: {
     revisionTargetType: params.revisionTargetType ?? null,
     instruction:
       params.instruction ??
-      "Generate the Phase 1 Outline artifact now: sections, chapters, stage coverage, internal chapter architecture, and verified book-to-section-to-chapter word counts. Do not generate paragraph plans yet.",
+      "Generate the Phase 1 Outline artifact now: sections with big ideas, chapters with reader journey phases, internal chapter architecture, and verified book-to-section-to-chapter word counts. Do not generate paragraph plans yet.",
   };
 }
 
 async function getChatModel(options?: { maxOutputTokens?: number; timeoutMs?: number }) {
   return getModelForRole("outline:phase-1", {
     temperature: 0.2,
-    maxOutputTokens: options?.maxOutputTokens ?? 7000,
+    maxOutputTokens: options?.maxOutputTokens ?? 15000,
     timeoutMs: options?.timeoutMs ?? 240000,
     maxRetries: 0,
   });

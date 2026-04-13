@@ -1,3 +1,15 @@
+// Reader Journey Framework: The 5 phases readers move through as their perspective transforms
+export type ReaderJourneyPhase = "Current Reality" | "Disruption" | "Revelation" | "Application" | "Transformation";
+
+/**
+ * Phase Definitions:
+ * - Current Reality: Where the reader is now; familiar thinking with hidden friction
+ * - Disruption: Challenging assumptions; tension and resistance surface
+ * - Revelation: The core insight or pattern becomes clear
+ * - Application: Practical steps to test and apply the new idea
+ * - Transformation: A new mindset and way of operating becomes the norm
+ */
+
 export type OutlinePersonaResonance = {
   audienceSegment: string;
   whyThisResonates: string;
@@ -42,7 +54,7 @@ export type OutlineChapter = {
   personasThatResonate: OutlinePersonaResonance[];
   voiceBlendEmphasis: OutlineVoiceBlendEmphasis;
   readerTransformationByEnd: string;
-  stageCoverage: string[];
+  readerJourneyPhase: ReaderJourneyPhase; // Which phase this chapter emphasizes
   wordCountTarget: number;
   calculationDisplay: string;
   internalStructureLabel: string;
@@ -62,14 +74,14 @@ export type OutlineSection = {
   whyThisSectionExists: string;
   whatItCovers: string;
   howItServesTheLargerStory: string;
-  stageCoverage: string[];
+  readerJourneyPhases: ReaderJourneyPhase[]; // Which phases this section primarily covers
   wordCountTarget: number;
   calculationDisplay: string;
   chapters: OutlineChapter[];
 };
 
-export type OutlineStageMapping = {
-  stage: string;
+export type OutlinePhaseMapping = {
+  phase: ReaderJourneyPhase;
   sectionNumbers: number[];
   explanation: string;
 };
@@ -97,7 +109,7 @@ export type BookOutline = {
   structureRationale: string;
   readerTransformation: string;
   targetWordCount: number;
-  stageMapping: OutlineStageMapping[];
+  readerJourneyMapping: OutlinePhaseMapping[]; // Maps each reader journey phase to sections that cover it
   wordCountVerification: OutlineWordCountVerification;
   sections: OutlineSection[];
   generationMeta?: OutlineGenerationMeta;

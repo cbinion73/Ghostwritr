@@ -138,6 +138,24 @@ export async function deleteBookBySlug(slug: string) {
   );
 }
 
+export async function updateBookTitleMetadata(
+  bookId: string,
+  data: {
+    titleWorking: string;
+    subtitle?: string | null;
+  },
+) {
+  return withDbRetry(() =>
+    db.book.update({
+      where: { id: bookId },
+      data: {
+        titleWorking: data.titleWorking,
+        subtitle: data.subtitle ?? null,
+      },
+    }),
+  );
+}
+
 export async function getStageForBook(bookId: string, stageKey: StageKey) {
   return withDbRetry(() =>
     db.bookStage.findUnique({

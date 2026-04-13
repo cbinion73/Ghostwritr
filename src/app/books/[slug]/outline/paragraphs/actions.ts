@@ -9,6 +9,7 @@ import {
 
 export async function generateParagraphOutline(slug: string) {
   await runParagraphOutlineWorkflow(slug);
+  revalidatePath(`/books/${slug}/outline`);
   revalidatePath(`/books/${slug}/outline/paragraphs`);
 }
 
@@ -28,10 +29,12 @@ export async function commentOnParagraphOutline(slug: string, formData: FormData
     revisionTargetType: targetType,
   });
 
+  revalidatePath(`/books/${slug}/outline`);
   revalidatePath(`/books/${slug}/outline/paragraphs`);
 }
 
 export async function commitParagraphOutline(slug: string) {
   await commitParagraphOutlineWorkflow(slug);
+  revalidatePath(`/books/${slug}/outline`);
   revalidatePath(`/books/${slug}/outline/paragraphs`);
 }

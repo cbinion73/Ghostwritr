@@ -39,7 +39,7 @@ export default async function MarketAnalysisStagePage({
             <Link
               key={stage.key}
               href={stage.href(slug)}
-              className={`stage-chip ${stage.key === "MARKET_ANALYSIS" ? "active" : ""}`}
+              className={`stage-chip ${stage.key === "PROMISE" ? "active" : ""}`}
             >
               {stage.label}
             </Link>
@@ -87,21 +87,21 @@ export default async function MarketAnalysisStagePage({
               <div className="card">
                 <h4>Market Category</h4>
                 <p style={{ margin: 0, lineHeight: 1.72 }}>
-                  {workspace.marketReport.marketCategory}
+                  {workspace.market.marketCategory}
                 </p>
               </div>
 
               <div className="card">
                 <h4>Saturation Assessment</h4>
                 <p style={{ margin: 0, lineHeight: 1.72 }}>
-                  {workspace.marketReport.saturationAssessment}
+                  {workspace.market.saturationAssessment}
                 </p>
               </div>
 
               <div className="card">
                 <h4>Commercial Risks</h4>
                 <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.75 }}>
-                  {workspace.marketReport.commercialRisks.map((risk) => (
+                  {workspace.market.commercialRisks.map((risk) => (
                     <li key={risk}>{risk}</li>
                   ))}
                 </ul>
@@ -114,7 +114,7 @@ export default async function MarketAnalysisStagePage({
               <div className="toc-kicker">Market Landscape</div>
               <h3>Comparable Titles</h3>
               <div className="market-list">
-                {workspace.marketReport.comparisonTitles.map((title) => (
+                {workspace.market.comparisonTitles.map((title) => (
                   <section className="market-card" key={`${title.title}-${title.author}`}>
                     <div className="market-title-row">
                       <div>
@@ -148,7 +148,7 @@ export default async function MarketAnalysisStagePage({
             <div className="compare-column">
               <h4>Attraction Drivers</h4>
               <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.75 }}>
-                {workspace.marketReport.attractionDrivers.map((driver) => (
+                {workspace.market.attractionDrivers.map((driver) => (
                   <li key={driver}>{driver}</li>
                 ))}
               </ul>

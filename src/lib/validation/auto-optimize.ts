@@ -74,7 +74,12 @@ export async function autoOptimizeMarketAnalysis(
 ): Promise<MarketReport> {
   try {
     const { GoogleGenerativeAI } = await import("@google/generative-ai");
-    const client = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GOOGLE_GENERATIVE_AI_API_KEY not configured");
+    }
+
+    const client = new GoogleGenerativeAI(apiKey);
 
     const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
 
@@ -97,11 +102,168 @@ Be specific with real books and data.`;
       researchResponse.response.text() || "Research unavailable";
 
     // Parse research into market report
+    const marketCategory = extractCategory(promiseStatement);
+    const comparisonTitles = extractComparableBooks(researchText);
+    const saturationAssessment = extractSaturationAssessment(researchText);
+    const attractionDrivers = extractMarketDrivers(researchText);
+    const commercialRisks = extractCommercialRisks(researchText);
+    const recommendations = extractRecommendations(researchText);
+
     const marketReport: MarketReport = {
-      marketCategory: extractCategory(promiseStatement),
-      comparisonTitles: extractComparableBooks(researchText),
-      attractionDrivers: extractMarketDrivers(researchText),
-      commercialRisks: extractCommercialRisks(researchText),
+      marketCategory,
+      comparisonTitles,
+      saturationAssessment,
+      attractionDrivers,
+      commercialRisks,
+      recommendations,
+      executiveSummary: {
+        headline: `Commercially viable if the promise stays specific inside ${marketCategory.toLowerCase()}.`,
+        overallRecommendation: "CONDITIONAL_GO",
+        rationale: "The lightweight optimization path can identify signal, but it should not replace deeper market validation.",
+        strategicPriority: "Use the strongest comp and clearest reader pain to sharpen positioning.",
+      },
+      competitiveLandscape: {
+        directCompetitors: comparisonTitles.map((item) => ({
+          ...item,
+          credentials: "Established category author",
+          positioning: "Business nonfiction comparable",
+          targetAudience: primaryAudience || "Professionals seeking practical improvement",
+          strengths: ["Existing audience fit", "Recognizable market slot"],
+          gaps: ["Room for sharper differentiation"],
+          estimatedSales: "Estimated from category precedent",
+          pricePoint: "Standard business-book pricing",
+        })),
+        indirectCompetitors: [
+          {
+            category: "Courses and coaching",
+            examples: ["Online course", "Workshop", "Coaching program"],
+            currentAlternative: "Readers may buy guided implementation instead of a book.",
+            spendProfile: "Higher spend than a book when urgency is high.",
+          },
+        ],
+        competitiveAdvantage: {
+          differentiation: promiseStatement,
+          unfairAdvantage: "Sharper framing and application can separate the book from adjacent advice.",
+          whoChoosesThisBook: primaryAudience || "Readers who want a practical, lower-friction entry point",
+          gapFilled: "A clearer bridge from problem recognition to concrete action.",
+        },
+        marketPositioning: {
+          academicToPractical: "Practical",
+          nicheToBroad: "Focused but commercially reachable",
+          theoreticalToActionOriented: "Action-oriented",
+          industrySpecificToUniversal: "Can expand from specific buyers into adjacent readers",
+          whiteSpace: "Practical specificity in a crowded category.",
+        },
+      },
+      marketSizing: {
+        totalAddressableMarket: "Broad professional-learning market with category-specific buyer subsets.",
+        serviceableAddressableMarket: "Readers who actively buy business and professional development books.",
+        serviceableObtainableMarket: "Dependent on distribution, platform, and launch execution.",
+        yearOneToThreeOutlook: "Year 1 validates demand; Years 2-3 depend on ecosystem growth.",
+        trends: "Demand favors practical frameworks and applied expertise.",
+        tailwinds: attractionDrivers,
+        headwinds: commercialRisks,
+      },
+      audienceDemand: {
+        personaUrgency: [
+          {
+            personaName: primaryAudience || "Primary Reader",
+            urgency: "Problem is relevant when it affects performance, leadership, or visible progress.",
+            whyNow: "Current pressure makes readers more likely to look for pragmatic help.",
+          },
+        ],
+        searchBehavior: ["Problem-aware searches", "Book and framework comparisons", "How-to queries"],
+        contentConsumptionPatterns: ["Business books", "Podcasts", "Courses and newsletters"],
+        willingnessToPay: "Book-level willingness is reasonable if the value is concrete.",
+        validationSignals: "Use this as directional signal, not final validation.",
+        openQuestions: ["Which message angle converts best?", "Which persona buys first?"],
+      },
+      pricingStrategy: {
+        comparableBookPricing: "Use category-standard business-book pricing.",
+        costAnalysis: "Margins are modest on books alone; economics improve with ecosystem offers.",
+        pricingTiers: [
+          { format: "Hardcover", pricePoint: "Premium tier", rationale: "Signals authority." },
+          { format: "Paperback", pricePoint: "Standard tier", rationale: "Supports broader reach." },
+          { format: "Ebook", pricePoint: "Impulse tier", rationale: "Lower-friction conversion." },
+        ],
+        pricePositioning: "Price to signal value without restricting discovery.",
+        launchPricing: "Use short launch promotions tactically, not as the whole strategy.",
+      },
+      monetizationEcosystem: {
+        directBookRevenue: "Useful, but rarely the entire economic case.",
+        ancillaryProducts: [
+          {
+            channel: "Workbook",
+            offer: "Practical templates and exercises",
+            pricePoint: "Accessible add-on",
+            revenuePotential: "Moderate",
+          },
+          {
+            channel: "Course",
+            offer: "Deeper implementation program",
+            pricePoint: "Mid-tier",
+            revenuePotential: "Higher after the book validates demand",
+          },
+        ],
+        speakingAndAuthority: "A good book can increase keynote and workshop demand.",
+        consultingAndCoaching: "The book can serve as trust-building top-of-funnel.",
+        mediaAndLicensing: "Possible after traction and proof of resonance.",
+        contentAndCommunity: "Owned audience compounds the value of the book.",
+        totalEcosystemRevenueProjection: "Best treated as a book-plus-ecosystem model.",
+      },
+      distributionAndLaunch: {
+        publishingOptions: "Choose based on speed, control, distribution, and support.",
+        distributionChannels: ["Amazon", "Direct sales", "Speaking and partner channels"],
+        launchStrategy: "Build audience early, compress launch, then sustain visibility.",
+        marketingChannels: ["Email", "Content", "Podcasts", "Partnerships"],
+        yearOneDistributionMix: "Likely a mix of retail and direct audience channels.",
+      },
+      riskAssessment: {
+        overallRiskProfile: "Medium",
+        marketRisks: commercialRisks,
+        authorPlatformRisks: ["Limited existing audience reduces launch leverage."],
+        contentMessageRisks: ["Weak differentiation can flatten the promise."],
+        economicTimingRisks: ["Attention and learning budgets can tighten."],
+        executionRisks: ["Strong manuscript alone does not guarantee reach."],
+        mitigationPlan: recommendations,
+        dealBreakers: ["No clear persona urgency", "No defendable wedge versus comps"],
+      },
+      successMetrics: {
+        yearOneGoals: ["Book sales target", "Audience growth", "Offer validation"],
+        keyPerformanceIndicators: ["Units sold", "Revenue by channel", "Audience growth", "Engagement"],
+        successDefinition: "The book proves demand and opens downstream authority or revenue channels.",
+        milestones: ["Pre-launch validation", "Launch-week traction", "Post-launch compounding"],
+      },
+      financialProjections: {
+        yearOneRevenue: "Model conservative, realistic, and optimistic revenue cases.",
+        yearOneCosts: "Include production, launch, advertising, and support costs.",
+        profitabilityAnalysis: "Books alone can be thin-margin; ecosystem leverage improves returns.",
+        yearsTwoToThreeProjection: "Upside comes from compounding authority and adjacent offers.",
+        sensitivityAnalysis: "Test weaker sales and higher spend before committing.",
+      },
+      goNoGoRecommendation: {
+        marketValidation: "Directional GO if readers clearly recognize the pain.",
+        competitivePosition: "Conditional on sharper differentiation.",
+        businessModelViability: "Best when the book anchors broader monetization.",
+        personalFit: "Proceed if the author can support both writing and promotion.",
+        overallRecommendation: "CONDITIONAL_GO",
+        conditions: [
+          "Tighten the primary buyer",
+          "Clarify the competitive wedge",
+          "Validate with real readers",
+        ],
+        nextSteps: recommendations,
+      },
+      metadata: {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        model: "gemini-2.0-flash",
+        grounding: {
+          previousPhases: ["Promise Statement"],
+          audienceSignals: [primaryAudience],
+          kbSources: [],
+        },
+      },
     };
 
     return marketReport;
@@ -185,7 +347,12 @@ function extractComparableBooks(
   whyRelevant: string;
   differenceOpportunity: string;
 }> {
-  const books = [];
+  const books: Array<{
+    title: string;
+    author: string;
+    whyRelevant: string;
+    differenceOpportunity: string;
+  }> = [];
   const bookMatches = text.match(/(?:^|\n)(?:\d+\.|\*|-)\s*([^:]+):\s*([^(\n]+)(?:\([^)]*\))?/gm);
 
   if (bookMatches) {
@@ -206,7 +373,7 @@ function extractComparableBooks(
 }
 
 function extractMarketDrivers(text: string): string[] {
-  const drivers = [];
+  const drivers: string[] = [];
   const driverMatches = text.match(/(?:driver|trend|signal|demand)[^.]*\./gi);
 
   if (driverMatches) {
@@ -221,7 +388,7 @@ function extractMarketDrivers(text: string): string[] {
 }
 
 function extractCommercialRisks(text: string): string[] {
-  const risks = [];
+  const risks: string[] = [];
   const riskMatches = text.match(
     /(?:risk|challenge|competition|barrier)[^.]*\./gi
   );
@@ -239,4 +406,28 @@ function extractCommercialRisks(text: string): string[] {
         "Need to demonstrate clear differentiation",
         "Requires strong marketing to reach audience",
       ];
+}
+
+function extractSaturationAssessment(text: string): string {
+  const match = text.match(/(?:market size|competition|competitive landscape|saturation)[:\s-]*([^\n.]+[.]?)/i);
+  return match?.[1]?.trim() || "Moderately competitive category with room for sharper differentiation.";
+}
+
+function extractRecommendations(text: string): string[] {
+  const recommendationMatches = text.match(
+    /(?:recommendation|positioning|opportunity)[:\s-]*([^\n.]+[.]?)/gi
+  );
+
+  if (recommendationMatches && recommendationMatches.length > 0) {
+    return recommendationMatches
+      .map((match) => match.replace(/^(?:recommendation|positioning|opportunity)[:\s-]*/i, "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+  }
+
+  return [
+    "Lead with a concrete problem the book solves for a clearly defined reader.",
+    "Differentiate the framework from broad, generic leadership advice.",
+    "Support the promise with specific proof, examples, and implementation steps.",
+  ];
 }

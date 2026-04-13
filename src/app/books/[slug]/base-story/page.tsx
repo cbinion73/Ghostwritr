@@ -70,7 +70,7 @@ export default async function BaseStoryStagePage({
               Open Dashboard
             </Link>
             <form action={runBaseStoryStage.bind(null, slug)}>
-              <button className="btn" type="submit">
+              <button className="btn" disabled={!workspace.outlineReady} type="submit">
                 Regenerate Base Story
               </button>
             </form>
@@ -122,7 +122,9 @@ export default async function BaseStoryStagePage({
                 </>
               ) : (
                 <div className="empty-state">
-                  No Base Story exists yet. Commit the outline, or run generation from this page.
+                  {workspace.outlineReady
+                    ? "No Base Story exists yet. Run generation from this page."
+                    : "Commit the full Outline ToC first, then Base Story will unlock."}
                 </div>
               )}
             </div>

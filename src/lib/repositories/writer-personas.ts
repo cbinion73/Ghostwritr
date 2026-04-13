@@ -200,6 +200,27 @@ export async function listWriterPersonas() {
   return personas.map(normalizeWriterPersonaRecord);
 }
 
+/**
+ * Get all active writer personas for voice blending selection
+ * Personas are CORE to the book - they define narrative arc, voice, style, and identity
+ */
+export async function getActiveWriterPersonas() {
+  await ensureDefaultWriterPersonas();
+
+  const personas = await db.writerPersona.findMany({
+    where: { isActive: true },
+    include: {
+      samples: {
+        where: { useForInspiration: true },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+    orderBy: [{ isBuiltIn: "desc" }, { name: "asc" }],
+  });
+
+  return personas.map(normalizeWriterPersonaRecord);
+}
+
 export async function getWriterPersonaById(personaId: string) {
   const persona = await db.writerPersona.findUnique({
     where: { id: personaId },

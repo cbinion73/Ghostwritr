@@ -36,6 +36,9 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "validation-system-implementation.ts",
+    "src/app/books/[slug]/promise/page-new.tsx",
+    "src/app/books/[slug]/promise/promise-tabs-backup.tsx"
   ]
 }

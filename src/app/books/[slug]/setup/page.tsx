@@ -1,7 +1,8 @@
 import Link from "next/link";
 
-import { commitBookSetupAction, saveBookSetupAction } from "./actions";
+import { commitBookSetupAction, saveBookSetupAction, saveAndCommitSetupAction } from "./actions";
 import { TargetMetricsFields } from "./target-metrics";
+import { VoiceBlendSection } from "./voice-blend-section";
 
 import { STAGE_LINKS } from "@/lib/navigation";
 import { getBookSetupWorkspace } from "@/lib/workflows/book-setup";
@@ -88,7 +89,7 @@ export default async function BookSetupStagePage({
               </div>
             </div>
 
-            <form action={saveBookSetupAction.bind(null, slug)} className="stack">
+            <form action={saveAndCommitSetupAction.bind(null, slug)} className="stack">
               <label className="form-field">
                 <span className="field-label">Working Title</span>
                 <input
@@ -109,33 +110,14 @@ export default async function BookSetupStagePage({
                   type="text"
                 />
               </label>
-              <label className="form-field">
-                <span className="field-label">Writer Persona Library</span>
-                <select
-                  className="editor-input"
-                  defaultValue={workspace.profile.writerPersonaId ?? "CUSTOM"}
-                  name="writerPersonaId"
-                >
-                  <option value="CUSTOM">Custom or no library persona</option>
-                  {workspace.writerPersonas
-                    .filter((persona) => persona.isActive)
-                    .map((persona) => (
-                      <option key={persona.id} value={persona.id}>
-                        {persona.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label className="form-field">
-                <span className="field-label">Custom Persona Label</span>
-                <input
-                  className="editor-input"
-                  defaultValue={workspace.profile.writerPersonaId ? "" : workspace.profile.writerPersona}
-                  name="writerPersonaCustom"
-                  placeholder="Clear, credible nonfiction ghostwriter"
-                  type="text"
-                />
-              </label>
+              {/* Voice Blending Section */}
+              <VoiceBlendSection
+                slug={slug}
+                workingTitle={workspace.profile.workingTitle}
+                baseStoryFormatPreference={workspace.profile.baseStoryFormatPreference}
+                subtitle={workspace.profile.subtitle ?? null}
+                initialBlend={workspace.profile.writerPersonaBlend}
+              />
               <label className="form-field">
                 <span className="field-label">Base Story Format</span>
                 <select

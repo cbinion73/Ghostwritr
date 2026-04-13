@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import type { ValidationScores } from "@/lib/validation/promise-validator";
+import { refinePromiseWithIntelligentAgents, saveValidatedPersonas } from "./actions";
 
 interface ValidationDashboardProps {
   scores: ValidationScores;
+  slug?: string;
   geminiInsights?: {
     comparableBooks: Array<{ title: string; author: string }>;
     marketSize: string;
@@ -232,9 +235,64 @@ function getScoreColor(score: number): string {
 
 export function ValidationDashboard({
   scores,
+  slug,
   onAutoOptimize,
   isOptimizing,
 }: ValidationDashboardProps) {
+  const [isRefining, setIsRefining] = useState(false);
+  const [refinementResult, setRefinementResult] = useState<any>(null);
+  const [isSavingPersonas, setIsSavingPersonas] = useState(false);
+
+  const handleRefineToExcellence = async () => {
+    if (!slug) {
+      console.error("Slug is required for refinement");
+      return;
+    }
+
+    setIsRefining(true);
+    try {
+      const result = await refinePromiseWithIntelligentAgents(slug);
+      setRefinementResult(result);
+
+      // Reload the page to get updated scores
+      window.location.reload();
+    } catch (error) {
+      console.error("Refinement failed:", error);
+      setRefinementResult({
+        success: false,
+        stoppedReason: "error",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
+  const handleSaveValidatedPersonas = async () => {
+    if (!slug) {
+      console.error("Slug is required for saving personas");
+      return;
+    }
+
+    setIsSavingPersonas(true);
+    try {
+      const result = await saveValidatedPersonas(slug);
+      console.log("Save result:", result);
+
+      // Reload the page to get updated scores
+      window.location.reload();
+    } catch (error) {
+      console.error("Save failed:", error);
+      setRefinementResult({
+        success: false,
+        stoppedReason: "error",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsSavingPersonas(false);
+    }
+  };
+
   return (
     <div style={styles.dashboard}>
       <div style={styles.header}>
@@ -247,7 +305,63 @@ export function ValidationDashboard({
         >
           {scores.isReady ? "✓ Ready to Commit" : "⚠ Needs Optimization"}
         </div>
+        {!scores.isReady && (
+          <>
+            <button
+              onClick={handleRefineToExcellence}
+              disabled={isRefining}
+              style={{
+                padding: "8px 16px",
+                backgroundColor: "#16384f",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                fontSize: "14px",
+                fontWeight: 500,
+                cursor: isRefining ? "not-allowed" : "pointer",
+                opacity: isRefining ? 0.6 : 1,
+                transition: "opacity 0.2s ease",
+              }}
+            >
+              {isRefining ? "Refining..." : "✨ Refine to Excellence"}
+            </button>
+            <button
+              onClick={handleSaveValidatedPersonas}
+              disabled={isSavingPersonas}
+              title="Save the manually validated 3 personas designed with 8-step framework"
+              style={{
+                padding: "8px 16px",
+                backgroundColor: "#28a745",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                fontSize: "14px",
+                fontWeight: 500,
+                cursor: isSavingPersonas ? "not-allowed" : "pointer",
+                opacity: isSavingPersonas ? 0.6 : 1,
+                transition: "opacity 0.2s ease",
+              }}
+            >
+              {isSavingPersonas ? "Saving..." : "💾 Save Validated Personas"}
+            </button>
+          </>
+        )}
       </div>
+
+      {refinementResult && !refinementResult.success && (
+        <div
+          style={{
+            padding: "12px 16px",
+            backgroundColor: "#fff3cd",
+            borderRadius: "6px",
+            color: "#856404",
+            fontSize: "14px",
+            marginBottom: "16px",
+          }}
+        >
+          {refinementResult.errorMessage || "Refinement completed with max iterations"}
+        </div>
+      )}
 
       <div style={styles.scoresGrid}>
         {/* Persona Match Score */}

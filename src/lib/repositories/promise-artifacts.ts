@@ -84,11 +84,17 @@ export async function getPromiseBriefVersions(bookId: string, limit = 6) {
 }
 
 export async function createPromiseArtifactVersion(input: UpsertPromiseArtifactInput) {
+  console.log("[createPromiseArtifactVersion] Starting... bookId:", input.bookId, "artifactType:", input.artifactType);
+
   const promiseStage = await getStageForBook(input.bookId, StageKey.PROMISE);
+  console.log("[createPromiseArtifactVersion] Promise stage retrieved:", promiseStage ? "yes" : "no");
 
   if (!promiseStage) {
+    console.error("[createPromiseArtifactVersion] ERROR: Promise stage not found for book", input.bookId);
     throw new Error(`Promise stage not found for book ${input.bookId}`);
   }
+
+  console.log("[createPromiseArtifactVersion] Promise stage ID:", promiseStage.id);
 
   return db.$transaction(async (tx) => {
     const artifact =

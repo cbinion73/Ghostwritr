@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { toggleBookFileAction } from "./actions";
+import { toggleBookFileAction, uploadBookFileAction } from "./actions";
 
 import { getOrCreateBookBySlug } from "@/lib/repositories/books";
 import { listBookSourceDocuments } from "@/lib/repositories/source-documents";
@@ -67,6 +67,70 @@ export default async function BookFilesPage({
         </section>
 
         <section className="glass-panel section-panel">
+          <div className="section-header">
+            <h3>Upload Files</h3>
+            <div className="muted">
+              Upload reference documents, outlines, research, or other source material to inform the Promise generation.
+            </div>
+          </div>
+
+          <form action={uploadBookFileAction.bind(null, slug)} style={{ display: "grid", gap: "16px", padding: "20px", backgroundColor: "rgba(255, 255, 255, 0.3)", borderRadius: "6px", marginBottom: "32px" }}>
+            <div style={{ display: "grid", gap: "8px" }}>
+              <label style={{ fontSize: "14px", fontWeight: 500, color: "#2d241d" }}>
+                Select File
+              </label>
+              <input
+                type="file"
+                name="file"
+                required
+                style={{
+                  padding: "12px",
+                  border: "1px solid rgba(45, 36, 29, 0.2)",
+                  borderRadius: "6px",
+                  fontSize: "14px",
+                  color: "#2d241d",
+                  backgroundColor: "white",
+                  cursor: "pointer",
+                }}
+              />
+            </div>
+            <div style={{ display: "grid", gap: "8px" }}>
+              <label style={{ fontSize: "14px", fontWeight: 500, color: "#2d241d" }}>
+                Optional Note
+              </label>
+              <textarea
+                name="note"
+                placeholder="Add a note about this document (optional)"
+                style={{
+                  padding: "12px",
+                  border: "1px solid rgba(45, 36, 29, 0.2)",
+                  borderRadius: "6px",
+                  fontSize: "14px",
+                  color: "#2d241d",
+                  fontFamily: "inherit",
+                  minHeight: "80px",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              style={{
+                padding: "12px 16px",
+                backgroundColor: "#16384f",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "opacity 0.2s",
+              }}
+            >
+              Upload File
+            </button>
+          </form>
+
           <div className="section-header">
             <h3>Uploaded Files</h3>
             <div className="muted">

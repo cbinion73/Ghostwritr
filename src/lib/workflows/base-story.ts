@@ -34,7 +34,10 @@ import {
   getActiveWorkflowRunForStage,
   getWorkflowRunById,
 } from "../repositories/workflow-runs";
-import { getCommittedOutline } from "../repositories/outline-artifacts";
+import {
+  getCommittedOutline,
+  getCommittedOutlineExpansion,
+} from "../repositories/outline-artifacts";
 import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
 import { getCommittedPromiseBrief } from "../repositories/promise-artifacts";
 import { runQualityAgentWorkflow } from "./quality-agent";
@@ -162,6 +165,18 @@ async function getInputs(bookId: string) {
   };
 }
 
+async function hasLockedOutlinePackage(bookId: string) {
+  const [outlineStage, paragraphOutlineVersion] = await Promise.all([
+    getStageForBook(bookId, StageKey.OUTLINE),
+    getCommittedOutlineExpansion(bookId),
+  ]);
+
+  return (
+    outlineStage?.status === StageStatus.COMMITTED &&
+    Boolean(paragraphOutlineVersion)
+  );
+}
+
 function fallbackBaseStory(
   bookTitle: string,
   outline: BookOutline,
@@ -265,6 +280,12 @@ These movement fields are narrative design notes for later drafting, not final c
 export async function runBaseStoryWorkflow(bookSlug: string, runId?: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const { bookSetup, promise, outline } = await getInputs(book.id);
+  const outlineReady = await hasLockedOutlinePackage(book.id);
+
+  if (!outlineReady) {
+    throw new Error("Commit the full Outline ToC before generating Base Story.");
+  }
+
   if (!promise || !outline) {
     throw new Error("Committed Promise and Outline are required before generating Base Story.");
   }
@@ -341,6 +362,11 @@ export async function enqueueBaseStoryWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const existing = await getActiveWorkflowRunForStage(book.id, StageKey.BASE_STORY);
   if (existing) return existing;
+  const outlineReady = await hasLockedOutlinePackage(book.id);
+
+  if (!outlineReady) {
+    throw new Error("Commit the full Outline ToC before generating Base Story.");
+  }
 
   const { outline } = await getInputs(book.id);
   if (!outline) {
@@ -416,6 +442,7 @@ export async function commitBaseStoryWorkflow(bookSlug: string) {
 export async function getBaseStoryWorkspace(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const stage = await getStageForBook(book.id, StageKey.BASE_STORY);
+  const outlineReady = await hasLockedOutlinePackage(book.id);
   const versions = await getBaseStoryVersions(book.id);
   const committed = await getCommittedBaseStory(book.id);
   const latest = normalizeBaseStoryBundle(
@@ -441,5 +468,6 @@ export async function getBaseStoryWorkspace(bookSlug: string) {
       completedChapters: typeof metadata.completedChapters === "number" ? metadata.completedChapters : latest?.chapters.length ?? 0,
       selectedFormat: typeof metadata.selectedFormat === "string" ? metadata.selectedFormat : latest?.selectedFormat ?? null,
     },
+    outlineReady,
   };
 }

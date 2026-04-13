@@ -314,7 +314,10 @@ export async function createOutlineVersion(input: UpsertOutlineArtifactInput) {
   });
 }
 
-export async function commitOutlineStageBundle(bookId: string) {
+export async function commitOutlineStageBundle(
+  bookId: string,
+  options?: { finalizeStage?: boolean },
+) {
   const outlineStage = await getStageForBook(bookId, StageKey.OUTLINE);
 
   if (!outlineStage) {
@@ -357,12 +360,19 @@ export async function commitOutlineStageBundle(bookId: string) {
 
     await tx.bookStage.update({
       where: { id: outlineStage.id },
-      data: {
-        status: StageStatus.COMMITTED,
-        committedAt: new Date(),
-        committedArtifactVersionId: artifact.currentVersionId,
-        activeArtifactVersionId: artifact.currentVersionId,
-      },
+      data:
+        options?.finalizeStage === false
+          ? {
+              status: StageStatus.IN_PROGRESS,
+              committedAt: null,
+              activeArtifactVersionId: artifact.currentVersionId,
+            }
+          : {
+              status: StageStatus.COMMITTED,
+              committedAt: new Date(),
+              committedArtifactVersionId: artifact.currentVersionId,
+              activeArtifactVersionId: artifact.currentVersionId,
+            },
     });
 
     await tx.decision.create({

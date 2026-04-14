@@ -181,80 +181,94 @@ export async function getResearchPackVersions(
   chapterKey: string,
   limit = 6,
 ) {
-  // Use a more efficient query strategy:
-  // 1. Find artifacts by bookId and type (uses existing index)
-  // 2. Filter by chapter key pattern in memory
-  // 3. Return versions for the matching artifact
-  const artifacts = await db.artifact.findMany({
-    where: {
-      bookId,
-      artifactType: ArtifactType.RESEARCH_PACK,
-    },
-    select: {
-      id: true,
-      title: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50, // Reasonable limit to avoid scanning entire table
-  });
+  try {
+    // Use a more efficient query strategy:
+    // 1. Find artifacts by bookId and type (uses existing index)
+    // 2. Filter by chapter key pattern in memory
+    // 3. Return versions for the matching artifact
+    const artifacts = await db.artifact.findMany({
+      where: {
+        bookId,
+        artifactType: ArtifactType.RESEARCH_PACK,
+      },
+      select: {
+        id: true,
+        title: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50, // Reasonable limit to avoid scanning entire table
+    });
 
-  // Find the artifact matching this chapter
-  const titlePrefix = `Research Pack: ${chapterKey} - `;
-  const matchingArtifact = artifacts.find((a) => a.title?.startsWith(titlePrefix));
+    // Find the artifact matching this chapter
+    const titlePrefix = `Research Pack: ${chapterKey} - `;
+    const matchingArtifact = artifacts.find((a) => a.title?.startsWith(titlePrefix));
 
-  if (!matchingArtifact) {
+    if (!matchingArtifact) {
+      return [];
+    }
+
+    // Now fetch versions for the matching artifact
+    const versions = await db.artifactVersion.findMany({
+      where: {
+        artifactId: matchingArtifact.id,
+      },
+      orderBy: { versionNumber: "desc" },
+      take: limit,
+    });
+
+    return versions;
+  } catch (error) {
+    // If database query times out or fails, return empty array
+    // This allows the page to load while research data loads asynchronously
+    console.error(`Failed to fetch research pack versions for ${chapterKey}:`, error);
     return [];
   }
-
-  // Now fetch versions for the matching artifact
-  const versions = await db.artifactVersion.findMany({
-    where: {
-      artifactId: matchingArtifact.id,
-    },
-    orderBy: { versionNumber: "desc" },
-    take: limit,
-  });
-
-  return versions;
 }
 
 export async function getCommittedResearchPack(bookId: string, chapterKey: string) {
-  // Use optimized query to avoid expensive title string matching
-  const artifacts = await db.artifact.findMany({
-    where: {
-      bookId,
-      artifactType: ArtifactType.RESEARCH_PACK,
-      committedVersionId: {
-        not: null,
+  try {
+    // Use optimized query to avoid expensive title string matching
+    const artifacts = await db.artifact.findMany({
+      where: {
+        bookId,
+        artifactType: ArtifactType.RESEARCH_PACK,
+        committedVersionId: {
+          not: null,
+        },
       },
-    },
-    select: {
-      id: true,
-      title: true,
-      committedVersionId: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+      select: {
+        id: true,
+        title: true,
+        committedVersionId: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
 
-  // Find the artifact matching this chapter
-  const titlePrefix = `Research Pack: ${chapterKey} - `;
-  const matchingArtifact = artifacts.find((a) => a.title?.startsWith(titlePrefix));
+    // Find the artifact matching this chapter
+    const titlePrefix = `Research Pack: ${chapterKey} - `;
+    const matchingArtifact = artifacts.find((a) => a.title?.startsWith(titlePrefix));
 
-  if (!matchingArtifact || !matchingArtifact.committedVersionId) {
+    if (!matchingArtifact || !matchingArtifact.committedVersionId) {
+      return null;
+    }
+
+    // Fetch the committed version
+    const committedVersion = await db.artifactVersion.findFirst({
+      where: {
+        artifactId: matchingArtifact.id,
+        lifecycleState: ArtifactStatus.COMMITTED,
+      },
+      orderBy: { versionNumber: "desc" },
+    });
+
+    return committedVersion ?? null;
+  } catch (error) {
+    // If database query times out or fails, return null
+    // This allows the page to load while committed research data loads asynchronously
+    console.error(`Failed to fetch committed research pack for ${chapterKey}:`, error);
     return null;
   }
-
-  // Fetch the committed version
-  const committedVersion = await db.artifactVersion.findFirst({
-    where: {
-      artifactId: matchingArtifact.id,
-      lifecycleState: ArtifactStatus.COMMITTED,
-    },
-    orderBy: { versionNumber: "desc" },
-  });
-
-  return committedVersion ?? null;
 }
 
 export async function getResearchSourcesForVersion(researchArtifactVersionId: string) {

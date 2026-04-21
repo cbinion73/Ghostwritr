@@ -38,3 +38,6 @@ ehthumbs.db
 *.pptx
 *.ppt
 reference-library/
+
+# Local-only DB snapshots (see ROLLBACK.md)
+db-snapshots/

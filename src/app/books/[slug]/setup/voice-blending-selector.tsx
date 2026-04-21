@@ -128,10 +128,13 @@ export function VoiceBlendingSelector({
     setPreviewLoading(true);
     setError(null);
     try {
-      // Call server action to generate prose in the blended voice
+      // Call server action to generate prose in the blended voice.
+      // personaId is required so the action can look up the dominant persona's
+      // framework flow and structurally trace it in the preview.
       const preview = await generateVoiceBlendPreview(
         workingTitle,
         activePersonas.map((p) => ({
+          personaId: p.personaId,
           personaName: p.personaName,
           percentInfluence: p.suggestedPercentage,
           traits: p.traits,

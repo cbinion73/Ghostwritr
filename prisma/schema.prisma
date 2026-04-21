@@ -227,6 +227,8 @@ model WriterPersona {
   voiceTraitsJson       Json     @default("[]")
   signaturePatternsJson Json     @default("[]")
   avoidPatternsJson     Json     @default("[]")
+  frameworkFlowJson     Json     @default("[]")
+  frameworkName         String?
   sampleExcerpt         String?
   isBuiltIn             Boolean  @default(false)
   isActive              Boolean  @default(true)

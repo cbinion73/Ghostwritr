@@ -5,6 +5,8 @@ import { randomUUID } from "crypto";
 import type { Prisma } from "@prisma/client";
 
 import { db } from "../db";
+import { CANONICAL_PERSONAS } from "../personas";
+import type { FrameworkStep as CanonicalFrameworkStep } from "../personas";
 
 const PERSONA_LIBRARY_ROOT = path.join(process.cwd(), "reference-library", "personas");
 
@@ -81,6 +83,22 @@ function parseStringArray(value: unknown) {
   return Array.isArray(value) ? value.map((entry) => String(entry).trim()).filter(Boolean) : [];
 }
 
+export type FrameworkStep = CanonicalFrameworkStep;
+
+function parseFrameworkFlow(value: unknown): FrameworkStep[] {
+  if (!Array.isArray(value)) return [];
+  const steps: FrameworkStep[] = [];
+  for (const item of value) {
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const slot = typeof record.slot === "string" ? record.slot.trim() : "";
+      const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
+      if (slot && prompt) steps.push({ slot, prompt });
+    }
+  }
+  return steps;
+}
+
 export function normalizeWriterPersonaRecord(
   persona: {
     id: string;
@@ -90,6 +108,8 @@ export function normalizeWriterPersonaRecord(
     voiceTraitsJson: unknown;
     signaturePatternsJson: unknown;
     avoidPatternsJson: unknown;
+    frameworkFlowJson: unknown;
+    frameworkName: string | null;
     sampleExcerpt: string | null;
     isBuiltIn: boolean;
     isActive: boolean;
@@ -115,6 +135,8 @@ export function normalizeWriterPersonaRecord(
     voiceTraits: parseStringArray(persona.voiceTraitsJson),
     signaturePatterns: parseStringArray(persona.signaturePatternsJson),
     avoidPatterns: parseStringArray(persona.avoidPatternsJson),
+    frameworkFlow: parseFrameworkFlow(persona.frameworkFlowJson),
+    frameworkName: persona.frameworkName,
     sampleExcerpt: persona.sampleExcerpt,
     isBuiltIn: persona.isBuiltIn,
     isActive: persona.isActive,
@@ -165,9 +187,10 @@ export async function ensureDefaultWriterPersonas() {
     DEFAULT_WRITER_PERSONAS.map((persona) =>
       db.writerPersona.upsert({
         where: { slug: persona.slug },
+        // Do NOT touch isActive on existing rows — respect user soft-deletes.
+        // isBuiltIn stays enforced so the flag remains correct even if ever flipped.
         update: {
           isBuiltIn: true,
-          isActive: true,
         },
         create: {
           slug: persona.slug,
@@ -185,8 +208,50 @@ export async function ensureDefaultWriterPersonas() {
   );
 }
 
+/**
+ * Sync the code-defined canonical personas (src/lib/personas/*.ts) into the DB.
+ * Code is the source of truth; DB is a cache. Edits to the persona .ts files
+ * propagate to the DB on the next call. isActive is NEVER touched on update —
+ * soft-deletes of canonical personas are respected. isBuiltIn is forced to false
+ * (canonical personas are user-facing, not system scaffolding).
+ */
+export async function ensureCanonicalWriterPersonas() {
+  await Promise.all(
+    CANONICAL_PERSONAS.map((persona) =>
+      db.writerPersona.upsert({
+        where: { slug: persona.slug },
+        update: {
+          name: persona.name,
+          description: persona.description,
+          voiceTraitsJson: persona.voiceTraits as unknown as Prisma.InputJsonValue,
+          signaturePatternsJson: persona.signaturePatterns as unknown as Prisma.InputJsonValue,
+          avoidPatternsJson: persona.avoidPatterns as unknown as Prisma.InputJsonValue,
+          sampleExcerpt: persona.sampleExcerpt,
+          frameworkFlowJson: persona.frameworkFlow as unknown as Prisma.InputJsonValue,
+          frameworkName: persona.frameworkName,
+          isBuiltIn: false,
+          // isActive intentionally omitted — respect user soft-deletes.
+        },
+        create: {
+          slug: persona.slug,
+          name: persona.name,
+          description: persona.description,
+          voiceTraitsJson: persona.voiceTraits as unknown as Prisma.InputJsonValue,
+          signaturePatternsJson: persona.signaturePatterns as unknown as Prisma.InputJsonValue,
+          avoidPatternsJson: persona.avoidPatterns as unknown as Prisma.InputJsonValue,
+          sampleExcerpt: persona.sampleExcerpt,
+          frameworkFlowJson: persona.frameworkFlow as unknown as Prisma.InputJsonValue,
+          frameworkName: persona.frameworkName,
+          isBuiltIn: false,
+          isActive: true,
+        },
+      }),
+    ),
+  );
+}
+
 export async function listWriterPersonas() {
-  await ensureDefaultWriterPersonas();
+  await Promise.all([ensureDefaultWriterPersonas(), ensureCanonicalWriterPersonas()]);
 
   const personas = await db.writerPersona.findMany({
     include: {
@@ -205,7 +270,7 @@ export async function listWriterPersonas() {
  * Personas are CORE to the book - they define narrative arc, voice, style, and identity
  */
 export async function getActiveWriterPersonas() {
-  await ensureDefaultWriterPersonas();
+  await Promise.all([ensureDefaultWriterPersonas(), ensureCanonicalWriterPersonas()]);
 
   const personas = await db.writerPersona.findMany({
     where: { isActive: true },

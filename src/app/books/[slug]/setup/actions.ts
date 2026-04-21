@@ -71,6 +71,7 @@ export async function getAvailablePersonas() {
 export async function generateVoiceBlendPreview(
   workingTitle: string,
   blend: Array<{
+    personaId: string;
     personaName: string;
     percentInfluence: number;
     traits: string[];
@@ -92,6 +93,21 @@ export async function generateVoiceBlendPreview(
         `${p.personaName} patterns: ${p.signaturePatterns.join(", ")}`,
       ])
       .join("\n");
+
+    // Identify the dominant persona (highest percentInfluence; deterministic tiebreak by personaId)
+    // and structurally trace its framework flow in the preview prose.
+    const dominant = [...blend].sort(
+      (a, b) => b.percentInfluence - a.percentInfluence || a.personaId.localeCompare(b.personaId),
+    )[0];
+    const dominantPersona = dominant ? await getWriterPersonaById(dominant.personaId) : null;
+    const flow = dominantPersona?.frameworkFlow ?? [];
+    const frameworkBlock = flow.length
+      ? `\n\nStructural framework to trace (from ${dominantPersona?.name}${
+          dominantPersona?.frameworkName ? ` — ${dominantPersona.frameworkName}` : ""
+        }):\n${flow
+          .map((step, i) => `${i + 1}. [${step.slot}] ${step.prompt}`)
+          .join("\n")}\n\nStructure the preview using this framework — walk through each step in order; do not just echo the vocabulary.`
+      : "";
 
     // Get model from routing system (defaults to Sonnet, can be overridden via env var)
     const model = await getModelForRole("setup:voice-blending", {
@@ -115,7 +131,7 @@ export async function generateVoiceBlendPreview(
 Book Title: "${workingTitle}"
 
 Persona Characteristics:
-${traitsAndPatterns}
+${traitsAndPatterns}${frameworkBlock}
 
 Write as if you're opening a book with this title, using the blended voice. Focus on demonstrating the combined style through the writing itself, not through meta-commentary. Write naturally flowing prose that shows how these voices work together.`),
     ]);
@@ -278,14 +294,20 @@ export async function suggestWriterPersonas(
     // Get all active writer personas from library
     const personas = await getActiveWriterPersonas();
 
-    // Build persona catalog for Claude
+    // Build persona catalog for Claude — includes each persona's structural framework
+    // so the model can weight framework fit, not just tone fit.
     const personaCatalog = personas
-      .map(
-        (p) =>
-          `${p.name} (${p.slug}): ${p.description}
+      .map((p) => {
+        const flowLines = p.frameworkFlow.length
+          ? p.frameworkFlow.map((step, i) => `  ${i + 1}. [${step.slot}] ${step.prompt}`).join("\n")
+          : "  (no framework flow defined)";
+        const frameworkLabel = p.frameworkName ?? "Unnamed";
+        return `${p.name} (${p.slug}): ${p.description}
 Traits: ${p.voiceTraits.join(", ")}
-Patterns: ${p.signaturePatterns.join(" | ")}`
-      )
+Patterns: ${p.signaturePatterns.join(" | ")}
+Framework (${frameworkLabel}):
+${flowLines}`;
+      })
       .join("\n\n");
 
     // Get model from routing system (defaults to Sonnet, can be overridden via env var)
@@ -312,11 +334,11 @@ A writer is creating a book with these details:
 - Category: ${category}
 - Description: ${description}
 
-Here are the available writer personas in our library:
+Here are the available writer personas in our library. Each ships an explicit Framework — an ordered list of {slot, prompt} chapter-shaping steps. Weight framework-fit heavily when matching to the book's promise, not just tone:
 
 ${personaCatalog}
 
-Based on the book's purpose and style needs, suggest the top 3-5 most suitable personas as a JSON array. For each, provide:
+Based on the book's purpose and style needs — and especially the structural fit between each persona's framework and the chapter arc this book requires — suggest the top 3-5 most suitable personas as a JSON array. For each, provide:
 1. personaSlug (must match exactly)
 2. reasoning (why this persona fits, max 100 words)
 3. suggestedPercentage (their suggested influence in blend, should total ~100% across suggestions)

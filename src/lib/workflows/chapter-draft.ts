@@ -11,7 +11,9 @@ import { z } from "zod";
 
 import { getModelForRole } from "../llm/routing";
 import type { BaseStoryBundle, BaseStoryChapter } from "../base-story-types";
-import type { BookSetupProfile } from "../book-setup-types";
+import type { BookSetupProfile, WriterPersonaBlend } from "../book-setup-types";
+import { CANONICAL_PERSONAS } from "../personas";
+import type { FrameworkStep } from "../personas";
 import type {
   ChapterDraftBundle,
   ChapterDraftParagraph,
@@ -475,6 +477,57 @@ function compactExternalStory(item: ChapterExternalStoryItem) {
   };
 }
 
+type ResolvedFramework = {
+  dominantPersona: string;
+  name: string;
+  flow: readonly FrameworkStep[];
+};
+
+const DEFAULT_FRAMEWORK: ResolvedFramework = (() => {
+  const andy = CANONICAL_PERSONAS.find((p) => p.frameworkName === "ME-WE-TRUTH-YOU-WE");
+  return {
+    dominantPersona: andy?.name ?? "AndyGPT",
+    name: andy?.frameworkName ?? "ME-WE-TRUTH-YOU-WE",
+    flow: andy?.frameworkFlow ?? [],
+  };
+})();
+
+/**
+ * Resolve the dominant persona's chapter-shaping framework from a voice blend.
+ * Rule: highest percentInfluence wins; ties broken by personaId (deterministic).
+ * Falls back to AndyGPT's ME-WE-TRUTH-YOU-WE if no blend is set.
+ */
+function resolveDominantFramework(
+  blend: WriterPersonaBlend[] | undefined | null,
+): ResolvedFramework {
+  const active = (blend ?? []).filter((b) => b.percentInfluence > 0);
+  if (active.length === 0) return DEFAULT_FRAMEWORK;
+
+  const dominant = [...active].sort(
+    (a, b) =>
+      b.percentInfluence - a.percentInfluence ||
+      a.personaId.localeCompare(b.personaId),
+  )[0];
+
+  const canonical = CANONICAL_PERSONAS.find((p) => p.slug === dominant.personaSlug);
+  if (!canonical || canonical.frameworkFlow.length === 0) {
+    return DEFAULT_FRAMEWORK;
+  }
+
+  return {
+    dominantPersona: canonical.name,
+    name: canonical.frameworkName,
+    flow: canonical.frameworkFlow,
+  };
+}
+
+function renderFrameworkSlotsForPrompt(framework: ResolvedFramework): string {
+  if (framework.flow.length === 0) {
+    return "  (no framework flow available — default to natural chapter progression)";
+  }
+  return framework.flow.map((step) => `  ${step.slot}: ${step.prompt}`).join("\n");
+}
+
 function buildAuthorInputPacket(
   promise: PromiseBrief,
   context: ChapterContext,
@@ -495,6 +548,8 @@ function buildAuthorInputPacket(
     whyItMatters: story.whyItMatters,
   }));
 
+  const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
+
   return {
     promise,
     bookSetupProfile: bookSetupProfile
@@ -505,6 +560,11 @@ function buildAuthorInputPacket(
           notesToSystem: bookSetupProfile.notesToSystem,
         }
       : null,
+    voice: {
+      dominantPersona: framework.dominantPersona,
+      frameworkName: framework.name,
+      frameworkFlow: framework.flow.map((step) => ({ slot: step.slot, prompt: step.prompt })),
+    },
     section: {
       id: context.section.sectionId,
       title: context.section.sectionTitle,
@@ -780,6 +840,8 @@ async function generateDraft(
       bookSetupProfile,
       chapterTarget,
     );
+    const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
+    const frameworkSlots = renderFrameworkSlotsForPrompt(framework);
     const result = await structured.invoke([
       new SystemMessage(`
 You are a ghostwriter writing a finished nonfiction book chapter for a real author.
@@ -805,22 +867,15 @@ Hard rules:
 - use external stories judiciously: choose only the few that create belief, tension, or emotional lift
 - use personal stories judiciously: only when they add authenticity and are truly relevant
 - never dump raw source titles, website navigation text, or publication labels into the prose
-- write this as a finished chapter for the book Lean Labs, not as planning notes or a dossier summary
 - chapter openings should read like real opening pages in a published nonfiction book
 - every paragraph should read like finished prose, not an outline point with evidence attached
 - synthesize source material into narrative and argument; never paste source phrasing unless it is a real short quote
-- honor the book-level and chapter-level me, we, truth, you, we movement passed in the input packet
-- let the me and we movements build tension, let truth relieve tension with a clear solution, and let you and weClosing create ownership, application, and shared forward motion
+- honor the ${framework.name} framework (the dominant persona is ${framework.dominantPersona}); the chapter's shape is defined by this framework, not by generic teaching structure
 
 Writing approach:
 - be conversational, convincing, and grounded
-- use the me, we, truth, you, we movement where it fits naturally:
-  me: open with lived tension, scene, observation, or a concrete human moment
-  we: expand that moment into a shared professional reality the reader recognizes
-  truth: land the chapter's core insight with clarity and authority
-  you: help the reader see what this means for their own choices and behavior
-  we: return to the broader mission, team, or future-state the chapter is building toward
-- do not mechanically label those moves; just make the prose feel that progression
+- structure the chapter using the ${framework.name} framework — walk these beats in order; do NOT mechanically label them, but let the prose embody the progression:
+${frameworkSlots}
 - favor finished sentences, real transitions, and genuine authorial voice
 - if a source helps, absorb it into the argument as a human writer would
 - if a story helps, tell only the part that earns its place in the chapter
@@ -937,6 +992,8 @@ async function reviseDraft(
       bookSetupProfile,
       chapterTarget,
     );
+    const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
+    const frameworkSlots = renderFrameworkSlotsForPrompt(framework);
     const result = await structured.invoke([
       new SystemMessage(`
 Revise the chapter draft using the editorial feedback.
@@ -948,10 +1005,11 @@ Hard rules:
 - preserve the chapter structure and purpose
 - keep the revised chapter inside the requested target band when possible
 - remove any trace of meta-writing language, drafting instructions, or target-word commentary
-- make the prose read like finished Lean Labs manuscript pages, not assembled source notes
+- make the prose read like finished manuscript pages, not assembled source notes
 - if a fact or story stays in the chapter, integrate it cleanly into the flow of the paragraph
-- preserve and sharpen the intended me, we, truth, you, we movement
-- make sure me and we build pressure, truth provides relief, and you plus weClosing turn toward ownership and application
+- preserve and sharpen the intended ${framework.name} framework progression
+- the dominant persona is ${framework.dominantPersona}; the revised chapter should walk these beats in order (do not label them — let the prose embody the progression):
+${frameworkSlots}
       `),
       new HumanMessage(
         JSON.stringify({

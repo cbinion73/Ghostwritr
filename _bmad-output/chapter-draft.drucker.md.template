@@ -1,0 +1,249 @@
+---
+# ============================================================
+# IDENTITY
+# ============================================================
+template_id: chapter-draft.drucker
+template_version: 1.0.0
+framework: drucker
+framework_name: "Diagnose → Prioritize → Execute"
+framework_slot_count: 7
+framework_has_resolution: true
+authored_by: paige
+consumed_by: quill
+
+# ============================================================
+# LIFECYCLE
+# ============================================================
+stage: chapter_draft
+produces: chapter_manuscript_md
+blocks_on:
+  - knowledge_base_ready
+  - outline_locked
+  - framework_flow_resolved
+  - voice_pack_loaded
+
+# ============================================================
+# VOICE
+# ============================================================
+voice:
+  author_model: claude-sonnet-4-polish
+  critic_model: gemini-2-pro
+  critic_family: gemini        # cross-family per LLM routing philosophy
+  register: "executive, decision-centric, no hedging"
+  forbidden_moves:
+    - "teaching-mode second-person ('let me walk you through')"
+    - "motivational preamble"
+    - "deferring the result question"
+  required_moves:
+    - "name the real problem before discussing solutions"
+    - "force a tradeoff to be explicit"
+    - "assign one named owner per action"
+
+# ============================================================
+# WORD BUDGET
+# ============================================================
+word_budget:
+  target_words: 2400
+  tolerance_pct: 15
+  min_words: 2040
+  max_words: 2760
+  slot_allocation:
+    result: 240           # 10% — one-sentence clarity, don't overwrite
+    problem: 360          # 15% — diagnosis must be crisp
+    priorities: 480       # 20% — where Drucker lives
+    tradeoffs: 360        # 15% — explicit costs
+    action: 480           # 20% — the highest-leverage move
+    owner: 240            # 10% — accountability is short
+    deadline: 240         # 10% — time boundary, stated plain
+
+# ============================================================
+# CONSUMPTION CONTRACT
+# ============================================================
+consumption_contract:
+  input_sources:
+    book_scoped:
+      - knowledge_base
+      - market_viability_report
+      - voice_pack.drucker
+      - style_guide
+    chapter_scoped:
+      - outline.chapter[{{chapter_number}}]
+      - research_artifacts[chapter={{chapter_number}}]
+      - framework_flow[chapter={{chapter_number}}, framework=drucker]
+      - prior_chapter_close   # for continuity only, not callback
+  output_artifact:
+    path: "books/{{book_slug}}/chapters/ch-{{chapter_number}}.draft.md"
+    format: markdown
+    frontmatter_required: true
+
+# ============================================================
+# FRAMEWORK SLOT MAP
+# ============================================================
+# Order is load-bearing. Drucker flows diagnose → prioritize → execute.
+# Do not reorder. Do not merge slots.
+framework_slot_map:
+  - slot: result
+    prompt: "What result must be true in 30–60 days?"
+    h2: "THE RESULT"
+  - slot: problem
+    prompt: "Separate the real problem from symptoms."
+    h2: "THE REAL PROBLEM"
+  - slot: priorities
+    prompt: "Narrow to the critical few."
+    h2: "THE CRITICAL FEW"
+  - slot: tradeoffs
+    prompt: "Make the cost of decisions explicit."
+    h2: "THE TRADEOFF"
+  - slot: action
+    prompt: "Identify the highest-leverage action."
+    h2: "THE ACTION"
+  - slot: owner
+    prompt: "Assign accountability."
+    h2: "THE OWNER"
+  - slot: deadline
+    prompt: "Define the time boundary."
+    h2: "THE DEADLINE"
+
+# ============================================================
+# GATE STATE
+# ============================================================
+gate_checks:
+  - id: word_count_within_tolerance
+    rule: "total_words BETWEEN min_words AND max_words"
+    blocking: true
+  - id: all_sources_present
+    rule: "every input_sources entry resolved and non-empty"
+    blocking: true
+  - id: framework_slots_filled
+    rule: "all 7 Drucker slot tokens replaced; no {{result}}, {{problem}}, {{priorities}}, {{tradeoffs}}, {{action}}, {{owner}}, {{deadline}} remain"
+    blocking: true
+  - id: owner_is_named
+    rule: "OWNER section contains a role or named accountable party, not 'the team' / 'leadership'"
+    blocking: true
+  - id: deadline_is_bounded
+    rule: "DEADLINE section contains a concrete time window (days, weeks, or date)"
+    blocking: true
+  - id: voice_critic_score
+    rule: "critic_model approves ≥ 4.0/5 on executive register + no hedging"
+    blocking: true
+  - id: no_unverified_claims
+    rule: "all factual claims trace to research_artifacts or knowledge_base"
+    blocking: true
+---
+
+<!-- agent:quill
+ROLE: You are Quill drafting a Drucker-voiced chapter.
+This is a MANAGEMENT voice, not a teaching voice. Drucker does not
+walk readers through. He diagnoses, prioritizes, and assigns.
+
+HARD RULES:
+1. Open on the RESULT. Never lead with a story, a stat, or warm-up.
+   If the reader can't state the required result in one sentence by
+   the end of section 1, you have failed.
+2. Separate problem from symptom in section 2. Name the symptom the
+   reader THINKS they have. Then name the real problem underneath it.
+3. Force a tradeoff in section 4. If nothing is being given up, it
+   isn't a priority — it's a wish list.
+4. The OWNER section must name a role ("the product lead,"
+   "the COO," "you, the founder") — never "the team" or "leadership."
+5. The DEADLINE section must specify a real time boundary.
+   "Soon" is not a deadline. "Eventually" is not a deadline.
+
+CADENCE REFERENCE (do not imitate line-for-line, imitate posture):
+"You don't have a workload problem. You have a priority problem.
+Right now, too many things are being treated as important. That
+guarantees one outcome: nothing gets done well."
+
+SOURCES: Use only `framework_flow[chapter=N, framework=drucker]`,
+the chapter's research_artifacts, and voice_pack.drucker. Do not
+invent examples. If a claim needs a source and has none, cut it.
+-->
+
+# Chapter {{chapter_number}}: {{chapter_title}}
+
+## THE RESULT
+
+<!-- agent:quill section=result
+Open cold. No preamble. State the result that must be true in
+30–60 days for this chapter's problem domain. One sentence, ideally.
+Then give the reader permission to stop reading if they can't state
+that result in their own words. Target: ~240 words. Do NOT narrate
+the chapter ahead. Drucker doesn't foreshadow.
+-->
+
+{{result}}
+
+## THE REAL PROBLEM
+
+<!-- agent:quill section=problem
+Two-move structure:
+(a) Name the symptom the reader believes they have.
+(b) Name the real problem underneath it.
+The gap between (a) and (b) IS the chapter's insight. Don't soften
+the diagnosis. Drucker is respectful, not gentle. Target: ~360 words.
+-->
+
+{{problem}}
+
+## THE CRITICAL FEW
+
+<!-- agent:quill section=priorities
+Narrow. Cut. Drucker's rule: if everything is a priority, nothing is.
+Produce a short ordered list (3 max, 2 is better). For each, state
+WHY it is critical and what it replaces. The replacement clause is
+non-optional — priorities only exist in contrast to what you stopped
+doing. Target: ~480 words. This is the longest slot by design.
+-->
+
+{{priorities}}
+
+## THE TRADEOFF
+
+<!-- agent:quill section=tradeoffs
+Make the cost explicit. For the priorities just named, what is being
+given up? Time, money, attention, political capital, other
+initiatives? If you cannot name the cost, the priority is fake and
+you should go back to the previous section. Target: ~360 words.
+-->
+
+{{tradeoffs}}
+
+## THE ACTION
+
+<!-- agent:quill section=action
+The highest-leverage first move. Singular. Not a roadmap. Drucker
+wants one move that, if executed, changes the position of every
+other piece on the board. Describe the move, why it's the lever,
+and what becomes easier after it lands. Target: ~480 words.
+-->
+
+{{action}}
+
+## THE OWNER
+
+<!-- agent:quill section=owner
+Name the accountable role. Not "the team." Not "leadership."
+A role or named person who can be pointed to. Explain what
+accountability means in this context: what they decide, what they
+sign off, what they report. Target: ~240 words. Short by design.
+-->
+
+{{owner}}
+
+## THE DEADLINE
+
+<!-- agent:quill section=deadline
+Close the chapter on the time boundary. Specify: by when, measured
+how, reviewed by whom. No softening language ("ideally,"
+"hopefully"). The deadline IS the close — no additional resolution
+beat, no callback, no motivational wrap. When the deadline is
+stated, the chapter is done. Target: ~240 words.
+-->
+
+{{deadline}}
+
+<!-- agent:quill
+END OF CHAPTER. Do not append a summary, a callback to the opening,
+or a bridge to the next chapter. Drucker chapters terminate on the
+deadline. If the reader wants reflection, that's their job, not yours.
+-->

@@ -1,0 +1,167 @@
+---
+# ─── IDENTITY ───────────────────────────────────────────────
+book: "{{book_slug}}"                    # e.g., "condensed-brain"
+chapter: {{chapter_number}}              # integer, 1-indexed
+title: "{{chapter_title}}"               # from outline.md
+slug: "{{chapter_slug}}"                 # kebab-case, stable
+
+# ─── LIFECYCLE ──────────────────────────────────────────────
+status: "drafting"                       # drafting | in_review | edited | locked
+stage: 9                                 # 1..11 in the GHOSTWRITR pipeline
+generated_by:
+  model: "claude-sonnet-4-5"             # drafting model (Sonnet for cost)
+  agent: "quill"
+  timestamp: "{{iso8601_now}}"
+  run_id: "{{workflow_run_id}}"
+revision: 1
+
+# ─── VOICE ──────────────────────────────────────────────────
+voice_profile: "voice-profile.md"        # book-scoped artifact, relative path
+voice_critic_family: "openai"            # MUST differ from author family (claude)
+
+# ─── WORD BUDGET ────────────────────────────────────────────
+target_words: {{target_words}}           # from outline; typical 2500-4500
+actual_words: 0                          # filled by agent on write; validator reconciles
+tolerance_pct: 10                        # ±10% acceptable before gate fails
+
+# ─── CONSUMPTION CONTRACT (inputs this draft requires) ──────
+sources:
+  book_scoped:
+    - path: "book-brief.md"              # stage 1
+      required: true
+    - path: "viability-report.md"        # stage 2 — must be PASSED
+      required: true
+      min_score: 3.5
+    - path: "outline.md"                 # stage 3
+      required: true
+    - path: "base-story.md"              # stage 5
+      required: true
+  chapter_scoped:
+    - path: "chapters/{{chapter_slug}}/bones.md"           # stage 4 paragraph topics
+      required: true
+    - path: "chapters/{{chapter_slug}}/research.md"        # stage 6
+      required: true
+      min_verified_claims: 3
+    - path: "chapters/{{chapter_slug}}/external-stories.md" # stage 7
+      required: true
+      min_stories: 1
+    - path: "chapters/{{chapter_slug}}/personal-stories.md" # stage 8
+      required: true
+      min_stories: 1
+
+# ─── ME-WE-TRUTH-YOU-WE SLOT MAP ────────────────────────────
+# Each slot points at the artifact section(s) Quill should weave in.
+# This is the load-bearing structure — do not reorder.
+framework:
+  me:
+    target_words: {{me_words}}           # ~15% of chapter
+    draws_from:
+      - "personal-stories.md#opening-hook"
+  we:
+    target_words: {{we_words}}           # ~20%
+    draws_from:
+      - "external-stories.md"
+      - "base-story.md#shared-premise"
+  truth:
+    target_words: {{truth_words}}        # ~35% — the teaching spine
+    draws_from:
+      - "research.md#verified-claims"
+      - "outline.md#chapter-{{chapter_number}}-big-idea"
+  you:
+    target_words: {{you_words}}          # ~20% — reader-facing application
+    draws_from:
+      - "bones.md#application-paragraphs"
+  we_close:
+    target_words: {{we_close_words}}     # ~10% — shared resolution
+    draws_from:
+      - "personal-stories.md#closing-beat"
+
+# ─── GATE STATE ─────────────────────────────────────────────
+gate:
+  state: "pending"                       # pending | passed | failed
+  checks:
+    word_count_within_tolerance: null
+    all_sources_present: null
+    framework_slots_filled: null
+    voice_critic_score: null             # ≥ 3.5/5 from opposing-family critic
+    no_unverified_claims: null           # every factual claim traces to research.md
+  last_checked: null
+  checked_by: null
+---
+
+<!-- agent:quill
+  You are drafting Chapter {{chapter_number}}: "{{chapter_title}}".
+  Read ALL files listed in `sources` before writing a single sentence.
+  Follow the ME-WE-TRUTH-YOU-WE framework section order exactly.
+  Respect each slot's target_words within ±15%.
+  Cite research via inline anchors: [R:{claim_id}]. The editorial stage resolves them.
+  Cite stories via: [PS:{story_id}] (personal) or [ES:{story_id}] (external).
+  Do NOT invent facts. If a slot lacks source material, emit a TODO comment
+  and fail the `all_sources_present` gate check rather than hallucinate.
+  Chris's brain condenses — your job is to EXPAND. Prefer concrete examples,
+  specific numbers, named moments. No abstract throat-clearing.
+-->
+
+# Chapter {{chapter_number}}: {{chapter_title}}
+
+<!-- agent:quill section=me
+  Open with a first-person moment. Lived, specific, sensory.
+  Draw from personal-stories.md#opening-hook. Land the reader IN a scene
+  before they know what the chapter is about. Target: {{me_words}} words.
+-->
+## ME — The moment it hit me
+
+{{me_slot}}
+
+<!-- agent:quill section=we
+  Shift from "I" to "we." Show this is a shared human pattern, not just
+  your story. Weave at least one external story (ES:) with the shared
+  premise from base-story.md. Target: {{we_words}} words.
+-->
+## WE — You've been here too
+
+{{we_slot}}
+
+<!-- agent:quill section=truth
+  The teaching spine. This is where the chapter earns its keep.
+  Load-bearing claims MUST cite [R:claim_id] anchors from research.md.
+  Unpack the chapter's big idea from outline.md. Use the bones.md
+  paragraph topics as scaffolding but expand each beyond its seed.
+  Target: {{truth_words}} words. This is the longest slot.
+-->
+## TRUTH — What's actually going on
+
+{{truth_slot}}
+
+<!-- agent:quill section=you
+  Turn the teaching outward. Second person. Practical, applicable,
+  specific to the reader's situation. Draw application paragraphs
+  from bones.md#application-paragraphs. Target: {{you_words}} words.
+-->
+## YOU — What this means for you
+
+{{you_slot}}
+
+<!-- agent:quill section=we_close
+  Close the loop. Return to "we." Echo the opening ME scene with new
+  meaning. Draw from personal-stories.md#closing-beat. Leave the
+  reader with one concrete next action or reframe.
+  Target: {{we_close_words}} words.
+-->
+## WE — Where this leaves us
+
+{{we_close_slot}}
+
+---
+
+<!-- agent:quill section=sources_used
+  After drafting, list every source anchor you actually cited.
+  The editorial stage cross-checks this against research.md and fails
+  the `no_unverified_claims` gate if any [R:] anchor is missing.
+  Strip this block at typesetting (stage 11).
+-->
+<!-- SOURCES USED (stripped at publish)
+research_claims_cited: []
+external_stories_cited: []
+personal_stories_cited: []
+-->

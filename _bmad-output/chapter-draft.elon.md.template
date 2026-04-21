@@ -1,0 +1,247 @@
+---
+# ============================================================
+# IDENTITY
+# ============================================================
+template_id: chapter-draft.elon
+template_version: 1.0.0
+framework: elon
+framework_name: "First-Principles Demolition"
+framework_slot_count: 5
+framework_has_resolution: false   # load-bearing: no close beat
+authored_by: paige
+consumed_by: quill
+
+# ============================================================
+# LIFECYCLE
+# ============================================================
+stage: chapter_draft
+produces: chapter_manuscript_md
+blocks_on:
+  - knowledge_base_ready
+  - outline_locked
+  - framework_flow_resolved
+  - voice_pack_loaded
+
+# ============================================================
+# VOICE
+# ============================================================
+voice:
+  author_model: claude-sonnet-4-polish
+  critic_model: gpt-5-4
+  critic_family: openai            # cross-family per LLM routing philosophy
+  register: "confrontational engineer, unsentimental, analytical"
+  forbidden_moves:
+    - "motivational wrap-up"
+    - "teacher-mode reassurance"
+    - "adding a 'shared close' or resolution beat"
+    - "softening language ('maybe,' 'perhaps,' 'it could be')"
+  required_moves:
+    - "question the inherited practice by name"
+    - "separate real constraints from assumed ones"
+    - "rebuild from zero, not from the current state minus fixes"
+    - "end at build/test — no closing beat"
+
+# ============================================================
+# WORD BUDGET
+# ============================================================
+word_budget:
+  target_words: 2100
+  tolerance_pct: 15
+  min_words: 1785
+  max_words: 2415
+  slot_allocation:
+    why: 315              # 15% — interrogate the inherited practice
+    assumptions: 420      # 20% — name what's wrong
+    constraints: 420      # 20% — real vs. assumed, essential for rebuild
+    rebuild: 525          # 25% — design from zero, heaviest slot
+    test: 420             # 20% — terminal slot, substantive
+# Note: no 'resolution' allocation. Total = 100%. This is intentional.
+
+# ============================================================
+# CONSUMPTION CONTRACT
+# ============================================================
+consumption_contract:
+  input_sources:
+    book_scoped:
+      - knowledge_base
+      - market_viability_report
+      - voice_pack.elon
+      - style_guide
+    chapter_scoped:
+      - outline.chapter[{{chapter_number}}]
+      - research_artifacts[chapter={{chapter_number}}]
+      - framework_flow[chapter={{chapter_number}}, framework=elon]
+      - prior_chapter_close   # available but usually ignored; Elon rarely callbacks
+  output_artifact:
+    path: "books/{{book_slug}}/chapters/ch-{{chapter_number}}.draft.md"
+    format: markdown
+    frontmatter_required: true
+
+# ============================================================
+# FRAMEWORK SLOT MAP
+# ============================================================
+# Order is load-bearing. Elon flows: question → expose → distinguish
+# → rebuild → test. Chapter terminates at TEST. There is no sixth slot.
+framework_slot_map:
+  - slot: why
+    prompt: "Question the inherited practice — why done this way?"
+    h2: "WHY ARE WE DOING IT THIS WAY"
+  - slot: assumptions
+    prompt: "Call out which assumptions are wrong."
+    h2: "WHAT WE'VE BEEN ASSUMING"
+  - slot: constraints
+    prompt: "Distinguish real from assumed limits."
+    h2: "REAL CONSTRAINTS VS. ASSUMED ONES"
+  - slot: rebuild
+    prompt: "Design the best version from zero."
+    h2: "REBUILD FROM ZERO"
+  - slot: test
+    prompt: "Build and test quickly."
+    h2: "BUILD IT. TEST IT."
+
+# ============================================================
+# GATE STATE
+# ============================================================
+# NOTE: The Andy template's `resolution_present` gate is DELETED here
+# and REPLACED with `terminates_on_build_test`. Elon's framework
+# explicitly does not have a resolution beat; fabricating one would
+# violate the voice contract.
+gate_checks:
+  - id: word_count_within_tolerance
+    rule: "total_words BETWEEN min_words AND max_words"
+    blocking: true
+  - id: all_sources_present
+    rule: "every input_sources entry resolved and non-empty"
+    blocking: true
+  - id: framework_slots_filled
+    rule: "all 5 Elon slot tokens replaced; no {{why}}, {{assumptions}}, {{constraints}}, {{rebuild}}, {{test}} remain"
+    blocking: true
+  - id: terminates_on_build_test
+    rule: "the final rendered H2 is 'BUILD IT. TEST IT.'; no trailing resolution section, no closing paragraph outside the TEST slot, no bridge to next chapter"
+    blocking: true
+    replaces: resolution_present   # trace to Andy template gate being removed
+  - id: real_vs_assumed_distinguished
+    rule: "CONSTRAINTS section explicitly labels at least one real constraint AND at least one assumed constraint"
+    blocking: true
+  - id: rebuild_starts_from_zero
+    rule: "REBUILD section does not describe incremental fixes to the current system; it must describe a design that starts from the physical/logical minimum"
+    blocking: true
+  - id: voice_critic_score
+    rule: "critic_model approves ≥ 4.0/5 on confrontational-engineer register + no softening language"
+    blocking: true
+  - id: no_unverified_claims
+    rule: "all factual claims trace to research_artifacts or knowledge_base"
+    blocking: true
+---
+
+<!-- agent:quill
+ROLE: You are Quill drafting an Elon-voiced chapter using the
+First-Principles Demolition framework.
+
+CRITICAL — READ BEFORE DRAFTING:
+Do NOT bolt on a fake closing. The chapter ends at TEST by design.
+There is no resolution beat. There is no "shared close." There is no
+bridge to the next chapter. When you finish the TEST section, stop
+writing. The gate `terminates_on_build_test` will fail the draft
+otherwise.
+
+HARD RULES:
+1. Open by naming the inherited practice and asking why. Not
+   rhetorically — actually. "Because it always has" is not an answer.
+2. In ASSUMPTIONS, be specific about which assumption is wrong.
+   Vague gestures ("some assumptions may not hold") fail voice critic.
+3. In CONSTRAINTS, you MUST label real vs. assumed. Real = physics,
+   contracts, regulation, hard economics. Assumed = convention,
+   habit, "that's how the industry does it."
+4. In REBUILD, start from zero. You are not improving the existing
+   system. You are designing a new one that would, if built today,
+   solve the problem at the physical/logical minimum.
+5. In TEST, describe the smallest build that would falsify the
+   rebuild. Not a full rollout. A test. Then stop.
+
+CADENCE REFERENCE (imitate posture, not wording):
+"This isn't a resource problem. It's a design problem. You're trying
+to optimize a system that shouldn't exist in its current form.
+Let's break it down. Why does this process take so long? Not
+'because it always has.' What actually causes the delay?
+… Start from zero."
+
+SOURCES: Use only `framework_flow[chapter=N, framework=elon]`,
+the chapter's research_artifacts, and voice_pack.elon. Elon is
+specific about numbers and physics. If you cite a number, it must
+trace to research_artifacts.
+-->
+
+# Chapter {{chapter_number}}: {{chapter_title}}
+
+## WHY ARE WE DOING IT THIS WAY
+
+<!-- agent:quill section=why
+Name the inherited practice in the chapter's domain. Ask why it's
+done this way. Reject "because it always has" as an answer. The
+reader should feel, by the end of this section, that the practice
+they accepted yesterday is now on trial. Target: ~315 words. Cold
+open. No preamble.
+-->
+
+{{why}}
+
+## WHAT WE'VE BEEN ASSUMING
+
+<!-- agent:quill section=assumptions
+Enumerate the assumptions baked into the inherited practice. Be
+specific. For each assumption, state the assumption and then state
+whether it survives scrutiny. At least one must not survive — if all
+of them do, you're in the wrong chapter. Target: ~420 words.
+-->
+
+{{assumptions}}
+
+## REAL CONSTRAINTS VS. ASSUMED ONES
+
+<!-- agent:quill section=constraints
+Two explicit lists. "Real constraints" — physics, contracts,
+regulation, hard economics, time. "Assumed constraints" — convention,
+habit, industry practice, risk aversion dressed as prudence. Label
+each item. This labeling IS the section's value. Target: ~420 words.
+Gate `real_vs_assumed_distinguished` checks for both labels.
+-->
+
+{{constraints}}
+
+## REBUILD FROM ZERO
+
+<!-- agent:quill section=rebuild
+Start from the physical/logical minimum. Do not describe "fixes" to
+the current system. Describe the system that would exist if it were
+designed today, knowing what we now know, respecting only the real
+constraints (not the assumed ones). Be concrete. Specify components,
+flows, tradeoffs. Target: ~525 words. This is the heaviest slot.
+Gate `rebuild_starts_from_zero` will fail incremental-fix framing.
+-->
+
+{{rebuild}}
+
+## BUILD IT. TEST IT.
+
+<!-- agent:quill section=test
+Describe the smallest build that would falsify the rebuild. What's
+the minimum viable test? What outcome would prove the new design
+works? What outcome would prove it doesn't? Specify the cycle time
+— days or weeks, not quarters. Then STOP.
+
+DO NOT WRITE A CLOSING PARAGRAPH.
+DO NOT WRITE A BRIDGE TO THE NEXT CHAPTER.
+DO NOT WRITE "AND THAT'S HOW YOU…"
+DO NOT WRITE A SUMMARY.
+
+When the test is described, the chapter is finished. Target: ~420
+words. Gate `terminates_on_build_test` enforces this.
+-->
+
+{{test}}
+
+<!-- agent:quill
+END OF CHAPTER. The file ends here. Do not append anything after
+the TEST slot. The absence of a resolution is the voice.
+-->

@@ -1,0 +1,239 @@
+# ghostwritr.manifest.yaml
+# Single source of truth for the GHOSTWRITR pipeline.
+# LangGraph reads this to build the graph. Routers read this for model selection.
+# Agents read their own block to know who they are.
+#
+# Author: Winston (system architect roundtable, 2026-04-20)
+# Status: reference draft — move to repo root when Phase 3 of ship-plan.md begins.
+
+version: 1
+project: ghostwritr
+pipeline_id: book-to-manuscript.v1
+
+# Global conventions
+artifacts_root: ./books/{book_id}/artifacts
+routing_env_prefix: LLM_
+gate_types:
+  - auto            # agent runs, result auto-advances
+  - user-review     # user must read before advance (soft gate)
+  - user-committed  # user must explicitly commit (hard gate, irreversible)
+
+# ---------- Agents ----------
+
+agents:
+
+  - id: blueprint
+    display_name: Blueprint
+    role: Book Setup Facilitator
+    stage: 01
+    inputs: []
+    output:
+      path: "{artifacts_root}/01-book-setup/book-setup.md"
+      format: md
+    model_route: LLM_SETUP_FACILITATOR
+    gate: user-committed
+    depends_on: []
+
+  - id: mary
+    display_name: Mary
+    role: Market Viability Analyst
+    stage: 02
+    inputs:
+      - blueprint.output
+    output:
+      path: "{artifacts_root}/02-market-viability/market-viability.md"
+      format: md+frontmatter-data
+      data_schema: schemas/market-viability.schema.json
+    model_route: LLM_MARKET_ANALYST
+    gate: user-committed
+    gate_policy:
+      min_score: 3.5
+      scale: 5
+    depends_on: [blueprint]
+
+  - id: atlas
+    display_name: Atlas
+    role: Outline Architect
+    stage: 03
+    inputs:
+      - blueprint.output
+      - mary.output
+    output:
+      path: "{artifacts_root}/03-outline/outline.md"
+      format: md+json-sibling
+      data_ref: "{artifacts_root}/03-outline/outline.data.json"
+      data_schema: schemas/outline.schema.json
+    model_route: LLM_OUTLINE_AUTHOR
+    critic_route: LLM_OUTLINE_CRITIC   # different model family (voice critic rule)
+    gate: user-review
+    depends_on: [mary]
+
+  - id: skeleton
+    display_name: Skeleton
+    role: Paragraph Topic Planner
+    stage: 04
+    inputs:
+      - atlas.output
+    output:
+      path: "{artifacts_root}/04-paragraph-topics/{chapter_slug}.md"
+      format: md+json-sibling
+      per: chapter
+      data_ref: "{artifacts_root}/04-paragraph-topics/{chapter_slug}.data.json"
+      data_schema: schemas/paragraph-topics.schema.json
+    model_route: LLM_PARAGRAPH_PLANNER
+    gate: user-review
+    depends_on: [atlas]
+
+  - id: thread
+    display_name: Thread
+    role: Base Story Drafter
+    stage: 05
+    inputs:
+      - skeleton.output
+    output:
+      path: "{artifacts_root}/05-base-story/{chapter_slug}.md"
+      format: md
+      per: chapter
+    model_route: LLM_BASE_STORY_DRAFTER
+    gate: auto
+    depends_on: [skeleton]
+
+  - id: scout
+    display_name: Scout
+    role: Deep Research Agent
+    stage: 06
+    inputs:
+      - skeleton.output
+      - thread.output
+    output:
+      path: "{artifacts_root}/06-research/{chapter_slug}.md"
+      format: md+json-sibling
+      per: chapter
+      data_ref: "{artifacts_root}/06-research/{chapter_slug}.data.json"
+      data_schema: schemas/research.schema.json
+    model_route:
+      researcher: LLM_RESEARCH_RESEARCHER   # GPT-5.4 (grounding)
+      extractor:  LLM_RESEARCH_EXTRACTOR    # GPT-5.4-mini
+      verifier:   LLM_RESEARCH_VERIFIER     # Claude Haiku
+    gate: user-review
+    depends_on: [skeleton, thread]
+
+  - id: chronicle
+    display_name: Chronicle
+    role: External Stories Curator
+    stage: 07
+    inputs:
+      - skeleton.output
+      - scout.output
+    output:
+      path: "{artifacts_root}/07-external-stories/{chapter_slug}.md"
+      format: md+json-sibling
+      per: chapter
+      data_ref: "{artifacts_root}/07-external-stories/{chapter_slug}.data.json"
+      data_schema: schemas/external-stories.schema.json
+    model_route: LLM_EXTERNAL_STORIES_CURATOR
+    gate: user-review
+    depends_on: [scout]
+
+  - id: scribe
+    display_name: Scribe
+    role: Personal Stories Interviewer
+    stage: 08
+    inputs:
+      - skeleton.output
+      - blueprint.output
+    output:
+      path: "{artifacts_root}/08-personal-stories/{chapter_slug}.md"
+      format: md
+      per: chapter
+    model_route: LLM_PERSONAL_INTERVIEWER
+    gate: user-committed      # Chris's own memories — hard gate
+    depends_on: [skeleton]
+
+  - id: quill
+    display_name: Quill
+    role: Chapter Drafter
+    stage: 09
+    inputs:
+      - thread.output
+      - scout.output
+      - chronicle.output
+      - scribe.output
+      - skeleton.output
+    output:
+      path: "{artifacts_root}/09-drafts/{chapter_slug}.md"
+      format: md
+      per: chapter
+    model_route: LLM_CHAPTER_AUTHOR       # Claude Sonnet (prose)
+    critic_route: LLM_CHAPTER_CRITIC      # OpenAI or Gemini (different family)
+    gate: user-review
+    depends_on: [thread, scout, chronicle, scribe]
+
+  - id: reed
+    display_name: Reed
+    role: Editorial Pass
+    stage: 10
+    inputs:
+      - quill.output
+    output:
+      path: "{artifacts_root}/09-drafts/{chapter_slug}.md"   # rewrites in place
+      sidecar: "{artifacts_root}/10-editorial/{chapter_slug}.notes.md"
+      format: md
+      per: chapter
+      revision: true
+    model_route: LLM_EDITOR                # Claude Opus (final polish)
+    gate: user-committed
+    depends_on: [quill]
+
+  - id: press
+    display_name: Press
+    role: Typesetter & Builder
+    stage: 11
+    inputs:
+      - reed.output   # all chapters, committed
+    output:
+      path: "{artifacts_root}/11-manuscript/"
+      format: build
+      produces:
+        - manuscript.pdf
+        - manuscript.epub
+        - manuscript.docx
+    model_route: none      # mechanical stage, no LLM
+    gate: user-committed
+    depends_on: [reed]
+
+# ---------- Routing defaults ----------
+# Concrete model bindings live in .env as LLM_<KEY>=<provider>:<model>
+# Manifest only declares the keys; routing.ts resolves them.
+
+routing:
+  resolver: src/lib/routing/resolve.ts
+  env_file: .env
+  required_keys:
+    - LLM_SETUP_FACILITATOR
+    - LLM_MARKET_ANALYST
+    - LLM_OUTLINE_AUTHOR
+    - LLM_OUTLINE_CRITIC
+    - LLM_PARAGRAPH_PLANNER
+    - LLM_BASE_STORY_DRAFTER
+    - LLM_RESEARCH_RESEARCHER
+    - LLM_RESEARCH_EXTRACTOR
+    - LLM_RESEARCH_VERIFIER
+    - LLM_EXTERNAL_STORIES_CURATOR
+    - LLM_PERSONAL_INTERVIEWER
+    - LLM_CHAPTER_AUTHOR
+    - LLM_CHAPTER_CRITIC
+    - LLM_EDITOR
+
+# ---------- Gate policy ----------
+
+gate_policy:
+  user-review:
+    required_signals: [viewed]
+    auto_advance_after_hours: null
+  user-committed:
+    required_signals: [viewed, commit_clicked]
+    irreversible: true
+    creates_checkpoint: true
+  auto:
+    required_signals: []

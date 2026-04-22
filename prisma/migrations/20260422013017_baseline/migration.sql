@@ -8,7 +8,7 @@ CREATE TYPE "StageKey" AS ENUM ('BOOK_SETUP', 'PROMISE', 'AUDIENCE', 'MARKET_ANA
 CREATE TYPE "StageStatus" AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'READY_FOR_REVIEW', 'COMMITTED', 'BLOCKED');
 
 -- CreateEnum
-CREATE TYPE "ArtifactType" AS ENUM ('BOOK_SETUP_PROFILE', 'PROMISE_BRIEF', 'PROMISE_CHAT', 'PERSONA_PACK', 'MARKET_REPORT', 'POSITIONING_RECOMMENDATIONS', 'PROMISE_SCORECARD', 'OUTLINE', 'OUTLINE_EXPANSION', 'BASE_STORY', 'RESEARCH_PACK', 'STORY_PACK', 'EXTERNAL_STORY_PACK', 'PERSONAL_STORY_CHAT', 'PERSONAL_STORY_ENCYCLOPEDIA', 'CHAPTER_DRAFT', 'EDITORIAL_REVIEW', 'AI_VOICE_REVIEW', 'MANUSCRIPT_ASSEMBLY', 'LENGTH_ADJUSTMENT', 'PUBLISHING_PACKAGE', 'MARKETING_HANDOFF_PACKAGE', 'PROVENANCE_REPORT');
+CREATE TYPE "ArtifactType" AS ENUM ('BOOK_SETUP_PROFILE', 'PROMISE_BRIEF', 'PROMISE_CHAT', 'PERSONA_PACK', 'MARKET_REPORT', 'POSITIONING_RECOMMENDATIONS', 'PROMISE_SCORECARD', 'AUDIENCE_RESEARCH', 'CORE_TRUTHS', 'TRANSFORMATION_ARC', 'BOOK_PROMISE_REPORT', 'OUTLINE', 'OUTLINE_EXPANSION', 'CHAPTER_PARAGRAPH_PLAN', 'BASE_STORY', 'RESEARCH_PACK', 'STORY_PACK', 'EXTERNAL_STORY_PACK', 'PERSONAL_STORY_CHAT', 'PERSONAL_STORY_ENCYCLOPEDIA', 'CHAPTER_DRAFT', 'EDITORIAL_REVIEW', 'AI_VOICE_REVIEW', 'MANUSCRIPT_ASSEMBLY', 'LENGTH_ADJUSTMENT', 'PUBLISHING_PACKAGE', 'MARKETING_HANDOFF_PACKAGE', 'PROVENANCE_REPORT');
 
 -- CreateEnum
 CREATE TYPE "ArtifactStatus" AS ENUM ('DRAFT', 'REVIEW_READY', 'COMMITTED', 'SUPERSEDED');
@@ -81,6 +81,8 @@ CREATE TABLE "WriterPersona" (
     "voiceTraitsJson" JSONB NOT NULL DEFAULT '[]',
     "signaturePatternsJson" JSONB NOT NULL DEFAULT '[]',
     "avoidPatternsJson" JSONB NOT NULL DEFAULT '[]',
+    "frameworkFlowJson" JSONB NOT NULL DEFAULT '[]',
+    "frameworkName" TEXT,
     "sampleExcerpt" TEXT,
     "isBuiltIn" BOOLEAN NOT NULL DEFAULT false,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
@@ -472,6 +474,31 @@ CREATE TABLE "ExternalStoryVerification" (
     CONSTRAINT "ExternalStoryVerification_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "AuthorProfile" (
+    "id" UUID NOT NULL,
+    "userId" UUID,
+    "displayName" TEXT NOT NULL,
+    "backgroundSummary" TEXT,
+    "expertise" JSONB NOT NULL DEFAULT '[]',
+    "targetAudience" TEXT,
+    "tonePreference" TEXT,
+    "proseStyle" TEXT,
+    "preferredMetaphors" JSONB NOT NULL DEFAULT '[]',
+    "avoidPatterns" JSONB NOT NULL DEFAULT '[]',
+    "mustInclude" JSONB NOT NULL DEFAULT '[]',
+    "brandVoice" TEXT,
+    "characterNames" JSONB NOT NULL DEFAULT '[]',
+    "terminology" JSONB NOT NULL DEFAULT '[]',
+    "recurringMetaphors" JSONB NOT NULL DEFAULT '[]',
+    "styleGuideNotes" TEXT,
+    "isDefault" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AuthorProfile_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -588,6 +615,12 @@ CREATE INDEX "ExternalStoryVerification_externalStoryId_idx" ON "ExternalStoryVe
 
 -- CreateIndex
 CREATE INDEX "ExternalStoryVerification_status_verifierType_idx" ON "ExternalStoryVerification"("status", "verifierType");
+
+-- CreateIndex
+CREATE INDEX "AuthorProfile_userId_idx" ON "AuthorProfile"("userId");
+
+-- CreateIndex
+CREATE INDEX "AuthorProfile_isDefault_idx" ON "AuthorProfile"("isDefault");
 
 -- AddForeignKey
 ALTER TABLE "WriterPersonaSample" ADD CONSTRAINT "WriterPersonaSample_writerPersonaId_fkey" FOREIGN KEY ("writerPersonaId") REFERENCES "WriterPersona"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -735,3 +768,6 @@ ALTER TABLE "ExternalStoryVerification" ADD CONSTRAINT "ExternalStoryVerificatio
 
 -- AddForeignKey
 ALTER TABLE "ExternalStoryVerification" ADD CONSTRAINT "ExternalStoryVerification_externalStoryId_fkey" FOREIGN KEY ("externalStoryId") REFERENCES "ExternalStoryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AuthorProfile" ADD CONSTRAINT "AuthorProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

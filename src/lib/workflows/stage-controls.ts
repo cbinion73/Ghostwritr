@@ -1,17 +1,31 @@
 import { Prisma, StageKey, StageStatus } from "@prisma/client";
 
-import { getOrCreateBookBySlug, getStageForBook, updateStageForBook } from "../repositories/books";
+import { parseMetadataRecord } from "../artifact-schemas";
+import { getBookBySlugOrThrow, getStageForBook, updateStageForBook } from "../repositories/books";
 import { cancelActiveWorkflowRunsForStage } from "../repositories/workflow-runs";
-import { enqueueAndTriggerBaseStoryWorkflow } from "./base-story";
-import { enqueueAndTriggerFullExternalStoriesWorkflow } from "./external-stories";
-import { enqueueAndTriggerFullResearchWorkflow } from "./research";
 
-function parseMetadata(value: unknown) {
-  if (value && typeof value === "object") {
-    return value as Record<string, unknown>;
+const RETRYABLE_STAGES = new Set<StageKey>([
+  StageKey.BASE_STORY,
+  StageKey.RESEARCH,
+  StageKey.EXTERNAL_STORIES,
+]);
+
+const RESUMABLE_STAGES = new Set<StageKey>([StageKey.RESEARCH, StageKey.EXTERNAL_STORIES]);
+
+export function getStageControlCapabilities(stageKey?: StageKey | null) {
+  if (!stageKey) {
+    return {
+      canCancel: false,
+      canRetry: false,
+      canResumeFailed: false,
+    };
   }
 
-  return {};
+  return {
+    canCancel: RETRYABLE_STAGES.has(stageKey),
+    canRetry: RETRYABLE_STAGES.has(stageKey),
+    canResumeFailed: RESUMABLE_STAGES.has(stageKey),
+  };
 }
 
 function getFailedChapterKeys(metadata: Record<string, unknown>) {
@@ -42,9 +56,14 @@ function getProvisionalChapterKeys(metadata: Record<string, unknown>) {
 }
 
 export async function cancelStageWorkflow(bookSlug: string, stageKey: StageKey) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const capabilities = getStageControlCapabilities(stageKey);
+  if (!capabilities.canCancel) {
+    throw new Error(`Stop is not implemented for stage ${stageKey}.`);
+  }
+
+  const book = await getBookBySlugOrThrow(bookSlug);
   const stage = await getStageForBook(book.id, stageKey);
-  const metadata = parseMetadata(stage?.metadataJson);
+  const metadata = parseMetadataRecord(stage?.metadataJson);
 
   await cancelActiveWorkflowRunsForStage(book.id, stageKey, "Canceled by user.");
   await updateStageForBook(book.id, stageKey, {
@@ -65,20 +84,27 @@ export async function retryStageWorkflow(
   stageKey: StageKey,
   trigger: (runId: string) => void,
 ) {
+  const capabilities = getStageControlCapabilities(stageKey);
+  if (!capabilities.canRetry) {
+    throw new Error(`Retry is not implemented for stage ${stageKey}.`);
+  }
+
   await cancelStageWorkflow(bookSlug, stageKey);
 
   if (stageKey === StageKey.RESEARCH) {
+    const { enqueueAndTriggerFullResearchWorkflow } = await import("./research");
     return enqueueAndTriggerFullResearchWorkflow(bookSlug, trigger);
   }
 
   if (stageKey === StageKey.EXTERNAL_STORIES) {
+    const { enqueueAndTriggerFullExternalStoriesWorkflow } = await import("./external-stories");
     return enqueueAndTriggerFullExternalStoriesWorkflow(bookSlug, trigger);
   }
 
   if (stageKey === StageKey.BASE_STORY) {
+    const { enqueueAndTriggerBaseStoryWorkflow } = await import("./base-story");
     return enqueueAndTriggerBaseStoryWorkflow(bookSlug, trigger);
   }
-
   throw new Error(`Retry is not implemented for stage ${stageKey}.`);
 }
 
@@ -87,9 +113,14 @@ export async function resumeFailedStageWorkflow(
   stageKey: StageKey,
   trigger: (runId: string) => void,
 ) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const capabilities = getStageControlCapabilities(stageKey);
+  if (!capabilities.canResumeFailed) {
+    throw new Error(`Resume failed is not implemented for stage ${stageKey}.`);
+  }
+
+  const book = await getBookBySlugOrThrow(bookSlug);
   const stage = await getStageForBook(book.id, stageKey);
-  const metadata = parseMetadata(stage?.metadataJson);
+  const metadata = parseMetadataRecord(stage?.metadataJson);
   const failedChapterKeys = getFailedChapterKeys(metadata);
 
   if (failedChapterKeys.length === 0) {
@@ -108,6 +139,7 @@ export async function resumeFailedStageWorkflow(
   );
 
   if (stageKey === StageKey.RESEARCH) {
+    const { enqueueAndTriggerFullResearchWorkflow } = await import("./research");
     return enqueueAndTriggerFullResearchWorkflow(bookSlug, trigger, {
       chapterKeys: failedChapterKeys,
       preserveCompletedCount: Math.min(preservedCompletedCount, totalChapters),
@@ -116,6 +148,7 @@ export async function resumeFailedStageWorkflow(
   }
 
   if (stageKey === StageKey.EXTERNAL_STORIES) {
+    const { enqueueAndTriggerFullExternalStoriesWorkflow } = await import("./external-stories");
     return enqueueAndTriggerFullExternalStoriesWorkflow(bookSlug, trigger, {
       chapterKeys: failedChapterKeys,
       preserveCompletedCount: Math.min(preservedCompletedCount, totalChapters),

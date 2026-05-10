@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 import { commitBaseStoryStage, runBaseStoryStage } from "./actions";
-import { ResearchAutoRefresh } from "../research/auto-refresh";
 
 import { STAGE_LINKS } from "@/lib/navigation";
+import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { getBaseStoryWorkspace } from "@/lib/workflows/base-story";
 
 export default async function BaseStoryStagePage({
@@ -17,16 +17,16 @@ export default async function BaseStoryStagePage({
   const isAutoRefreshing =
     workspace.progress.automationStatus === "queued" ||
     workspace.progress.automationStatus === "running";
+  const staleDependency = getStaleDependencyState(workspace.stage?.metadataJson);
 
   return (
     <div className="page-shell">
-      <ResearchAutoRefresh active={isAutoRefreshing} />
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
           <p className="muted">
-            Shape the narrative thread that ties the entire book together while
-            staying independent from Research and External Stories.
+            Build the common story thread that unifies the whole book chapter by chapter
+            before evidence and examples are layered in.
           </p>
         </div>
 
@@ -60,6 +60,14 @@ export default async function BaseStoryStagePage({
             <div className="muted">
               A chapter-by-chapter story spine that ties the whole manuscript together.
             </div>
+            {staleDependency ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                <div>Stale: {staleDependency.reason}</div>
+                <div style={{ marginTop: 6 }}>
+                  Recommended recovery: {getStaleDependencyRecoveryHint(workspace.stage?.stageKey)}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="button-row">
@@ -71,7 +79,7 @@ export default async function BaseStoryStagePage({
             </Link>
             <form action={runBaseStoryStage.bind(null, slug)}>
               <button className="btn" disabled={!workspace.outlineReady} type="submit">
-                Regenerate Base Story
+                {bundle ? "Regenerate Base Story" : "Generate Base Story"}
               </button>
             </form>
             <form action={commitBaseStoryStage.bind(null, slug)}>
@@ -87,7 +95,8 @@ export default async function BaseStoryStagePage({
             <div className="section-header">
               <h3>Narrative Options</h3>
               <div className="muted">
-                The format is chosen from the Book Promise and Outline, but alternatives stay visible.
+                The structure is chosen from the Promise and Outline so the book carries one
+                unifying narrative thread from chapter to chapter.
               </div>
             </div>
 
@@ -98,6 +107,11 @@ export default async function BaseStoryStagePage({
                   <div className="metric">State: {workspace.progress.automationStatus.replace(/_/g, " ")}</div>
                   <div className="metric">Chapters: {workspace.progress.completedChapters}/{workspace.progress.totalChapters}</div>
                 </div>
+                {isAutoRefreshing ? (
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    Base Story is running. Refresh manually to see the latest progress.
+                  </div>
+                ) : null}
               </div>
 
               {bundle ? (

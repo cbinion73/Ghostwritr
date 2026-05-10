@@ -182,7 +182,16 @@
       "Bash(tee /tmp/dev-server.log)",
       "Bash(curl -s http://localhost:3000 -o /dev/null -w \"Status: %{http_code}\\\\n\")",
       "Bash(curl -s http://localhost:3001 -o /dev/null -w \"Status: %{http_code}\\\\n\")",
-      "Bash(curl -s http://localhost:3001/books/4-pillars/research -I)"
+      "Bash(curl -s http://localhost:3001/books/4-pillars/research -I)",
+      "Bash(npx bmad-method *)",
+      "Bash(psql *)",
+      "Bash(node *)",
+      "Bash(npx tsx *)",
+      "Bash(curl *)",
+      "Bash(git diff *)",
+      "Bash(git tag -a checkpoint/post-voice-framework -m ' *)",
+      "Bash(git tag *)",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=yes npx prisma migrate reset --force --skip-seed)"
     ]
   }
 }

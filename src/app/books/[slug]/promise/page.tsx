@@ -25,6 +25,9 @@ export default async function PromiseStagePage({
   const resolvedSearchParams = await searchParams;
   const workspace = await getPromiseWorkspace(slug);
   const isCommitted = workspace.stage?.status === "COMMITTED";
+  const allPromiseSectionsApproved = Object.values(workspace.phaseApprovals).every(
+    (phase) => phase.status === "approved",
+  );
 
   // Show wizard only if explicitly requested via ?wizard=true query param
   const showWizard = resolvedSearchParams?.wizard === "true";
@@ -37,7 +40,7 @@ export default async function PromiseStagePage({
         <div style={styles.brandMark}>
           <h1 style={styles.brandTitle}>GHOSTWRITR</h1>
           <p style={styles.brandDescription}>
-            Book promise refinement workspace
+            Research and refine the book's strategic foundation before drafting begins.
           </p>
         </div>
 
@@ -73,7 +76,11 @@ export default async function PromiseStagePage({
             </button>
           </form>
           <form action={commitPromiseStage.bind(null, slug)}>
-            <button style={{ ...styles.btnSmall, ...styles.btnPrimary }} type="submit">
+            <button
+              disabled={!isCommitted && !allPromiseSectionsApproved}
+              style={{ ...styles.btnSmall, ...styles.btnPrimary }}
+              type="submit"
+            >
               {isCommitted ? "Recommit" : "Commit Promise"}
             </button>
           </form>
@@ -86,9 +93,9 @@ export default async function PromiseStagePage({
         <div style={styles.topBar} className="glass-panel">
           <div>
             <div style={styles.label}>Stage Workspace</div>
-            <h2 style={styles.stageTitle}>Book Promise</h2>
+            <h2 style={styles.stageTitle}>Promise</h2>
             <p style={styles.stageDescription}>
-              Refine the promise conversationally
+              Research, refine, and validate the book's core direction conversationally.
             </p>
           </div>
           <Link style={styles.btnLink} href={`/books/${slug}/files`}>

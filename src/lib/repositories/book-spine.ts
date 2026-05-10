@@ -1,4 +1,4 @@
-import type { StageKey, StageStatus } from "@prisma/client";
+import type { BookWorkflowType, StageKey, StageStatus } from "@prisma/client";
 
 import { db } from "../db";
 
@@ -16,6 +16,7 @@ export type SpineData = {
     slug: string;
     titleWorking: string | null;
     subtitle: string | null;
+    workflowType: BookWorkflowType;
   };
   stages: SpineStageRow[];
 };
@@ -34,6 +35,7 @@ export async function getBookSpine(slug: string): Promise<SpineData | null> {
       slug: true,
       titleWorking: true,
       subtitle: true,
+      workflowType: true,
       stages: {
         select: {
           id: true,
@@ -74,6 +76,7 @@ export async function getBookSpine(slug: string): Promise<SpineData | null> {
       slug: book.slug,
       titleWorking: book.titleWorking,
       subtitle: book.subtitle,
+      workflowType: book.workflowType,
     },
     stages,
   };

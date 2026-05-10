@@ -3,6 +3,14 @@ import path from "node:path";
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 
+import {
+  BaseStoryBundleSchema,
+  BookOutlineSchema,
+  ChapterExternalStoryDossierSchema,
+  ParagraphOutlineSchema,
+  parseArtifactWithSchema,
+  parseMetadataRecord,
+} from "../artifact-schemas";
 import { getModelForRole, resolveModelSpec } from "../llm/routing";
 import {
   ArtifactStatus,
@@ -16,6 +24,7 @@ import { z } from "zod";
 
 import type { BookOutline } from "../outline-types";
 import type { ParagraphOutline } from "../paragraph-outline-types";
+import type { BaseStoryBundle } from "../base-story-types";
 import type {
   ChapterExternalStoryDossier,
   ChapterExternalStoryItem,
@@ -26,6 +35,7 @@ import type {
   StorySourceTier,
 } from "../external-story-types";
 import {
+  getBookBySlugOrThrow,
   getOrCreateBookBySlug,
   getStageForBook,
   updateStageForBook,
@@ -47,9 +57,13 @@ import {
   createExternalStoryPackVersion,
   getCommittedExternalStoryPack,
   getExternalStoriesForVersion,
+  getExternalStoriesForVersions,
   getExternalStoryPackVersions,
+  getExternalStorySourcesForVersions,
   getExternalStorySourcesForVersion,
   getExternalStoryVerificationsForChapter,
+  getExternalStoryVerificationsForChapters,
+  getLatestExternalStoryPackVersionsByChapter,
 } from "../repositories/external-stories-artifacts";
 import {
   claimWorkflowRun,
@@ -63,11 +77,13 @@ import {
   getCommittedOutline,
   getCommittedOutlineExpansion,
 } from "../repositories/outline-artifacts";
+import { getCommittedBaseStory } from "../repositories/base-story-artifacts";
 import {
   fetchWebPage,
   searchWeb,
   summarizeSearchAttempts,
 } from "../web-access";
+import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
 import { runQualityAgentWorkflow } from "./quality-agent";
 
 type ChapterSeed = {
@@ -77,6 +93,9 @@ type ChapterSeed = {
   chapterDescription: string;
   sectionId?: string;
   sectionTitle?: string;
+  baseStoryChapterPurpose?: string;
+  baseStoryChapterThread?: string;
+  baseStoryBookThread?: string;
 };
 
 type CandidateSource = {
@@ -307,7 +326,7 @@ async function pulseExternalStoriesStage(input: {
   message: string;
 }) {
   const stage = await getStageForBook(input.bookId, StageKey.EXTERNAL_STORIES);
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  const metadata = parseMetadataRecord(stage?.metadataJson);
 
   await updateStageForBook(input.bookId, StageKey.EXTERNAL_STORIES, {
     metadataJson: {
@@ -468,15 +487,23 @@ async function saveSnapshot(bookSlug: string, chapterKey: string, title: string,
 }
 
 async function getChapterSeeds(bookId: string) {
-  const outlineVersion = await getCommittedOutline(bookId);
-  const paragraphVersion = await getCommittedOutlineExpansion(bookId);
-  const outline = parseJson<BookOutline | null>(outlineVersion?.contentJson, null);
-  const paragraph = parseJson<ParagraphOutline | null>(paragraphVersion?.contentJson, null);
+  const [outlineVersion, paragraphVersion, baseStoryVersion] = await Promise.all([
+    getCommittedOutline(bookId),
+    getCommittedOutlineExpansion(bookId),
+    getCommittedBaseStory(bookId),
+  ]);
+  const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
+  const paragraph = parseArtifactWithSchema(paragraphVersion?.contentJson, ParagraphOutlineSchema);
+  const baseStory = parseArtifactWithSchema(baseStoryVersion?.contentJson, BaseStoryBundleSchema);
+  const baseStoryChapters = new Map(
+    (baseStory?.chapters ?? []).map((chapter) => [chapter.chapterKey, chapter]),
+  );
 
   if (paragraph) {
     return {
       outline,
       paragraph,
+      baseStory,
       chapterSeeds: paragraph.sections.flatMap((section) =>
         section.chapters.map((chapter) => ({
           chapterKey: chapter.chapterId,
@@ -485,6 +512,9 @@ async function getChapterSeeds(bookId: string) {
           chapterDescription: chapter.chapterDescription,
           sectionId: section.sectionId,
           sectionTitle: section.sectionTitle,
+          baseStoryChapterPurpose: baseStoryChapters.get(chapter.chapterId)?.chapterPurpose,
+          baseStoryChapterThread: baseStoryChapters.get(chapter.chapterId)?.chapterStory,
+          baseStoryBookThread: baseStory?.bookThread,
         })),
       ),
     };
@@ -493,6 +523,7 @@ async function getChapterSeeds(bookId: string) {
   return {
     outline,
     paragraph,
+    baseStory,
     chapterSeeds:
       outline?.sections.flatMap((section) =>
         section.chapters.map((chapter) => ({
@@ -502,6 +533,9 @@ async function getChapterSeeds(bookId: string) {
           chapterDescription: chapter.description,
           sectionId: section.id,
           sectionTitle: section.title,
+          baseStoryChapterPurpose: baseStoryChapters.get(chapter.id)?.chapterPurpose,
+          baseStoryChapterThread: baseStoryChapters.get(chapter.id)?.chapterStory,
+          baseStoryBookThread: baseStory?.bookThread,
         })),
       ) ?? [],
   };
@@ -514,6 +548,9 @@ async function discoverCandidateSources(chapter: ChapterSeed) {
   const descSlice = chapter.chapterDescription.slice(0, 120);
   const queries = [
     `${chapter.chapterTitle} leader company case study`,
+    ...(chapter.baseStoryChapterThread
+      ? [chapter.baseStoryChapterThread.replace(/\s+/g, " ").slice(0, 120)]
+      : []),
     `${chapter.chapterTitle} inspiring leadership story`,
     `${chapter.chapterTitle} true company turnaround story`,
     `${chapter.chapterTitle} crisis leadership example`,
@@ -665,6 +702,9 @@ async function extractStories(chapter: ChapterSeed, source: FetchedSource): Prom
         JSON.stringify({
           chapterTitle: chapter.chapterTitle,
           chapterDescription: chapter.chapterDescription,
+          baseStoryChapterPurpose: chapter.baseStoryChapterPurpose ?? null,
+          baseStoryChapterThread: chapter.baseStoryChapterThread ?? null,
+          baseStoryBookThread: chapter.baseStoryBookThread ?? null,
           sourceTitle: source.title,
           sourceUrl: source.canonicalUrl ?? source.url,
           // Was slice(0, 18000) — truncated mid-sentence and lost most
@@ -849,7 +889,10 @@ function buildDossier(chapter: ChapterSeed, sources: ChapterExternalStorySource[
 
 export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapterKey: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
-  const { chapterSeeds } = await getChapterSeeds(book.id);
+  const { chapterSeeds, baseStory } = await getChapterSeeds(book.id);
+  if (!baseStory) {
+    throw new Error("A committed Base Story is required before External Stories can run.");
+  }
   const chapter = chapterSeeds.find((item) => item.chapterKey === chapterKey);
   if (!chapter) {
     throw new Error(`Committed chapter ${chapterKey} was not found for External Stories.`);
@@ -1015,7 +1058,10 @@ export async function runFullExternalStoriesWorkflow(
   options: ExternalStoriesRunOptions = {},
 ) {
   const book = await getOrCreateBookBySlug(bookSlug);
-  const { chapterSeeds: allChapterSeeds } = await getChapterSeeds(book.id);
+  const { chapterSeeds: allChapterSeeds, baseStory } = await getChapterSeeds(book.id);
+  if (!baseStory) {
+    throw new Error("A committed Base Story is required before External Stories can run.");
+  }
   const requestedChapterKeys = new Set(options.chapterKeys ?? []);
   const chapterSeeds =
     requestedChapterKeys.size > 0
@@ -1256,13 +1302,83 @@ export async function enqueueAndTriggerFullExternalStoriesWorkflow(
 
 export async function commitChapterExternalStoriesWorkflow(bookSlug: string, chapterKey: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
-  return commitExternalStoryPack(book.id, chapterKey);
+  const result = await commitExternalStoryPack(book.id, chapterKey);
+  await clearStageStaleDependency(bookSlug, StageKey.EXTERNAL_STORIES);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.EXTERNAL_STORIES);
+  return result;
 }
 
-export async function getExternalStoriesWorkspace(bookSlug: string, selectedTabId?: string) {
+export async function commitAllExternalStoriesWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const stage = await getStageForBook(book.id, StageKey.EXTERNAL_STORIES);
   const { chapterSeeds } = await getChapterSeeds(book.id);
+
+  if (chapterSeeds.length === 0) {
+    throw new Error("No committed outline chapters are available for External Stories commit.");
+  }
+
+  const committedChapterKeys: string[] = [];
+  const missingChapterKeys: string[] = [];
+  const latestVersionsByChapter = await getLatestExternalStoryPackVersionsByChapter(
+    book.id,
+    chapterSeeds.map((chapter) => chapter.chapterKey),
+  );
+
+  for (const chapter of chapterSeeds) {
+    const latestVersion = latestVersionsByChapter.get(chapter.chapterKey) ?? null;
+    if (!latestVersion) {
+      missingChapterKeys.push(chapter.chapterKey);
+      continue;
+    }
+
+    if (latestVersion.lifecycleState !== ArtifactStatus.COMMITTED) {
+      await commitExternalStoryPack(book.id, chapter.chapterKey);
+    }
+
+    committedChapterKeys.push(chapter.chapterKey);
+  }
+
+  const metadata = parseMetadataRecord(stage?.metadataJson);
+  const now = new Date().toISOString();
+
+  await updateStageForBook(book.id, StageKey.EXTERNAL_STORIES, {
+    status:
+      missingChapterKeys.length === 0 ? StageStatus.COMMITTED : StageStatus.READY_FOR_REVIEW,
+    committedAt: missingChapterKeys.length === 0 ? new Date() : undefined,
+    metadataJson: {
+      ...metadata,
+      automationStatus: missingChapterKeys.length === 0 ? "committed" : "ready_for_review",
+      currentAction:
+        missingChapterKeys.length === 0
+          ? "All external stories dossiers committed"
+          : `Committed ${committedChapterKeys.length} external story dossiers. ${missingChapterKeys.length} still missing.`,
+      totalChapters: chapterSeeds.length,
+      completedChapters: committedChapterKeys.length,
+      failedChapters: [],
+      currentChapterKey: null,
+      recentActivity: recentActivity(
+        Array.isArray(metadata.recentActivity)
+          ? (metadata.recentActivity as Array<{ at: string; message: string }>)
+          : undefined,
+        missingChapterKeys.length === 0
+          ? "Committed all external stories dossiers."
+          : `Committed all available external stories dossiers. Missing: ${missingChapterKeys.join(", ")}`,
+      ),
+      lastRunAt: now,
+    } as Prisma.InputJsonValue,
+  });
+
+  return {
+    committedChapterKeys,
+    missingChapterKeys,
+    totalChapters: chapterSeeds.length,
+  };
+}
+
+export async function getExternalStoriesWorkspace(bookSlug: string, selectedTabId?: string) {
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const stage = await getStageForBook(book.id, StageKey.EXTERNAL_STORIES);
+  const { chapterSeeds, baseStory } = await getChapterSeeds(book.id);
   await syncExternalStoryBinderTabs(
     book.id,
     chapterSeeds.map(({ chapterKey, chapterLabel }) => ({ chapterKey, chapterLabel })),
@@ -1271,68 +1387,114 @@ export async function getExternalStoriesWorkspace(bookSlug: string, selectedTabI
   const tabs = await listExternalStoryBinderTabs(book.id);
   const selectedTab = tabs.find((tab) => tab.id === selectedTabId) ?? tabs[0] ?? null;
   const chapterMap = new Map(chapterSeeds.map((chapter) => [chapter.chapterKey, chapter]));
-
-  const tabsWithSummary = await Promise.all(
-    tabs.map(async (tab) => {
-      const chapterKeys = getExternalStoryBinderChapterKeys(tab.chapterKeysJson);
-      const versions = await Promise.all(
-        chapterKeys.map(async (chapterKey) => {
-          const version = (await getExternalStoryPackVersions(book.id, chapterKey, 1))[0] ?? null;
-          const dossier = version
-            ? parseJson<ChapterExternalStoryDossier | null>(version.contentJson, null)
-            : null;
-          return { version, dossier };
-        }),
-      );
-
-      return {
-        ...tab,
-        chapterKeys,
-        summary: {
-          chapterCount: chapterKeys.length,
-          storyCount: versions.reduce((sum, entry) => sum + (entry.dossier?.verificationSummary.totalStories ?? 0), 0),
-          verifiedStoryCount: versions.reduce((sum, entry) => sum + (entry.dossier?.verificationSummary.verifiedStories ?? 0), 0),
-          ideaCount: tab.storyClips.length,
-          status:
-            versions.every((entry) => entry.version?.lifecycleState === ArtifactStatus.COMMITTED)
-              ? "COMMITTED"
-              : versions.some((entry) => entry.dossier)
-                ? "DRAFT"
-                : "EMPTY",
-        },
-      };
-    }),
+  const allChapterKeys = Array.from(
+    new Set(
+      tabs.flatMap((tab) => getExternalStoryBinderChapterKeys(tab.chapterKeysJson)),
+    ),
   );
+  const latestVersionsByChapter = await getLatestExternalStoryPackVersionsByChapter(
+    book.id,
+    allChapterKeys,
+  );
+
+  const tabsWithSummary = tabs.map((tab) => {
+    const chapterKeys = getExternalStoryBinderChapterKeys(tab.chapterKeysJson);
+    const versions = chapterKeys.map((chapterKey) => {
+      const version = latestVersionsByChapter.get(chapterKey) ?? null;
+      const dossier = version
+        ? parseArtifactWithSchema(version.contentJson, ChapterExternalStoryDossierSchema)
+        : null;
+      return { version, dossier, invalidArtifact: Boolean(version && !dossier) };
+    });
+
+    return {
+      ...tab,
+      chapterKeys,
+      summary: {
+        chapterCount: chapterKeys.length,
+        storyCount: versions.reduce((sum, entry) => sum + (entry.dossier?.verificationSummary.totalStories ?? 0), 0),
+        verifiedStoryCount: versions.reduce((sum, entry) => sum + (entry.dossier?.verificationSummary.verifiedStories ?? 0), 0),
+        ideaCount: tab.storyClips.length,
+        status:
+          versions.every((entry) => entry.version?.lifecycleState === ArtifactStatus.COMMITTED)
+            ? "COMMITTED"
+            : versions.some((entry) => entry.dossier)
+              ? "DRAFT"
+              : "EMPTY",
+      },
+    };
+  });
 
   const selected = tabsWithSummary.find((tab) => tab.id === selectedTab?.id) ?? null;
   const selectedChapterKeys = selected?.chapterKeys ?? [];
-  const dossierEntries = await Promise.all(
-    selectedChapterKeys.map(async (chapterKey) => {
-      const version = (await getExternalStoryPackVersions(book.id, chapterKey, 1))[0] ?? null;
-      const dossier = version
-        ? parseJson<ChapterExternalStoryDossier | null>(version.contentJson, null)
-        : null;
-      const sources = version ? await getExternalStorySourcesForVersion(version.id) : [];
-      const stories = version ? await getExternalStoriesForVersion(version.id) : [];
-      const verifications = await getExternalStoryVerificationsForChapter(book.id, chapterKey);
+  const selectedVersions = selectedChapterKeys
+    .map((chapterKey) => latestVersionsByChapter.get(chapterKey) ?? null)
+    .filter((version): version is NonNullable<typeof version> => Boolean(version));
+  const selectedVersionIds = [...new Set(selectedVersions.map((version) => version.id))];
+  const [selectedSources, selectedStories, selectedVerifications] = await Promise.all([
+    getExternalStorySourcesForVersions(selectedVersionIds),
+    getExternalStoriesForVersions(selectedVersionIds),
+    getExternalStoryVerificationsForChapters(book.id, selectedChapterKeys),
+  ]);
 
-      return {
-        chapter: chapterMap.get(chapterKey) ?? {
-          chapterKey,
-          chapterLabel: chapterKey,
-          chapterTitle: chapterKey,
-          chapterDescription: "",
-        },
-        version,
-        dossier,
-        sources,
-        stories,
-        verifications,
-      };
-    }),
-  );
+  const sourcesByVersion = new Map<string, typeof selectedSources>();
+  const storiesByVersion = new Map<string, typeof selectedStories>();
+  const verificationsByChapter = new Map<string, typeof selectedVerifications>();
 
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  for (const source of selectedSources) {
+    if (!source.storyArtifactVersionId) {
+      continue;
+    }
+    const current = sourcesByVersion.get(source.storyArtifactVersionId) ?? [];
+    current.push(source);
+    sourcesByVersion.set(source.storyArtifactVersionId, current);
+  }
+
+  for (const story of selectedStories) {
+    if (!story.storyArtifactVersionId) {
+      continue;
+    }
+    const current = storiesByVersion.get(story.storyArtifactVersionId) ?? [];
+    current.push(story);
+    storiesByVersion.set(story.storyArtifactVersionId, current);
+  }
+
+  for (const verification of selectedVerifications) {
+    const current = verificationsByChapter.get(verification.chapterKey) ?? [];
+    current.push(verification);
+    verificationsByChapter.set(verification.chapterKey, current);
+  }
+
+  const dossierEntries = selectedChapterKeys.map((chapterKey) => {
+    const version = latestVersionsByChapter.get(chapterKey) ?? null;
+    const dossier = version
+      ? parseArtifactWithSchema(version.contentJson, ChapterExternalStoryDossierSchema)
+      : null;
+
+    return {
+      chapter: chapterMap.get(chapterKey) ?? {
+        chapterKey,
+        chapterLabel: chapterKey,
+        chapterTitle: chapterKey,
+        chapterDescription: "",
+      },
+      version,
+      dossier,
+      invalidArtifact: Boolean(version && !dossier),
+      sources: version ? sourcesByVersion.get(version.id) ?? [] : [],
+      stories: version ? storiesByVersion.get(version.id) ?? [] : [],
+      verifications: verificationsByChapter.get(chapterKey) ?? [],
+    };
+  });
+
+  const invalidArtifactWarnings = dossierEntries
+    .filter((entry) => entry.invalidArtifact)
+    .map(
+      (entry) =>
+        `${entry.chapter.chapterLabel} has a saved external-story dossier version that no longer matches the expected schema. Regenerate this vault before relying on it downstream.`,
+    );
+
+  const metadata = parseMetadataRecord(stage?.metadataJson);
 
   return {
     book,
@@ -1340,7 +1502,9 @@ export async function getExternalStoriesWorkspace(bookSlug: string, selectedTabI
     tabs: tabsWithSummary,
     selectedTab: selected,
     availableChapters: chapterSeeds,
+    baseStoryReady: Boolean(baseStory),
     dossierEntries,
+    invalidArtifactWarnings,
     progress: {
       totalChapters: typeof metadata.totalChapters === "number" ? metadata.totalChapters : chapterSeeds.length,
       completedChapters: typeof metadata.completedChapters === "number" ? metadata.completedChapters : tabsWithSummary.filter((tab) => tab.summary.storyCount > 0).length,
@@ -1353,27 +1517,27 @@ export async function getExternalStoriesWorkspace(bookSlug: string, selectedTabI
 }
 
 export async function addExternalStoryBinderTabWorkflow(bookSlug: string, label: string, chapterKey?: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   return createExternalStoryBinderTab(book.id, label, chapterKey ? [chapterKey] : []);
 }
 
 export async function renameExternalStoryBinderTabWorkflow(bookSlug: string, tabId: string, label: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   return renameExternalStoryBinderTab(book.id, tabId, label);
 }
 
 export async function archiveExternalStoryBinderTabWorkflow(bookSlug: string, tabId: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   return archiveExternalStoryBinderTab(book.id, tabId);
 }
 
 export async function combineExternalStoryBinderTabsWorkflow(bookSlug: string, sourceTabId: string, targetTabId: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   return combineExternalStoryBinderTabs(book.id, sourceTabId, targetTabId);
 }
 
 export async function separateExternalStoryBinderTabWorkflow(bookSlug: string, sourceTabId: string, chapterKey: string, newLabel: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   return separateExternalStoryBinderTab(book.id, sourceTabId, chapterKey, newLabel);
 }
 
@@ -1384,7 +1548,7 @@ export async function addExternalStoryClipWorkflow(input: {
   title?: string;
   content: string;
 }) {
-  const book = await getOrCreateBookBySlug(input.bookSlug);
+  const book = await getBookBySlugOrThrow(input.bookSlug);
   return createExternalStoryClip({
     bookId: book.id,
     binderTabId: input.tabId,
@@ -1395,6 +1559,6 @@ export async function addExternalStoryClipWorkflow(input: {
 }
 
 export async function deleteExternalStoryClipWorkflow(bookSlug: string, clipId: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   return deleteExternalStoryClip(book.id, clipId);
 }

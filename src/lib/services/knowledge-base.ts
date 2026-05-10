@@ -16,6 +16,11 @@ export interface KnowledgeChunk {
   relevanceScore?: number;
 }
 
+type KnowledgeBaseSource = {
+  title: string;
+  extractedText: string | null;
+};
+
 /**
  * Process and extract text from an uploaded document
  * Stores the extracted text for full-text search
@@ -169,6 +174,13 @@ export async function getBookKnowledgeBase(
     },
   });
 
+  return selectKnowledgeBaseContent(documents, maxLength);
+}
+
+export function selectKnowledgeBaseContent(
+  documents: KnowledgeBaseSource[],
+  maxLength: number,
+): { content: string; sourceCount: number } {
   let totalContent = "";
   let includedCount = 0;
 
@@ -178,6 +190,12 @@ export async function getBookKnowledgeBase(
     const docSection = `\n---\nSource: ${doc.title}\n---\n${doc.extractedText}\n`;
 
     if (totalContent.length + docSection.length > maxLength) {
+      // If the newest document is too large on its own, skip it and keep looking
+      // for smaller sources so we still preserve some grounding.
+      if (includedCount === 0) {
+        continue;
+      }
+
       break;
     }
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { toggleBookFileAction, uploadBookFileAction } from "./actions";
 
-import { getOrCreateBookBySlug } from "@/lib/repositories/books";
+import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { listBookSourceDocuments } from "@/lib/repositories/source-documents";
 
 function getStageLabel(stageKey: string | null) {
@@ -23,7 +23,7 @@ export default async function BookFilesPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const files = await listBookSourceDocuments({ bookId: book.id });
 
   return (

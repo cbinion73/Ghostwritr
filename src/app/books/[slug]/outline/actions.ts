@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, StageKey, StageStatus } from "@prisma/client";
 
+import { BookOutlineSchema, parseArtifactWithSchema } from "@/lib/artifact-schemas";
 import { getModelForRole } from "@/lib/llm/routing";
 import { BookOutline, OutlineChapter } from "@/lib/outline-types";
 import {
@@ -25,7 +26,7 @@ import {
   normalizeOutlinePhaseApprovals,
   normalizeOutlinePhaseChats,
 } from "@/lib/workflows/outline-toc";
-import { getOrCreateBookBySlug, getStageForBook, updateStageForBook } from "@/lib/repositories/books";
+import { getBookBySlugOrThrow, getStageForBook, updateStageForBook } from "@/lib/repositories/books";
 import { saveChapterParagraphPlan } from "@/lib/repositories/chapter-paragraph-artifacts";
 import { getCommittedOutline } from "@/lib/repositories/outline-artifacts";
 import { ActorType } from "@prisma/client";
@@ -49,7 +50,7 @@ async function appendOutlineChatMessages(
     createdAt: string;
   }>,
 ) {
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const stageMetadata = stageMetadataRecord(stage?.metadataJson) as Record<string, unknown>;
   const chats = appendOutlinePhaseChats(
@@ -106,7 +107,7 @@ function buildOutlineFallbackReply(input: {
   const focus = input.targetLabel ? ` for ${input.targetLabel}` : "";
 
   if (input.phase === "sectionsChapters") {
-    return `I tried to update Phase 1${focus}, but Sonnet did not complete successfully, so the fallback scaffold was saved instead. Your requested change may not be reflected yet.${input.reason ? ` Last issue: ${input.reason}` : ""}`;
+    return `I tried to update Phase 1${focus}, but Sonnet did not complete successfully, so the local fallback scaffold was used only for diagnostics and no new outline draft was saved. Your requested change is still pending a real model pass.${input.reason ? ` Last issue: ${input.reason}` : ""}`;
   }
 
   if (input.phase === "chapterBreakdowns") {
@@ -212,7 +213,7 @@ async function setOutlinePhaseApproval(
   phase: OutlinePhaseId,
   status: "pending" | "approved",
 ) {
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const stageMetadata = stageMetadataRecord(stage?.metadataJson);
   const approvals = mergeOutlinePhaseApprovals(
@@ -243,7 +244,7 @@ async function resetOutlineApprovalsAfterPhaseChange(
   slug: string,
   phase: OutlinePhaseId,
 ) {
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const stageMetadata = stageMetadataRecord(stage?.metadataJson) as Record<string, unknown>;
   let approvals = normalizeOutlinePhaseApprovals(stage?.metadataJson);
@@ -314,7 +315,7 @@ export async function commentOnOutlineItem(slug: string, formData: FormData) {
 }
 
 export async function commitOutlineStage(slug: string) {
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const approvals = normalizeOutlinePhaseApprovals(stage?.metadataJson);
 
@@ -373,7 +374,7 @@ export async function commentOnParagraphOutlineFromOutline(
 }
 
 export async function commitParagraphOutlineFromOutline(slug: string) {
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const approvals = normalizeOutlinePhaseApprovals(stage?.metadataJson);
 
@@ -426,7 +427,7 @@ export async function sendOutlinePhaseMessage(
   const trimmed = message.trim();
   if (!trimmed) {
     return {
-      messages: normalizeOutlinePhaseChats((await getStageForBook((await getOrCreateBookBySlug(slug)).id, StageKey.OUTLINE))?.metadataJson)[phase],
+      messages: normalizeOutlinePhaseChats((await getStageForBook((await getBookBySlugOrThrow(slug)).id, StageKey.OUTLINE))?.metadataJson)[phase],
       error: null,
     };
   }
@@ -592,7 +593,7 @@ export async function sendOutlinePhaseMessage(
 }
 
 export async function finalizeOutlinePackage(slug: string) {
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const metadata = stageMetadataRecord(stage?.metadataJson) as Record<string, unknown>;
   const approvals = normalizeOutlinePhaseApprovals(stage?.metadataJson);
@@ -628,13 +629,16 @@ export async function regenerateChapterBreakdown(slug: string, chapterId: string
   try {
     console.log(`[regenerateChapterBreakdown] Starting for chapter: ${chapterId}`);
 
-    const book = await getOrCreateBookBySlug(slug);
+    const book = await getBookBySlugOrThrow(slug);
     console.log(`[regenerateChapterBreakdown] Got book: ${book.id}`);
 
     const committedOutlineVersion = await getCommittedOutline(book.id);
     console.log(`[regenerateChapterBreakdown] Got committed outline version: ${committedOutlineVersion?.id}`);
 
-    const committedOutline = committedOutlineVersion?.contentJson as unknown as BookOutline;
+    const committedOutline = parseArtifactWithSchema(
+      committedOutlineVersion?.contentJson,
+      BookOutlineSchema,
+    );
 
     if (!committedOutline) {
       throw new Error("No committed outline found. Generate and commit Phase 1 first.");

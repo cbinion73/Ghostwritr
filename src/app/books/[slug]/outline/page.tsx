@@ -736,10 +736,10 @@ function renderOutlineGenerationStatus(outline: BookOutline | null) {
         <div style={{ fontSize: 20, flexShrink: 0 }}>⚠️</div>
         <div>
           <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#9a3412" }}>
-            This outline finished with the fallback scaffold
+            This outline generation fell back before saving a real draft
           </p>
           <p style={{ margin: 0, fontSize: 12, color: "#7c2d12", lineHeight: 1.5 }}>
-            Sonnet did not complete successfully, so the app saved the local scaffold instead.
+            Sonnet did not complete successfully, so the app kept the prior outline state and only used the local scaffold for diagnostics.
             {meta.reason ? ` Last failure: ${meta.reason}` : ""}
           </p>
         </div>
@@ -1167,7 +1167,7 @@ export default async function OutlineStagePage({
       ? "Lock the section and chapter architecture before deeper expansion."
       : currentPhase === "chapter-breakdowns"
         ? "Build paragraph blueprints for every chapter from the locked outline."
-        : "Review the complete table of contents package before Base Story begins.";
+        : "Review the complete table of contents package before Base Story begins. Research stays manual.";
   const currentPhaseStatus = phaseStatuses[currentPhase];
   const currentPhaseHasDraft =
     currentPhase === "sections-chapters"
@@ -1194,8 +1194,8 @@ export default async function OutlineStagePage({
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
           <p className="muted">
-            Outline phases use Claude Haiku for cost-effective structural planning. Each phase
-            builds on the previous locked artifacts.
+            Outline turns the locked Book Pitch into a meaningful section, chapter, and
+            paragraph architecture. Phase 1 and 2 use Sonnet; Phase 3 verifies and assembles with Haiku.
           </p>
         </div>
 
@@ -1767,8 +1767,8 @@ export default async function OutlineStagePage({
             <div className="card">
               <h3>Next Stage</h3>
               <div className="recommendation">
-                Once you commit the full ToC, Base Story begins and the downstream research
-                automations can launch from a locked outline package.
+                Once you commit the full ToC, Base Story begins. Research stays idle until you
+                explicitly start it from the Research stage.
               </div>
             </div>
           </>
@@ -1785,7 +1785,7 @@ export default async function OutlineStagePage({
                       <span className="muted">{version.lifecycleState}</span>
                     </div>
                     <div className="muted" style={{ marginTop: 8, lineHeight: 1.55 }}>
-                      {version.paragraphOutline.overview}
+                      {version.paragraphOutline?.overview ?? "Paragraph outline data is unavailable for this version."}
                     </div>
                   </div>
                 ))

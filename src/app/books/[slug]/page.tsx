@@ -1,8 +1,10 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
+import { BookWorkflowType } from "@prisma/client";
 
 import { getBookSpine, type SpineStageRow } from "@/lib/repositories/book-spine";
 import { STAGE_TOKENS, GROUP_COLORS, type StageToken } from "@/lib/ui/stage-tokens";
+import { getDefaultBookWorkspaceHref } from "@/lib/workflow-registry";
 
 import { SpineRow } from "./spine-row";
 
@@ -28,6 +30,15 @@ export default async function BookSpinePage({
 
   if (!spine) {
     notFound();
+  }
+
+  if (spine.book.workflowType === BookWorkflowType.FICTION) {
+    const activeStage =
+      spine.stages.find((stage) => stage.status === "IN_PROGRESS")?.stageKey ??
+      spine.stages.find((stage) => stage.status === "READY_FOR_REVIEW")?.stageKey ??
+      spine.stages.find((stage) => stage.status === "COMMITTED")?.stageKey ??
+      null;
+    redirect(getDefaultBookWorkspaceHref(spine.book.workflowType, slug, activeStage));
   }
 
   // Index stage rows by key so we can look up each token's status

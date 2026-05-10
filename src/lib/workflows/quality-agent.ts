@@ -5,26 +5,29 @@ import type { BookOutline } from "../outline-types";
 import type { ParagraphOutline } from "../paragraph-outline-types";
 import type { ChapterExternalStoryDossier } from "../external-story-types";
 import type { ChapterResearchDossier } from "../research-types";
-import { getOrCreateBookBySlug, getStageForBook, updateStageForBook } from "../repositories/books";
+import { parseStoredJson } from "../json-utils";
+import { parseMetadataRecord } from "../artifact-schemas";
+import { getBookBySlugOrThrow, getStageForBook, updateStageForBook } from "../repositories/books";
 import {
   commitBaseStory,
   getBaseStoryVersions,
 } from "../repositories/base-story-artifacts";
 import {
   commitExternalStoryPack,
-  getExternalStoriesForVersion,
+  getExternalStoriesForVersions,
+  getLatestExternalStoryPackVersionsByChapter,
   getExternalStoryPackVersions,
-  getExternalStorySourcesForVersion,
+  getExternalStorySourcesForVersions,
 } from "../repositories/external-stories-artifacts";
 import {
   getCommittedOutline,
   getCommittedOutlineExpansion,
 } from "../repositories/outline-artifacts";
 import {
-  commitResearchPack,
-  getResearchItemsForVersion,
+  getLatestResearchPackVersionsByChapter,
+  getResearchItemsForVersions,
   getResearchPackVersions,
-  getResearchSourcesForVersion,
+  getResearchSourcesForVersions,
 } from "../repositories/research-artifacts";
 import {
   createWorkflowRun,
@@ -32,20 +35,12 @@ import {
 } from "../repositories/workflow-runs";
 import { triggerWorkflowRunInBackground } from "../workflow-queue";
 
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value && typeof value === "object") {
-    return value as T;
-  }
-
-  return fallback;
-}
-
 function mergeMetadata(
   current: unknown,
   patch: Record<string, unknown>,
 ) {
   return ({
-    ...(current && typeof current === "object" ? (current as Record<string, unknown>) : {}),
+    ...parseMetadataRecord(current),
     ...patch,
   }) as Prisma.InputJsonValue;
 }
@@ -95,10 +90,7 @@ function stageHasBlockingMetadata(metadata: unknown) {
 
 async function bumpRetryCount(bookId: string, stageKey: StageKey) {
   const stage = await getStageForBook(bookId, stageKey);
-  const metadata =
-    stage?.metadataJson && typeof stage.metadataJson === "object"
-      ? (stage.metadataJson as Record<string, unknown>)
-      : {};
+  const metadata = parseMetadataRecord(stage?.metadataJson);
   const retryCount =
     typeof metadata.qualityRetryCount === "number" ? metadata.qualityRetryCount : 0;
 
@@ -125,8 +117,8 @@ async function resetRetryCount(bookId: string, stageKey: StageKey) {
 async function getChapterRefs(bookId: string) {
   const outlineVersion = await getCommittedOutline(bookId);
   const paragraphVersion = await getCommittedOutlineExpansion(bookId);
-  const outline = parseJson<BookOutline | null>(outlineVersion?.contentJson, null);
-  const paragraph = parseJson<ParagraphOutline | null>(paragraphVersion?.contentJson, null);
+  const outline = parseStoredJson<BookOutline | null>(outlineVersion?.contentJson, null);
+  const paragraph = parseStoredJson<ParagraphOutline | null>(paragraphVersion?.contentJson, null);
 
   if (paragraph) {
     return paragraph.sections.flatMap((section) =>
@@ -154,10 +146,7 @@ async function enqueueStageRetry(bookId: string, bookSlug: string, stageKey: Sta
   }
 
   const stage = await getStageForBook(bookId, stageKey);
-  const metadata =
-    stage?.metadataJson && typeof stage.metadataJson === "object"
-      ? (stage.metadataJson as Record<string, unknown>)
-      : {};
+  const metadata = parseMetadataRecord(stage?.metadataJson);
   const failedChapterKeys = getFailedChapterKeys(metadata);
   const provisionalChapters = getProvisionalChapterKeys(metadata).filter(
     (chapterKey) => !failedChapterKeys.includes(chapterKey),
@@ -196,8 +185,9 @@ async function enqueueStageRetry(bookId: string, bookSlug: string, stageKey: Sta
 }
 
 export async function runQualityAgentWorkflow(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const chapterRefs = await getChapterRefs(book.id);
+  const chapterKeys = chapterRefs.map((chapter) => chapter.chapterKey);
 
   const [researchStage, externalStage, baseStage] = await Promise.all([
     getStageForBook(book.id, StageKey.RESEARCH),
@@ -211,20 +201,73 @@ export async function runQualityAgentWorkflow(bookSlug: string) {
     getActiveWorkflowRunForStage(book.id, StageKey.BASE_STORY),
   ]);
 
+  const [researchVersionsByChapter, externalVersionsByChapter] = await Promise.all([
+    getLatestResearchPackVersionsByChapter(book.id, chapterKeys),
+    getLatestExternalStoryPackVersionsByChapter(book.id, chapterKeys),
+  ]);
+
+  const researchVersionIds = [...new Set([...researchVersionsByChapter.values()].map((version) => version.id))];
+  const externalVersionIds = [...new Set([...externalVersionsByChapter.values()].map((version) => version.id))];
+
+  const [researchSources, researchItems, externalSources, externalStories] = await Promise.all([
+    getResearchSourcesForVersions(researchVersionIds),
+    getResearchItemsForVersions(researchVersionIds),
+    getExternalStorySourcesForVersions(externalVersionIds),
+    getExternalStoriesForVersions(externalVersionIds),
+  ]);
+
+  const researchSourcesByVersion = new Map<string, Array<(typeof researchSources)[number]>>();
+  const researchItemsByVersion = new Map<string, Array<(typeof researchItems)[number]>>();
+  const externalSourcesByVersion = new Map<string, Array<(typeof externalSources)[number]>>();
+  const externalStoriesByVersion = new Map<string, Array<(typeof externalStories)[number]>>();
+
+  for (const source of researchSources) {
+    if (!source.researchArtifactVersionId) {
+      continue;
+    }
+    const current = researchSourcesByVersion.get(source.researchArtifactVersionId) ?? [];
+    current.push(source);
+    researchSourcesByVersion.set(source.researchArtifactVersionId, current);
+  }
+
+  for (const item of researchItems) {
+    if (!item.researchArtifactVersionId) {
+      continue;
+    }
+    const current = researchItemsByVersion.get(item.researchArtifactVersionId) ?? [];
+    current.push(item);
+    researchItemsByVersion.set(item.researchArtifactVersionId, current);
+  }
+
+  for (const source of externalSources) {
+    if (!source.storyArtifactVersionId) {
+      continue;
+    }
+    const current = externalSourcesByVersion.get(source.storyArtifactVersionId) ?? [];
+    current.push(source);
+    externalSourcesByVersion.set(source.storyArtifactVersionId, current);
+  }
+
+  for (const story of externalStories) {
+    if (!story.storyArtifactVersionId) {
+      continue;
+    }
+    const current = externalStoriesByVersion.get(story.storyArtifactVersionId) ?? [];
+    current.push(story);
+    externalStoriesByVersion.set(story.storyArtifactVersionId, current);
+  }
+
   const researchIssues: string[] = [];
-  const researchCommitKeys: string[] = [];
   for (const chapter of chapterRefs) {
-    const version = (await getResearchPackVersions(book.id, chapter.chapterKey, 1))[0] ?? null;
+    const version = researchVersionsByChapter.get(chapter.chapterKey) ?? null;
     if (!version) {
       researchIssues.push(`${chapter.chapterLabel} has no research dossier.`);
       continue;
     }
 
-    const dossier = parseJson<ChapterResearchDossier | null>(version.contentJson, null);
-    const [sources, items] = await Promise.all([
-      getResearchSourcesForVersion(version.id),
-      getResearchItemsForVersion(version.id),
-    ]);
+    const dossier = parseStoredJson<ChapterResearchDossier | null>(version.contentJson, null);
+    const sources = researchSourcesByVersion.get(version.id) ?? [];
+    const items = researchItemsByVersion.get(version.id) ?? [];
     const verifiedSources = sources.filter((source) => source.isVerified).length;
     const verifiedItems = items.filter((item) => item.verificationStatus === "VERIFIED").length;
     const validLinks = sources.filter((source) => /^https?:\/\//i.test(source.url)).length;
@@ -252,25 +295,20 @@ export async function runQualityAgentWorkflow(bookSlug: string) {
       continue;
     }
 
-    if (version.lifecycleState !== ArtifactStatus.COMMITTED) {
-      researchCommitKeys.push(chapter.chapterKey);
-    }
   }
 
   const externalIssues: string[] = [];
   const externalCommitKeys: string[] = [];
   for (const chapter of chapterRefs) {
-    const version = (await getExternalStoryPackVersions(book.id, chapter.chapterKey, 1))[0] ?? null;
+    const version = externalVersionsByChapter.get(chapter.chapterKey) ?? null;
     if (!version) {
       externalIssues.push(`${chapter.chapterLabel} has no external story vault.`);
       continue;
     }
 
-    const dossier = parseJson<ChapterExternalStoryDossier | null>(version.contentJson, null);
-    const [sources, stories] = await Promise.all([
-      getExternalStorySourcesForVersion(version.id),
-      getExternalStoriesForVersion(version.id),
-    ]);
+    const dossier = parseStoredJson<ChapterExternalStoryDossier | null>(version.contentJson, null);
+    const sources = externalSourcesByVersion.get(version.id) ?? [];
+    const stories = externalStoriesByVersion.get(version.id) ?? [];
     const verifiedStories = stories.filter((story) => story.verificationStatus === "VERIFIED").length;
     const validLinks = sources.filter((source) => /^https?:\/\//i.test(source.url)).length;
 
@@ -300,7 +338,7 @@ export async function runQualityAgentWorkflow(bookSlug: string) {
   }
 
   const baseVersion = (await getBaseStoryVersions(book.id, 1))[0] ?? null;
-  const baseBundle = parseJson<BaseStoryBundle | null>(baseVersion?.contentJson, null);
+  const baseBundle = parseStoredJson<BaseStoryBundle | null>(baseVersion?.contentJson, null);
   const baseIssues: string[] = [];
   let baseShouldCommit = false;
 
@@ -322,63 +360,78 @@ export async function runQualityAgentWorkflow(bookSlug: string) {
       researchStage?.metadataJson && typeof researchStage.metadataJson === "object"
         ? (researchStage.metadataJson as Record<string, unknown>)
         : {};
-    const retryCount =
-      typeof metadata.qualityRetryCount === "number" ? metadata.qualityRetryCount : 0;
-    if (retryCount < maxAutoRetries) {
-      await bumpRetryCount(book.id, StageKey.RESEARCH);
-      await updateStageForBook(book.id, StageKey.RESEARCH, {
-        metadataJson: mergeMetadata(researchStage?.metadataJson, {
-          lastQualityFeedback: {
-            issues: researchIssues,
-            retryAttempt: retryCount + 1,
-            guidance: "Focus on stronger sources (Tier A preferred). Ensure each claim has evidence from source. Prioritize claims that are directly quoted or explicitly supported.",
-            failedAt: new Date().toISOString(),
+    await updateStageForBook(book.id, StageKey.RESEARCH, {
+      status: researchStage?.status ?? StageStatus.READY_FOR_REVIEW,
+      metadataJson: mergeMetadata(researchStage?.metadataJson, {
+        automationStatus: "idle",
+        currentAction: "Manual review required before retrying Research",
+        lastQualityFeedback: {
+          issues: researchIssues,
+          guidance:
+            "Research no longer auto-retries. Review the quality feedback and click a Research-stage button when you want to run it again.",
+          failedAt: new Date().toISOString(),
+        },
+        qualityStatus: "needs_attention",
+        recentActivity: [
+          {
+            at: new Date().toISOString(),
+            message: "Quality Agent flagged Research for manual review.",
           },
-        }),
-      });
-      await enqueueStageRetry(book.id, bookSlug, StageKey.RESEARCH);
-    }
+          ...((Array.isArray(metadata.recentActivity)
+            ? metadata.recentActivity
+            : []) as Array<Record<string, unknown>>),
+        ].slice(0, 3),
+      }),
+    });
   } else if (researchIssues.length === 0) {
     await resetRetryCount(book.id, StageKey.RESEARCH);
-    for (const chapterKey of researchCommitKeys) {
-      await commitResearchPack(book.id, chapterKey);
-    }
-    if (researchStage?.status !== StageStatus.COMMITTED) {
-      const metadata =
-        researchStage?.metadataJson && typeof researchStage.metadataJson === "object"
-          ? (researchStage.metadataJson as Record<string, unknown>)
-          : {};
-      await updateStageForBook(book.id, StageKey.RESEARCH, {
-        status: StageStatus.COMMITTED,
-        committedAt: new Date(),
-        metadataJson: mergeMetadata(researchStage?.metadataJson, {
-          automationStatus: "committed",
-          currentAction: "Quality checks passed and research was auto-committed",
-          totalChapters:
-            typeof metadata.totalChapters === "number"
-              ? metadata.totalChapters
-              : chapterRefs.length,
-          completedChapters:
-            typeof metadata.totalChapters === "number"
-              ? metadata.totalChapters
-              : chapterRefs.length,
-          failedChapters: [],
-          provisionalChapters: [],
-          currentChapterKey: null,
-          qualityPassedAt: new Date().toISOString(),
-          qualityStatus: "pass",
-          recentActivity: [
-            {
-              at: new Date().toISOString(),
-              message: "Quality Agent auto-committed Research.",
-            },
-            ...((Array.isArray(metadata.recentActivity)
-              ? metadata.recentActivity
-              : []) as Array<Record<string, unknown>>),
-          ].slice(0, 3),
-        }),
-      });
-    }
+    const metadata =
+      researchStage?.metadataJson && typeof researchStage.metadataJson === "object"
+        ? (researchStage.metadataJson as Record<string, unknown>)
+        : {};
+    await updateStageForBook(book.id, StageKey.RESEARCH, {
+      status:
+        researchStage?.status === StageStatus.COMMITTED
+          ? StageStatus.COMMITTED
+          : StageStatus.READY_FOR_REVIEW,
+      committedAt:
+        researchStage?.status === StageStatus.COMMITTED
+          ? researchStage?.committedAt ?? new Date()
+          : undefined,
+      metadataJson: mergeMetadata(researchStage?.metadataJson, {
+        automationStatus:
+          researchStage?.status === StageStatus.COMMITTED ? "committed" : "ready_for_review",
+        currentAction:
+          researchStage?.status === StageStatus.COMMITTED
+            ? "Research remains committed after quality checks"
+            : "Quality checks passed. Review and commit Research manually.",
+        totalChapters:
+          typeof metadata.totalChapters === "number"
+            ? metadata.totalChapters
+            : chapterRefs.length,
+        completedChapters:
+          typeof metadata.totalChapters === "number"
+            ? metadata.totalChapters
+            : chapterRefs.length,
+        failedChapters: [],
+        provisionalChapters: [],
+        currentChapterKey: null,
+        qualityPassedAt: new Date().toISOString(),
+        qualityStatus: "pass",
+        recentActivity: [
+          {
+            at: new Date().toISOString(),
+            message:
+              researchStage?.status === StageStatus.COMMITTED
+                ? "Quality Agent verified the committed Research stage."
+                : "Quality Agent verified Research and left it ready for manual commit.",
+          },
+          ...((Array.isArray(metadata.recentActivity)
+            ? metadata.recentActivity
+            : []) as Array<Record<string, unknown>>),
+        ].slice(0, 3),
+      }),
+    });
   }
 
   if (externalIssues.length > 0 && !activeExternalRun && externalHasBlockingMetadata) {

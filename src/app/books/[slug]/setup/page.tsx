@@ -1,10 +1,11 @@
 import Link from "next/link";
+import { BookWorkflowType } from "@prisma/client";
 
 import { commitBookSetupAction, saveBookSetupAction, saveAndCommitSetupAction } from "./actions";
 import { TargetMetricsFields } from "./target-metrics";
 import { VoiceBlendSection } from "./voice-blend-section";
 
-import { STAGE_LINKS } from "@/lib/navigation";
+import { getBookStageLinks } from "@/lib/navigation";
 import { getBookSetupWorkspace } from "@/lib/workflows/book-setup";
 
 export default async function BookSetupStagePage({
@@ -15,6 +16,11 @@ export default async function BookSetupStagePage({
   const { slug } = await params;
   const workspace = await getBookSetupWorkspace(slug);
   const isCommitted = workspace.stage?.status === "COMMITTED";
+  const stageLinks = getBookStageLinks(workspace.book.workflowType, slug);
+  const nextStageHref =
+    workspace.book.workflowType === BookWorkflowType.FICTION
+      ? `/books/${slug}/story-setup`
+      : `/books/${slug}/promise`;
 
   return (
     <div className="page-shell">
@@ -22,8 +28,8 @@ export default async function BookSetupStagePage({
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
           <p className="muted">
-            Set the voice, targets, guardrails, and production intent before the Promise
-            stage starts shaping the book.
+            Set the voice, targets, guardrails, and production intent before the
+            workflow starts shaping the book.
           </p>
         </div>
 
@@ -37,10 +43,10 @@ export default async function BookSetupStagePage({
         </div>
 
         <div className="stage-list">
-          {STAGE_LINKS.map((stage) => (
+          {stageLinks.map((stage) => (
             <Link
               key={stage.key}
-              href={stage.href(slug)}
+              href={stage.href}
               className={`stage-chip ${stage.key === "BOOK_SETUP" ? "active" : ""}`}
             >
               {stage.label}
@@ -68,8 +74,8 @@ export default async function BookSetupStagePage({
             <Link className="btn" href="/personas">
               Manage Personas
             </Link>
-            <Link className="btn" href={`/books/${slug}/promise`}>
-              Open Promise
+            <Link className="btn" href={nextStageHref}>
+              Open Next Stage
             </Link>
             <form action={commitBookSetupAction.bind(null, slug)}>
               <button className="btn btn-primary" type="submit">
@@ -84,8 +90,7 @@ export default async function BookSetupStagePage({
             <div className="section-header">
               <h3>Core Setup</h3>
               <div className="muted">
-                These settings should inform Promise, Outline, Drafting, Length
-                Adjustment, and Publishing later in the process.
+                These settings should inform the full {workspace.book.workflowType === BookWorkflowType.FICTION ? "fiction" : "nonfiction"} workflow, from planning through drafting and publishing.
               </div>
             </div>
 

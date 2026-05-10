@@ -2,13 +2,29 @@ import Link from "next/link";
 
 import {
   commitSelectedChapterDraft,
+  expandSelectedChapterTowardTarget,
+  expandUnderTargetChapters,
+  repairWeakChapterDrafts,
   runFullChapterDraftStage,
   runSelectedChapterDraft,
 } from "./actions";
-import { ResearchAutoRefresh } from "../research/auto-refresh";
 
 import { STAGE_LINKS } from "@/lib/navigation";
+import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { getChapterDraftWorkspace } from "@/lib/workflows/chapter-draft";
+
+type QualitySignal = {
+  label: string;
+  state: "pass" | "warn" | "fail";
+  detail: string;
+};
+
+type DraftQualitySummary = {
+  score: number;
+  readiness: "strong" | "watch" | "needs attention";
+  signals: QualitySignal[];
+  revisionPasses: number;
+};
 
 function chapterStatusLabel(status: string) {
   switch (status) {
@@ -38,6 +54,146 @@ function chapterTargetStatusLabel(
   return "On target";
 }
 
+function buildNonfictionDraftQuality(selected: Awaited<ReturnType<typeof getChapterDraftWorkspace>>["selectedEntry"]) {
+  if (!selected?.draft) {
+    return null;
+  }
+
+  if (selected.draft.quality && selected.draft.quality.signals.length > 0) {
+    return {
+      score: selected.draft.quality.score,
+      readiness: selected.draft.quality.readiness,
+      signals: selected.draft.quality.signals,
+      revisionPasses: selected.draft.quality.revisionPasses,
+    };
+  }
+
+  const sourceUsage = selected.draft.sourceUsage;
+  const sourceCategoriesUsed = [
+    sourceUsage.research.length > 0,
+    sourceUsage.externalStories.length > 0,
+    sourceUsage.personalStories.length > 0,
+    sourceUsage.baseStory.length > 0,
+  ].filter(Boolean).length;
+
+  const renderedParagraphCount = selected.draft.chapterText
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean).length;
+  const sourceSignals: QualitySignal[] = [];
+
+  const lengthState =
+    selected.metrics.minimumWords == null || selected.metrics.maximumWords == null
+      ? "warn"
+      : selected.metrics.wordCount < selected.metrics.minimumWords ||
+          selected.metrics.wordCount > selected.metrics.maximumWords
+        ? "fail"
+        : "pass";
+
+  sourceSignals.push({
+    label: "Length fit",
+    state: lengthState,
+    detail:
+      selected.metrics.targetWords == null
+        ? "No chapter target is locked yet."
+        : `${selected.metrics.wordCount.toLocaleString()} words against a ${selected.metrics.minimumWords?.toLocaleString() ?? "?"}-${selected.metrics.maximumWords?.toLocaleString() ?? "?"} target band.`,
+  });
+
+  sourceSignals.push({
+    label: "Source weave",
+    state: sourceCategoriesUsed >= 3 ? "pass" : sourceCategoriesUsed >= 2 ? "warn" : "fail",
+    detail:
+      sourceCategoriesUsed >= 3
+        ? "The draft is pulling from multiple upstream artifact types."
+        : sourceCategoriesUsed >= 2
+          ? "The draft is using some upstream inputs, but the weave still looks thin."
+          : "The draft is leaning on too few upstream inputs and risks feeling assembled.",
+  });
+
+  sourceSignals.push({
+    label: "Paragraph coverage",
+    state:
+      renderedParagraphCount >= selected.draft.paragraphs.length
+        ? "pass"
+        : renderedParagraphCount >= Math.max(1, selected.draft.paragraphs.length - 1)
+          ? "warn"
+          : "fail",
+    detail: `${renderedParagraphCount} prose paragraphs are carrying ${selected.draft.paragraphs.length} planned paragraph anchors.`,
+  });
+
+  sourceSignals.push({
+    label: "Editorial review",
+    state:
+      selected.review?.verdict === "ready_for_review"
+        ? "pass"
+        : selected.review?.verdict === "needs_revision"
+          ? "warn"
+          : "warn",
+    detail:
+      selected.review == null
+        ? "No reviewer pass has been saved yet."
+        : selected.review.aiAuthorshipFlags.length > 0
+          ? `${selected.review.aiAuthorshipFlags.length} AI-authorship flags still need attention.`
+          : selected.review.overallAssessment,
+  });
+
+  const score = Math.max(
+    0,
+    100 -
+      sourceSignals.reduce(
+        (sum, signal) => sum + (signal.state === "fail" ? 24 : signal.state === "warn" ? 10 : 0),
+        0,
+      ),
+  );
+
+  const readiness = score >= 85 ? "strong" : score >= 65 ? "watch" : "needs attention";
+
+  return {
+    score,
+    readiness: readiness as DraftQualitySummary["readiness"],
+    signals: sourceSignals,
+    revisionPasses: 0,
+  };
+}
+
+function buildNonfictionUpgradePlan(args: {
+  draftQuality: DraftQualitySummary | null;
+  review: Awaited<ReturnType<typeof getChapterDraftWorkspace>>["selectedEntry"] extends infer T
+    ? T extends { review: infer R }
+      ? R
+      : never
+    : never;
+  sourceAvailability: Awaited<ReturnType<typeof getChapterDraftWorkspace>>["selectedEntry"] extends infer T
+    ? T extends { sourceAvailability: infer S }
+      ? S
+      : never
+    : never;
+}) {
+  const priorities = new Set<string>();
+
+  for (const signal of args.draftQuality?.signals ?? []) {
+    if (signal.state !== "pass") {
+      priorities.add(`${signal.label}: ${signal.detail}`);
+    }
+  }
+
+  for (const item of args.review?.revisionPriorities ?? []) {
+    priorities.add(item);
+  }
+
+  if ((args.sourceAvailability?.researchCount ?? 0) === 0) {
+    priorities.add("Research evidence is thin here. Pull in more concrete claims or examples before the next regenerate pass.");
+  }
+  if ((args.sourceAvailability?.personalStoryCount ?? 0) === 0) {
+    priorities.add("The chapter still lacks lived-in personal material. Weave in a more specific human moment so the prose feels authored instead of assembled.");
+  }
+  if ((args.sourceAvailability?.externalStoryCount ?? 0) === 0) {
+    priorities.add("External proof points are missing. Add one outside story or case to widen the chapter's authority and texture.");
+  }
+
+  return Array.from(priorities).slice(0, 5);
+}
+
 export default async function ChapterDraftStagePage({
   params,
   searchParams,
@@ -63,16 +219,39 @@ export default async function ChapterDraftStagePage({
       ? workspace.entries[selectedIndex + 1]
       : null;
   const hasSelectedDraft = Boolean(selected?.draft);
+  const selectedUnderTarget =
+    Boolean(selected?.draft) &&
+    selected.metrics.minimumWords != null &&
+    selected.metrics.wordCount < selected.metrics.minimumWords;
+  const staleDependency = getStaleDependencyState(workspace.stage?.metadataJson);
+  const draftQuality = buildNonfictionDraftQuality(selected);
+  const upgradePlan = selected
+    ? buildNonfictionUpgradePlan({
+        draftQuality,
+        review: selected.review ?? null,
+        sourceAvailability: selected.sourceAvailability,
+      })
+    : [];
+  const weakChapterCount = workspace.entries.filter(
+    (entry) =>
+      entry.draft &&
+      entry.draft.chapterText.trim().length > 0 &&
+      (
+        !entry.draft.quality ||
+        entry.draft.quality.signals.length === 0 ||
+        entry.draft.quality.needsRevision ||
+        entry.review?.verdict === "needs_revision"
+      ),
+  ).length;
 
   return (
     <div className="page-shell">
-      <ResearchAutoRefresh active={isAutoRefreshing} />
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
           <p className="muted">
-            Chapter-by-chapter ghostwriting workspace that synthesizes outline,
-            research, external stories, personal stories, and base story.
+            Chapter-by-chapter ghostwriting workspace that synthesizes the committed
+            promise, outline, base story, research, external stories, and personal stories.
           </p>
         </div>
 
@@ -104,18 +283,34 @@ export default async function ChapterDraftStagePage({
             <div className="label">Stage Workspace</div>
             <h2>Chapter Draft</h2>
             <div className="muted">
-              The author agent drafts each chapter. The reviewer agent critiques it for
-              craft, clarity, and AI tells before the draft lands here for your review.
-              The normal flow is one chapter at a time.
+              The author agent drafts each chapter from the full upstream artifact stack.
+              The reviewer agent critiques it for craft, clarity, and AI tells before the
+              draft lands here for your review. The normal flow is one chapter at a time.
             </div>
             {workspace.blockingReason ? (
               <div className="muted" style={{ marginTop: 10 }}>
                 Blocked: {workspace.blockingReason}
               </div>
             ) : null}
+            {staleDependency ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                <div>Stale: {staleDependency.reason}</div>
+                <div style={{ marginTop: 6 }}>
+                  Recommended recovery: {getStaleDependencyRecoveryHint(workspace.stage?.stageKey)}
+                </div>
+              </div>
+            ) : null}
+            {isAutoRefreshing ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                Chapter drafting is running. Refresh manually to see the latest progress.
+              </div>
+            ) : null}
           </div>
 
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}/publish`}>
+              Open Publish
+            </Link>
             {!workspace.blockingReason ? (
               <>
                 {selected ? (
@@ -134,11 +329,31 @@ export default async function ChapterDraftStagePage({
                         </button>
                       </form>
                     ) : null}
+                    {hasSelectedDraft ? (
+                      <form action={expandSelectedChapterTowardTarget.bind(null, slug)}>
+                        <input type="hidden" name="chapterKey" value={selected.chapterKey} />
+                        <button className="btn" type="submit" disabled={!selectedUnderTarget}>
+                          Expand Toward Target
+                        </button>
+                      </form>
+                    ) : null}
                   </>
                 ) : null}
                 <form action={runFullChapterDraftStage.bind(null, slug)}>
                   <button className="btn" type="submit">
                     Generate All Chapters
+                  </button>
+                </form>
+                <form action={expandUnderTargetChapters.bind(null, slug)}>
+                  <input type="hidden" name="limit" value="2" />
+                  <button className="btn" type="submit">
+                    Expand Under-Target Chapters
+                  </button>
+                </form>
+                <form action={repairWeakChapterDrafts.bind(null, slug)}>
+                  <input type="hidden" name="limit" value="3" />
+                  <button className="btn" type="submit" disabled={weakChapterCount === 0}>
+                    Repair Weak Chapters
                   </button>
                 </form>
               </>
@@ -150,6 +365,12 @@ export default async function ChapterDraftStagePage({
               Use <strong>Generate This Chapter</strong> to work chapter by chapter. After you review it,
               use <strong>Next Chapter</strong> to move forward. Use{" "}
               <strong>Generate All Chapters</strong> only when you want the full manuscript pipeline to run in the background.
+              {selectedUnderTarget
+                ? ` Use Expand Toward Target when the selected chapter is materially short on finished prose.`
+                : ""}
+              {weakChapterCount > 0
+                ? ` ${weakChapterCount} drafted chapter${weakChapterCount === 1 ? "" : "s"} currently need repair.`
+                : ""}
             </div>
           ) : null}
         </section>
@@ -268,14 +489,21 @@ export default async function ChapterDraftStagePage({
                     <div className="pill">
                       {entry.sourceAvailability.personalStoryCount} personal stories
                     </div>
+                    <div className="pill">
+                      {entry.review?.verdict === "ready_for_review"
+                        ? "Review: ready"
+                        : entry.review?.verdict === "needs_revision"
+                          ? "Review: revise"
+                          : "Review pending"}
+                    </div>
                   </div>
                 </Link>
               ))}
               {workspace.entries.length === 0 ? (
                 <div className="empty-state">
                   Commit the Promise and the paragraph-level Outline first. Then wait
-                  for Base Story, Research, and External Stories to populate real chapter
-                  inputs before this stage synthesizes the manuscript.
+                  for committed Base Story, Research, External Stories, and Personal
+                  Stories to populate real chapter inputs before this stage synthesizes the manuscript.
                 </div>
               ) : null}
             </div>
@@ -392,6 +620,30 @@ export default async function ChapterDraftStagePage({
 
       <aside className="glass-panel rightbar">
         <div className="card">
+          <div className="label">Quality Signals</div>
+          <h3 style={{ marginTop: 6 }}>Draft Quality</h3>
+          {draftQuality ? (
+            <div className="stack" style={{ padding: 0 }}>
+              <div className="recommendation">
+                Score {draftQuality.score}/100 • {draftQuality.readiness}
+              </div>
+              <div className="muted">Revision passes: {draftQuality.revisionPasses}</div>
+              <ul className="clean-list">
+                {draftQuality.signals.map((signal) => (
+                  <li key={signal.label}>
+                    <strong>{signal.label}</strong>: {signal.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="muted">
+              Draft quality signals appear after a chapter has real prose to evaluate.
+            </div>
+          )}
+        </div>
+
+        <div className="card">
           <div className="label">Reviewer Feedback</div>
           <h3 style={{ marginTop: 6 }}>Editorial Notes</h3>
           {selected?.review ? (
@@ -426,6 +678,26 @@ export default async function ChapterDraftStagePage({
             </div>
           ) : (
             <div className="muted">Reviewer notes will appear after the chapter is drafted.</div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="label">Upgrade Plan</div>
+          <h3 style={{ marginTop: 6 }}>Next Best Moves</h3>
+          {selected ? (
+            upgradePlan.length > 0 ? (
+              <ul className="clean-list">
+                {upgradePlan.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="muted">
+                This chapter is in a healthy place. The next best move is usually to commit it and advance to the next chapter.
+              </div>
+            )
+          ) : (
+            <div className="muted">Choose a chapter to see the highest-leverage rewrite priorities.</div>
           )}
         </div>
 

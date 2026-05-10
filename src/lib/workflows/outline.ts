@@ -18,7 +18,7 @@ import {
 } from "../outline-types";
 import type { BookSetupProfile } from "../book-setup-types";
 import type { BookPromiseReport, PromiseBrief } from "../promise-types";
-import { getOrCreateBookBySlug, getStageForBook } from "../repositories/books";
+import { getBookBySlugOrThrow, getOrCreateBookBySlug, getStageForBook } from "../repositories/books";
 import {
   commitOutlineStageBundle,
   createOutlineVersion,
@@ -27,10 +27,10 @@ import {
 } from "../repositories/outline-artifacts";
 import { getCommittedPromiseBrief, getPromiseArtifacts } from "../repositories/promise-artifacts";
 import { getBookKnowledgeBase, formatKnowledgeForPrompt } from "../services/knowledge-base";
+import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
 import { triggerWorkflowRunInBackground } from "../workflow-queue";
 import { enqueueAndTriggerBaseStoryWorkflow } from "./base-story";
 import { enqueueAndTriggerFullExternalStoriesWorkflow } from "./external-stories";
-import { enqueueAndTriggerFullResearchWorkflow } from "./research";
 
 type OutlineWorkflowState = {
   bookSlug: string;
@@ -1808,6 +1808,12 @@ async function persistOutlineNode(state: OutlineWorkflowState) {
     return {};
   }
 
+  if (state.outline.generationMeta?.source === "fallback") {
+    return {
+      outlinePersisted: false,
+    };
+  }
+
   await createOutlineVersion({
     bookId: state.bookId,
     title: "Detailed Book Outline",
@@ -1816,7 +1822,9 @@ async function persistOutlineNode(state: OutlineWorkflowState) {
     contentText: JSON.stringify(state.outline, null, 2),
   });
 
-  return {};
+  return {
+    outlinePersisted: true,
+  };
 }
 
 const outlineGraph = new StateGraph(WorkflowState)
@@ -1850,18 +1858,19 @@ export async function runOutlineWorkflow(
 export async function commitOutlineWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   await commitOutlineStageBundle(book.id, { finalizeStage: false });
+  await clearStageStaleDependency(bookSlug, StageKey.OUTLINE);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.OUTLINE);
 }
 
 export async function finalizeOutlineWorkflow(bookSlug: string) {
   await Promise.all([
-    enqueueAndTriggerFullResearchWorkflow(bookSlug, triggerWorkflowRunInBackground),
     enqueueAndTriggerFullExternalStoriesWorkflow(bookSlug, triggerWorkflowRunInBackground),
     enqueueAndTriggerBaseStoryWorkflow(bookSlug, triggerWorkflowRunInBackground),
   ]);
 }
 
 export async function getOutlineWorkspace(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const promiseStage = await getStageForBook(book.id, StageKey.PROMISE);
   const outlineStage = await getStageForBook(book.id, StageKey.OUTLINE);
   const committedPromiseVersion = await getCommittedPromiseBrief(book.id);

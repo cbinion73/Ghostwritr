@@ -8,6 +8,14 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 
+import {
+  BaseStoryBundleSchema,
+  BookOutlineSchema,
+  BookSetupProfileSchema,
+  PromiseBriefSchema,
+  parseArtifactWithSchema,
+  parseMetadataRecord,
+} from "../artifact-schemas";
 import { getModelForRole } from "../llm/routing";
 
 import type { BaseStoryBundle, BaseStoryFormat } from "../base-story-types";
@@ -16,6 +24,7 @@ import type { BookOutline } from "../outline-types";
 import type { PromiseBrief } from "../promise-types";
 import { normalizeBaseStoryBundle } from "../base-story-utils";
 import {
+  getBookBySlugOrThrow,
   getOrCreateBookBySlug,
   getStageForBook,
   updateStageForBook,
@@ -40,6 +49,7 @@ import {
 } from "../repositories/outline-artifacts";
 import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
 import { getCommittedPromiseBrief } from "../repositories/promise-artifacts";
+import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
 import { runQualityAgentWorkflow } from "./quality-agent";
 
 const StoryFormatCatalog: BaseStoryBundle["availableFormats"] = [
@@ -136,7 +146,7 @@ async function pulseBaseStoryStage(input: {
   message: string;
 }) {
   const stage = await getStageForBook(input.bookId, StageKey.BASE_STORY);
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  const metadata = parseMetadataRecord(stage?.metadataJson);
 
   await updateStageForBook(input.bookId, StageKey.BASE_STORY, {
     metadataJson: {
@@ -159,9 +169,9 @@ async function getInputs(bookId: string) {
   const promiseVersion = await getCommittedPromiseBrief(bookId);
   const outlineVersion = await getCommittedOutline(bookId);
   return {
-    bookSetup: parseJson<BookSetupProfile | null>(bookSetupVersion?.contentJson, null),
-    promise: parseJson<PromiseBrief | null>(promiseVersion?.contentJson, null),
-    outline: parseJson<BookOutline | null>(outlineVersion?.contentJson, null),
+    bookSetup: parseArtifactWithSchema(bookSetupVersion?.contentJson, BookSetupProfileSchema),
+    promise: parseArtifactWithSchema(promiseVersion?.contentJson, PromiseBriefSchema),
+    outline: parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema),
   };
 }
 
@@ -436,11 +446,14 @@ export async function enqueueAndTriggerBaseStoryWorkflow(bookSlug: string, trigg
 
 export async function commitBaseStoryWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
-  return commitBaseStory(book.id);
+  const result = await commitBaseStory(book.id);
+  await clearStageStaleDependency(bookSlug, StageKey.BASE_STORY);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.BASE_STORY);
+  return result;
 }
 
 export async function getBaseStoryWorkspace(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const stage = await getStageForBook(book.id, StageKey.BASE_STORY);
   const outlineReady = await hasLockedOutlinePackage(book.id);
   const versions = await getBaseStoryVersions(book.id);
@@ -451,7 +464,7 @@ export async function getBaseStoryWorkspace(bookSlug: string) {
   const committedBundle = normalizeBaseStoryBundle(
     committed ? parseJson<BaseStoryBundle | null>(committed.contentJson, null) : null,
   );
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  const metadata = parseMetadataRecord(stage?.metadataJson);
 
   return {
     book,

@@ -5,6 +5,20 @@ export type ChapterDraftParagraph = {
   sourceNotes: string[];
 };
 
+export type ChapterDraftQualitySignal = {
+  label: string;
+  state: "pass" | "warn" | "fail";
+  detail: string;
+};
+
+export type ChapterDraftQualitySummary = {
+  score: number;
+  readiness: "strong" | "watch" | "needs attention";
+  needsRevision: boolean;
+  revisionPasses: number;
+  signals: ChapterDraftQualitySignal[];
+};
+
 export type ChapterDraftBundle = {
   chapterKey: string;
   chapterTitle: string;
@@ -20,6 +34,7 @@ export type ChapterDraftBundle = {
     personalStories: string[];
     baseStory: string[];
   };
+  quality: ChapterDraftQualitySummary;
 };
 
 export type ChapterReviewBundle = {

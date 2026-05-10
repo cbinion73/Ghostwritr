@@ -1,0 +1,86 @@
+{
+  "generatedAt": "2026-05-08T16:48:03.223Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "bookSlug": "fiction-smoke",
+  "pageChecks": [
+    {
+      "route": "dashboard",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/dashboard",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Fiction cockpit for a planning-first, chapter-based co-writing workflow. Book: Fiction Smoke Mode: Fiction Chapters drafted: 2/2 Library Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION DASHBOARD Story Cockpit One place to see the novel’s premise, plot pressure, scene coverage, and draft readiness. Open Editing Open Editing Open Publish Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Workflow Automation Autopilot is off. Use Run Autopilot to advance the next eligible fiction stage now. Current mode: run to full draft Latest: Fiction autopilot advanced the workflow - Editing loop completed and committed Run Autopilot Run To Full Draft Enable Continuous Autopilot Set Assisted Mode Set Boundary Mode Automation History Fiction autopilot advanced the workflow - Editing loop completed and committed Automation mode updated - Workflow automation is now set to run to full draft. Fiction autopilot advanced the workflow - Editing loop completed and committed Automation mode updated - Workflow automation is now set to run to next boundary. Assisted mode paused at Editing - Run the editorial loop manually when you want to advance the manuscript through the final revision pass. Publish Handoff Status: Synced Publish package is synced to the latest manuscript assembly. Final handoff: Not finalized yet Draft Quality Watchlist Draft quality is stable across 2 chapters. Average score: 84/100 • Revision flags: 0 PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. CENTRAL CONFLICT Elena must expose the family system that protects her while it destroys everyone she loves. DRAFT WORDS 3,800 Workflow Progress The fiction pipeline remains separate from nonfiction and advances through its own artifacts. Story Setup Lock genre, tone, audience, POV, tense, and premise intent. Status: COMMITTED Open Story",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/fiction-publish-regression/dashboard.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "editing",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/editing",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Read the manuscript as one book, then refine it chapter by chapter with the editor agent. Book: Fiction Smoke Editing: READY_FOR_REVIEW Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing STAGE WORKSPACE Editing This is the full-manuscript review space for the fiction workflow. Once the committed draft exists, the editor can read the novel in its entirety and then refine it chapter by chapter. Reassemble Manuscript Expand Draft Toward Target Commit Editing Stage Open Publish Export Manuscript ▼ Manuscript Readiness The editor stage should only start after the draft exists as a complete book. CHAPTERS DRAFTED 2/2 DRAFT WORDS 3,800 EDITORIAL STATUS Ready for full-book review TYPESET READINESS Export-ready DRAFT QUALITY 84/100 REVISION FLAGS 0 Draft Quality Rollup Persistent chapter-quality signals carried forward from the drafting stages. AVERAGE SCORE 84/100 STRONG CHAPTERS 0 WATCH CHAPTERS 2 NEEDS ATTENTION 0 Draft quality is stable across 2 chapters. Weakest chapter: Chapter 1: The Summons • Revision passes already spent: 0 Editorial Readiness Gate A go/no-go view for whether the manuscript is ready to commit or still needs another revision pass. READINESS SCORE 82/100 RECOMMENDATION blocked EVALUATED 5/8/2026, 12:47:53 PM NEXT MOVE Run another draft-length pass before treating Editing as final. Recovery Path If the manuscript is blocked because core chapters are still too short, run Expand Draft Toward Target. It will deepen the most under-target chapters, then refresh the manuscript assembly and publish package automatically. Editorial Engine Generate structured assessments, create revision candidates, then apply the accepted revision back into the manuscript assembly. ASSESSMENT Run Editorial Assessment REVISION MODE Structural Edit Clarity Pass Pacing Pass Continuity Pass Voice Consistency Line Edit CHAPTER FOCUS Whole book Chapter 1: The Summons Chapter 2: The Marina Dinner Generate Assessment REVISION Create Revis",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/fiction-publish-regression/editing.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "draft",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/draft",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Fiction workflow for novel-length, planning-first, chapter-based co-writing. Book: Fiction Smoke Workflow: Fiction Stage: COMMITTED Draft coverage: 2/2 Library Story Dashboard Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION STAGE Draft Draft chapter prose from the scene plan and story bible. Open Story Dashboard Open Editing Regenerate Full Draft Repair Weak Chapters Commit Draft Story Cockpit The live novel state, so every stage stays connected to the same story memory. PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. PLOT CHAPTERS 2 SCENES PLANNED 4 DRAFT WORDS 3,800 Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Open Editing Draft Progress 2/2 chapters currently have prose. Chapter 1: The Summons 1,816 words drafted Quality: 84/100 • watch Regenerate Chapter Expand Toward Target Chapter 2: The Marina Dinner 1,984 words drafted Quality: 84/100 • watch Regenerate Chapter Expand Toward Target Chapter 1: The Summons The draft sits at the center, with planning context visible beside it. Regenerate This Chapter Expand Toward Target Expand Under-Target Chapters POV: Elena 1,816 words Quality: 84/100 Revision passes: 0 Target: 2,200 words Chapter Summary Elena receives the call, returns home, and sees the first sign of editorial manipulation. Quality Signals Length fit: 1,816 words against a 1,804-2,596 target band. POV continuity: Planned POV is Elena; draft POV is Elena. Scene carry-through: 2 of 2 planned scene anchors echo back in the draft. Scene objectives: 2 of 2 planned scene objectives are visibly doing work in the chapter. Story memory: The prose is not obviously carrying forward cast or conflict anchors yet. Continuity rules: 2 reveal anchor(s) and 2 continuity-rule anchor(s) appear in the prose. Bridge momentum: 2 of 2 planned bridge anchors are visibly pulling the ",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/fiction-publish-regression/draft.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "publish",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/publish",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Final publishing workspace for export readiness, delivery formats, and handoff quality. Book: Fiction Smoke Publish: EDITORIALLY BLOCKED Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing Publish FINAL WORKSPACE Publish This is the final handoff surface for the manuscript package: export formats, packaging notes, and readiness to move from ghostwriting into publishing delivery. Open Editing Refresh Package Export Manuscript ▼ Export Publish Package Export Interior Layout Publish Readiness A final operational readout before you hand the book to printing, ebook conversion, or a publishing partner. Publish Package Sync Status: Synced. Publish package is synced to the latest manuscript assembly. Last refreshed 5/8/2026, 12:47:34 PM PACKAGE STATUS Prepared, needs editorial revision TOTAL WORDS 3,800 CHAPTERS 2 EXPORT FORMATS docx, html, markdown, json DRAFT QUALITY 84/100 Publishing Package The latest prepared publishing package snapshot for the current manuscript assembly. Fiction Smoke Prepared 5/8/2026, 12:47:34 PM Status: Prepared, needs editorial revision The manuscript is assembled and export-ready from the Editing stage. A true final typesetting pass may still adjust pagination and front/back matter. Draft quality headline: Draft quality is stable across 2 chapters. Trim: 6 x 9 in Target pages: 300 Final Delivery Checklist Manuscript assembled from the latest committed draft inputs. Editorial revisions and current readiness state are reflected in the latest manuscript version. Package includes the standard export set: DOCX, HTML, Markdown, and JSON. Final print layout and front/back matter can proceed from this package. Editorial Gate Readiness score: 82/100 Recommendation: blocked Next action: Run another draft-length pass before treating Editing as final. Draft Quality Baseline Average score: 84/100 Revision flags: 0 Strong / watch / needs attention: 0 / 2 / 0 Weakest chapter: Chapter 1: The Summons Draft quality is",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/fiction-publish-regression/publish.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    }
+  ],
+  "exportChecks": [
+    {
+      "format": "html",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "format": "markdown",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "format": "json",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "format": "publish-package",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "format": "typeset-package",
+      "status": 200,
+      "missingExpected": []
+    }
+  ]
+}

@@ -7,10 +7,13 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 
 import type { BaseStoryFormatPreference, BookFormatTarget, WriterPersonaBlend } from "@/lib/book-setup-types";
+import { parseJsonFromText } from "@/lib/json-utils";
 import { getWriterPersonaById, getActiveWriterPersonas } from "@/lib/repositories/writer-personas";
+import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { saveBookSetupWorkflow, commitBookSetupWorkflow } from "@/lib/workflows/book-setup";
 import { getBookSetupWorkspace } from "@/lib/workflows/book-setup";
 import { getModelForRole } from "@/lib/llm/routing";
+import { BookWorkflowType } from "@prisma/client";
 
 /**
  * Ensure .env file is loaded into process.env
@@ -40,6 +43,16 @@ function ensureEnvLoaded(): void {
   } catch (err) {
     console.error("[ensureEnvLoaded] Failed to read .env file:", err);
   }
+}
+
+function normalizePersonaSuggestionConfidence(
+  value: string,
+): "high" | "medium" | "low" {
+  if (value === "high" || value === "medium" || value === "low") {
+    return value;
+  }
+
+  return "medium";
 }
 
 /**
@@ -242,12 +255,14 @@ export async function saveBookSetupAction(slug: string, formData: FormData) {
   await processSaveBookSetup(slug, formData);
   revalidatePath(`/books/${slug}/setup`);
   revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}/story-setup`);
 }
 
 export async function commitBookSetupAction(slug: string) {
   await commitBookSetupWorkflow(slug);
   revalidatePath(`/books/${slug}/setup`);
   revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}/story-setup`);
 }
 
 export async function saveAndCommitSetupAction(slug: string, formData: FormData) {
@@ -259,9 +274,14 @@ export async function saveAndCommitSetupAction(slug: string, formData: FormData)
 
   revalidatePath(`/books/${slug}/setup`);
   revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}/story-setup`);
 
-  // Redirect to the Promise tab
-  redirect(`/books/${slug}/promise`);
+  const book = await getBookBySlugOrThrow(slug);
+  redirect(
+    book.workflowType === BookWorkflowType.FICTION
+      ? `/books/${slug}/story-setup`
+      : `/books/${slug}/promise`,
+  );
 }
 
 /**
@@ -363,22 +383,21 @@ Return ONLY valid JSON array, no other text. Example format:
 
     // Parse model's response
     const responseText = typeof message.content === "string" ? message.content : String(message.content);
-    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
+    let suggestions: Array<{
+      personaSlug: string;
+      reasoning: string;
+      suggestedPercentage: number;
+      confidence: string;
+    }>;
+    try {
+      suggestions = parseJsonFromText(responseText);
+    } catch {
       console.error("[suggestWriterPersonas] Could not parse model response:", responseText);
       throw new Error("Invalid response from persona suggestion");
     }
 
-    const suggestions = JSON.parse(jsonMatch[0]);
-
     // Enrich suggestions with full persona data
-    const enrichedSuggestions = suggestions.map(
-      (suggestion: {
-        personaSlug: string;
-        reasoning: string;
-        suggestedPercentage: number;
-        confidence: string;
-      }) => {
+    const enrichedSuggestions = suggestions.map((suggestion) => {
         const persona = personas.find((p) => p.slug === suggestion.personaSlug);
         if (!persona) {
           throw new Error(`Persona not found: ${suggestion.personaSlug}`);
@@ -391,10 +410,9 @@ Return ONLY valid JSON array, no other text. Example format:
           signaturePatterns: persona.signaturePatterns,
           reasoning: suggestion.reasoning,
           suggestedPercentage: suggestion.suggestedPercentage,
-          confidence: suggestion.confidence,
+          confidence: normalizePersonaSuggestionConfidence(suggestion.confidence),
         };
-      }
-    );
+      });
 
     return enrichedSuggestions;
   } catch (error) {

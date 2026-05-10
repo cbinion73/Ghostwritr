@@ -48,12 +48,16 @@ export type StageRole =
   | "setup:voice-blending"
   // Other stages (wired in later phases)
   | "promise:author"
+  | "promise:structured"
   | "audience:author"
+  | "audience:structured"
   | "outline:phase-1"
   | "outline:phase-2"
   | "outline:phase-3"
   | "base-story:author"
   | "personal-stories:interview"
+  | "fiction:planner"
+  | "fiction:draft"
   | "market-analysis:research"
   | "length-adjustment:author"
   | "final-editor:polish";
@@ -87,13 +91,17 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
 
   // --- Other stages (will be wired in later) ---
   "promise:author": "anthropic:claude-sonnet-4-6",
+  "promise:structured": "openai:gpt-5",
   "audience:author": "anthropic:claude-sonnet-4-6",
+  "audience:structured": "openai:gpt-5",
   "outline:phase-1": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
   "outline:phase-2": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
   "outline:phase-3": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
   "base-story:author": "anthropic:claude-sonnet-4-6",
   "personal-stories:interview": "anthropic:claude-sonnet-4-6",
-  "market-analysis:research": "google:gemini-2.5-pro",
+  "fiction:planner": "anthropic:claude-sonnet-4-6",
+  "fiction:draft": "anthropic:claude-sonnet-4-6",
+  "market-analysis:research": "google:gemini-2.5-flash",
   "length-adjustment:author": "anthropic:claude-sonnet-4-6",
   "final-editor:polish": "anthropic:claude-opus-4-6",
 };

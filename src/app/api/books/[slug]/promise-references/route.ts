@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { StageKey } from "@prisma/client";
 
-import { getOrCreateBookBySlug } from "@/lib/repositories/books";
+import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { createDirectionEvent } from "@/lib/repositories/direction-events";
 import { uploadBookSourceDocument } from "@/lib/repositories/source-documents";
 
@@ -10,7 +10,7 @@ export async function POST(
   context: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await context.params;
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
   const formData = await request.formData();
   const files = formData
     .getAll("files")

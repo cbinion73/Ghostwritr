@@ -3,13 +3,20 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ArtifactType, StageKey, StageStatus } from "@prisma/client";
 import { z } from "zod";
 
+import { ParagraphOutlineSchema, parseArtifactWithSchema, parseMetadataRecord } from "../artifact-schemas";
 import { getModelForRole } from "../llm/routing";
 import type {
   PersonalStoryEncyclopedia,
   PersonalStoryEntry,
   PersonalStoryMessage,
 } from "../personal-story-types";
-import { getOrCreateBookBySlug, getStageForBook, updateStageForBook } from "../repositories/books";
+import type { ParagraphOutline } from "../paragraph-outline-types";
+import {
+  getBookBySlugOrThrow,
+  getStageForBook,
+  updateStageForBook,
+} from "../repositories/books";
+import { getCommittedOutlineExpansion } from "../repositories/outline-artifacts";
 import {
   commitPersonalStoriesStageBundle,
   createPersonalStoriesArtifactVersion,
@@ -17,6 +24,7 @@ import {
   getPersonalStoryArtifactVersions,
   getPersonalStoriesArtifacts,
 } from "../repositories/personal-stories-artifacts";
+import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
 
 const InterviewReplySchema = z.object({
   reply: z.string(),
@@ -65,6 +73,14 @@ function parseJson<T>(value: unknown, fallback: T): T {
 
   return fallback;
 }
+
+type ChapterBlueprint = {
+  chapterKey: string;
+  chapterLabel: string;
+  chapterTitle: string;
+  chapterDescription: string;
+  sectionTitle: string;
+};
 
 function normalizeTranscript(value: unknown): PersonalStoryMessage[] {
   return Array.isArray(value)
@@ -117,6 +133,71 @@ function getDefaultEncyclopedia(): PersonalStoryEncyclopedia {
       "If there is no story for an area, record that clearly and move on.",
     ],
   };
+}
+
+function buildChapterBlueprints(outline: ParagraphOutline | null): ChapterBlueprint[] {
+  return (
+    outline?.sections.flatMap((section) =>
+      section.chapters.map((chapter) => ({
+        chapterKey: chapter.chapterId,
+        chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
+        chapterTitle: chapter.chapterTitle,
+        chapterDescription: chapter.chapterDescription,
+        sectionTitle: section.sectionTitle,
+      })),
+    ) ?? []
+  );
+}
+
+async function getCommittedChapterBlueprints(bookId: string) {
+  const committedOutlineVersion = await getCommittedOutlineExpansion(bookId);
+  const outline = parseArtifactWithSchema(
+    committedOutlineVersion?.contentJson,
+    ParagraphOutlineSchema,
+  );
+  return buildChapterBlueprints(outline);
+}
+
+function inferInterviewFocus(chapters: ChapterBlueprint[]) {
+  if (chapters.length === 0) {
+    return getDefaultEncyclopedia().interviewFocus;
+  }
+
+  const preview = chapters
+    .slice(0, 4)
+    .map((chapter) => chapter.chapterLabel)
+    .join(", ");
+
+  return `Build a chapter-aware encyclopedia of lived experiences, leadership moments, failures, recoveries, identity stories, and observations that can support specific chapters in this book. Prioritize memories that could fit ${preview}${chapters.length > 4 ? ", and the rest of the outline" : ""}.`;
+}
+
+function inferNextQuestion(chapters: ChapterBlueprint[]) {
+  const firstChapter = chapters[0];
+  if (!firstChapter) {
+    return getDefaultEncyclopedia().nextQuestion;
+  }
+
+  return `For ${firstChapter.chapterLabel}, what real experience from your life or work best illustrates the chapter's central tension or lesson?`;
+}
+
+function buildChapterCoverage(
+  chapters: ChapterBlueprint[],
+  encyclopedia: PersonalStoryEncyclopedia,
+) {
+  return chapters.map((chapter) => {
+    const matchedEntries = encyclopedia.entries.filter((entry) =>
+      entry.chapterFitHints.some((hint) =>
+        hint.toLowerCase().includes(chapter.chapterTitle.toLowerCase()) ||
+        hint.toLowerCase().includes(chapter.chapterLabel.toLowerCase()),
+      ),
+    );
+
+    return {
+      ...chapter,
+      matchedStoryCount: matchedEntries.length,
+      matchedStoryTitles: matchedEntries.slice(0, 3).map((entry) => entry.title),
+    };
+  });
 }
 
 function normalizeEncyclopedia(
@@ -259,6 +340,7 @@ async function generateInterviewReply(
   transcript: PersonalStoryMessage[],
   encyclopedia: PersonalStoryEncyclopedia,
   userInput: string,
+  chapterBlueprints: ChapterBlueprint[],
 ) {
   const model = await getChatModel();
   if (!model) {
@@ -275,6 +357,7 @@ Your job:
 - conduct a warm, precise interview
 - ask one strong next question at a time
 - help the author surface concrete memories, tensions, decisions, failures, recoveries, and beliefs
+- keep the chapter architecture in view so stories can later attach to the right chapter
 - never force a story if the author does not have one
 - treat "I don't have a story for this" as useful information
 
@@ -291,6 +374,7 @@ Rules:
           latestUserInput: userInput,
           transcript,
           encyclopedia,
+          chapterBlueprints,
         }),
       ),
     ]);
@@ -305,6 +389,7 @@ async function generateEncyclopediaUpdate(
   title: string,
   transcript: PersonalStoryMessage[],
   prior: PersonalStoryEncyclopedia,
+  chapterBlueprints: ChapterBlueprint[],
 ) {
   const model = await getChatModel();
   if (!model) {
@@ -329,6 +414,7 @@ Rules:
 - if the author says there is no story, record that in noStoryTopics
 - keep coverage gaps honest
 - propose one sharp next question that deepens or broadens the interview
+- use chapterFitHints to point stories toward actual chapter titles or labels when possible
 - do not invent facts that were not implied by the transcript
       `),
       new HumanMessage(
@@ -336,6 +422,7 @@ Rules:
           bookTitle: title,
           priorEncyclopedia: prior,
           transcript,
+          chapterBlueprints,
         }),
       ),
     ]);
@@ -370,7 +457,13 @@ export async function submitPersonalStoriesMessage(bookSlug: string, userInput: 
     return getPersonalStoriesWorkspace(bookSlug);
   }
 
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const chapterBlueprints = await getCommittedChapterBlueprints(book.id);
+  if (chapterBlueprints.length === 0) {
+    throw new Error(
+      "Commit the paragraph-level Outline before building Personal Stories. The interview needs real chapter targets.",
+    );
+  }
   const stage = await getStageForBook(book.id, StageKey.PERSONAL_STORIES);
   const artifacts = await getPersonalStoriesArtifacts(book.id);
 
@@ -393,12 +486,14 @@ export async function submitPersonalStoriesMessage(bookSlug: string, userInput: 
     book.titleWorking ?? "Untitled Book",
     transcriptWithUser,
     normalizedPriorEncyclopedia,
+    chapterBlueprints,
   );
   const assistantReply = await generateInterviewReply(
     book.titleWorking ?? "Untitled Book",
     transcriptWithUser,
     updatedEncyclopedia,
     trimmed,
+    chapterBlueprints,
   );
   const finalTranscript = [
     ...transcriptWithUser,
@@ -452,18 +547,29 @@ export async function submitPersonalStoriesMessage(bookSlug: string, userInput: 
 }
 
 export async function seedPersonalStoriesInterview(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const chapterBlueprints = await getCommittedChapterBlueprints(book.id);
+  if (chapterBlueprints.length === 0) {
+    throw new Error(
+      "Commit the paragraph-level Outline before starting Personal Stories. The interview needs real chapter targets.",
+    );
+  }
   const artifacts = await getPersonalStoriesArtifacts(book.id);
   if (artifacts.length > 0) {
     return getPersonalStoriesWorkspace(bookSlug);
   }
 
-  const encyclopedia = getDefaultEncyclopedia();
+  const encyclopedia = {
+    ...getDefaultEncyclopedia(),
+    interviewFocus: inferInterviewFocus(chapterBlueprints),
+    nextQuestion: inferNextQuestion(chapterBlueprints),
+    coverageGaps: chapterBlueprints.map((chapter) => chapter.chapterLabel),
+  };
   const transcript: PersonalStoryMessage[] = [
     {
       role: "assistant",
       content:
-        "We’re going to build a personal story encyclopedia for this book, not force polished anecdotes too early. Start with one moment from your life or work that changed how you lead, decide, communicate, or see people.",
+        `We’re going to build a chapter-aware personal story encyclopedia for this book, not force polished anecdotes too early. Start with one moment from your life or work that best fits ${chapterBlueprints[0]?.chapterLabel ?? "the opening chapter"} and changed how you lead, decide, communicate, or see people.`,
     },
   ];
 
@@ -504,12 +610,31 @@ export async function seedPersonalStoriesInterview(bookSlug: string) {
 }
 
 export async function commitPersonalStoriesWorkflow(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
-  return commitPersonalStoriesStageBundle(book.id);
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const chapterBlueprints = await getCommittedChapterBlueprints(book.id);
+  if (chapterBlueprints.length === 0) {
+    throw new Error("Commit the paragraph-level Outline before committing Personal Stories.");
+  }
+  const encyclopediaVersions = await getPersonalStoryArtifactVersions(
+    book.id,
+    ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
+    1,
+  );
+  const latestEncyclopedia = normalizeEncyclopedia(
+    parseJson<Partial<PersonalStoryEncyclopedia> | null>(encyclopediaVersions[0]?.contentJson, null),
+  );
+  if (latestEncyclopedia.entries.length === 0) {
+    throw new Error("Capture at least one personal story before committing the encyclopedia.");
+  }
+  const result = await commitPersonalStoriesStageBundle(book.id);
+  await clearStageStaleDependency(bookSlug, StageKey.PERSONAL_STORIES);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.PERSONAL_STORIES);
+  return result;
 }
 
 export async function getPersonalStoriesWorkspace(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const chapterBlueprints = await getCommittedChapterBlueprints(book.id);
   const stage = await getStageForBook(book.id, StageKey.PERSONAL_STORIES);
   const artifacts = await getPersonalStoriesArtifacts(book.id);
   const chatVersions = await getPersonalStoryArtifactVersions(
@@ -535,7 +660,8 @@ export async function getPersonalStoriesWorkspace(bookSlug: string) {
   const normalizedCommittedEncyclopedia = committedEncyclopedia
     ? normalizeEncyclopedia(committedEncyclopedia)
     : null;
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  const metadata = parseMetadataRecord(stage?.metadataJson);
+  const chapterCoverage = buildChapterCoverage(chapterBlueprints, normalizedLatestEncyclopedia);
 
   return {
     book,
@@ -548,6 +674,9 @@ export async function getPersonalStoriesWorkspace(bookSlug: string) {
       chat: chatVersions,
       encyclopedia: encyclopediaVersions,
     },
+    outlineReady: chapterBlueprints.length > 0,
+    chapterBlueprints,
+    chapterCoverage,
     progress: {
       interviewStatus:
         typeof metadata.interviewStatus === "string" ? metadata.interviewStatus : "idle",

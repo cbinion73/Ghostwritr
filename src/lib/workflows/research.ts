@@ -1,12 +1,21 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 
+import {
+  BaseStoryBundleSchema,
+  BookOutlineSchema,
+  ChapterResearchDossierSchema,
+  ParagraphOutlineSchema,
+  parseArtifactWithSchema,
+  parseMetadataRecord,
+} from "../artifact-schemas";
 import { getModelForRole, resolveModelSpec, type StageRole } from "../llm/routing";
 import {
   ArtifactStatus,
   Prisma,
+  ResearchSource,
   ResearchVerificationStatus,
   StageKey,
   StageStatus,
@@ -16,6 +25,7 @@ import { z } from "zod";
 
 import type { BookOutline } from "../outline-types";
 import type { ParagraphOutline } from "../paragraph-outline-types";
+import type { BaseStoryBundle } from "../base-story-types";
 import type {
   ChapterResearchDossier,
   ChapterResearchItem,
@@ -26,6 +36,7 @@ import type {
   ResearchSourceTier,
 } from "../research-types";
 import {
+  getBookBySlugOrThrow,
   getOrCreateBookBySlug,
   getStageForBook,
   updateStageForBook,
@@ -43,12 +54,12 @@ import {
   syncResearchBinderTabsFromOutline,
 } from "../repositories/research-binder";
 import {
-  getResearchItemsForVersion,
   commitResearchPack,
   createResearchPackVersion,
   getCommittedResearchPack,
+  getLatestResearchPackVersionsByChapter,
   getResearchPackVersions,
-  getResearchSourcesForVersion,
+  getResearchSourcesForVersions,
   getResearchVerificationsForChapter,
 } from "../repositories/research-artifacts";
 import {
@@ -63,11 +74,13 @@ import {
   getCommittedOutline,
   getCommittedOutlineExpansion,
 } from "../repositories/outline-artifacts";
+import { getCommittedBaseStory } from "../repositories/base-story-artifacts";
 import {
   fetchWebPage,
   searchWeb,
   summarizeSearchAttempts,
 } from "../web-access";
+import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
 import { runQualityAgentWorkflow } from "./quality-agent";
 
 type ChapterContext = {
@@ -76,6 +89,9 @@ type ChapterContext = {
   chapterDescription: string;
   sectionId?: string;
   sectionTitle?: string;
+  baseStoryChapterPurpose?: string;
+  baseStoryChapterThread?: string;
+  baseStoryBookThread?: string;
   paragraphs: Array<{
     paragraphId: string;
     topicSentence: string;
@@ -111,6 +127,8 @@ type FetchedSource = ChapterResearchSource & {
   text: string;
   html: string;
 };
+
+const RESEARCH_WORKSPACE_LOG_PATH = "/tmp/research-workspace.log";
 
 class ResearchChapterTimeoutError extends Error {
   constructor(message: string) {
@@ -514,6 +532,26 @@ function getChapterContext(
   return null;
 }
 
+function getBaseStoryChapterContext(
+  baseStory: BaseStoryBundle | null,
+  chapterKey: string,
+) {
+  if (!baseStory) {
+    return null;
+  }
+
+  const chapter = baseStory.chapters.find((entry) => entry.chapterKey === chapterKey);
+  if (!chapter) {
+    return null;
+  }
+
+  return {
+    baseStoryChapterPurpose: chapter.chapterPurpose,
+    baseStoryChapterThread: chapter.chapterStory,
+    baseStoryBookThread: baseStory.bookThread,
+  };
+}
+
 async function wasWorkflowCanceled(runId?: string | null) {
   if (!runId) {
     return false;
@@ -553,14 +591,22 @@ function getWorkspaceChapterSeeds(
 }
 
 async function getResearchChapterSeeds(bookId: string) {
-  const outlineVersion = await getCommittedOutline(bookId);
-  const paragraphVersion = await getCommittedOutlineExpansion(bookId);
-  const outline = parseJson<BookOutline | null>(outlineVersion?.contentJson, null);
-  const paragraphOutline = parseJson<ParagraphOutline | null>(paragraphVersion?.contentJson, null);
+  const [outlineVersion, paragraphVersion, baseStoryVersion] = await Promise.all([
+    getCommittedOutline(bookId),
+    getCommittedOutlineExpansion(bookId),
+    getCommittedBaseStory(bookId),
+  ]);
+  const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
+  const paragraphOutline = parseArtifactWithSchema(
+    paragraphVersion?.contentJson,
+    ParagraphOutlineSchema,
+  );
+  const baseStory = parseArtifactWithSchema(baseStoryVersion?.contentJson, BaseStoryBundleSchema);
 
   return {
     outline,
     paragraphOutline,
+    baseStory,
     chapterSeeds: getWorkspaceChapterSeeds(outline, paragraphOutline),
   };
 }
@@ -587,6 +633,78 @@ function getDossierStatus(input: {
 
   // Only truly stuck chapters (0 verified items) need review
   return "NEEDS_REVIEW";
+}
+
+function normalizeWorkspaceResearchSource(source: ResearchSource): ChapterResearchSource {
+  return {
+    id: source.id,
+    url: source.url,
+    canonicalUrl: source.canonicalUrl,
+    title: source.title,
+    publisher: source.publisher,
+    author: source.author,
+    publishedAt: source.publishedAt?.toISOString() ?? null,
+    accessedAt: source.accessedAt?.toISOString() ?? null,
+    contentType: source.contentType,
+    sourceTier: source.sourceTier as ChapterResearchSource["sourceTier"],
+    tierWeight: Number(source.tierWeight),
+    isVerified: source.isVerified,
+    verificationStatus:
+      source.verificationStatus as ChapterResearchSource["verificationStatus"],
+    verificationNotes: source.verificationNotes,
+    snapshotPath: source.snapshotPath,
+    extractedTextPath: source.extractedTextPath,
+    metadata: parseJson<Record<string, unknown>>(source.metadataJson, {}),
+  };
+}
+
+function createResearchWorkspaceProfiler(bookSlug: string, selectedTabId?: string) {
+  const startedAt = Date.now();
+  const runId = `research-workspace-${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
+  const entries: string[] = [];
+
+  const serializeDetail = (detail?: Record<string, unknown>) => {
+    if (!detail || Object.keys(detail).length === 0) {
+      return "";
+    }
+
+    try {
+      return ` ${JSON.stringify(detail)}`;
+    } catch {
+      return " [unserializable detail]";
+    }
+  };
+
+  const mark = (step: string, detail?: Record<string, unknown>) => {
+    const elapsedMs = Date.now() - startedAt;
+    entries.push(
+      `${new Date().toISOString()} [${runId}] +${elapsedMs}ms ${step}${serializeDetail(detail)}`,
+    );
+  };
+
+  const flush = async (status: "ok" | "error", detail?: Record<string, unknown>) => {
+    mark(`complete:${status}`, {
+      bookSlug,
+      selectedTabId: selectedTabId ?? null,
+      totalMs: Date.now() - startedAt,
+      ...(detail ?? {}),
+    });
+
+    if (entries.length === 0) {
+      return;
+    }
+
+    const output = `${entries.join("\n")}\n`;
+    console.info(output.trimEnd());
+
+    try {
+      await appendFile(RESEARCH_WORKSPACE_LOG_PATH, output, "utf8");
+    } catch {
+      // Logging should never break the workspace load.
+    }
+  };
+
+  return { mark, flush };
 }
 
 async function maybeGenerateResearchQuestions(
@@ -624,6 +742,9 @@ async function maybeGenerateResearchQuestions(
         JSON.stringify({
           chapterTitle: chapter.chapterTitle,
           chapterDescription: chapter.chapterDescription,
+          baseStoryChapterPurpose: chapter.baseStoryChapterPurpose ?? null,
+          baseStoryChapterThread: chapter.baseStoryChapterThread ?? null,
+          baseStoryBookThread: chapter.baseStoryBookThread ?? null,
           paragraphs: chapter.paragraphs,
         }),
       ),
@@ -647,6 +768,9 @@ async function discoverCandidateSources(
   const descSlice = chapter.chapterDescription.slice(0, 140);
   const queries = [
     `${chapter.chapterTitle} ${descSlice}`,
+    ...(chapter.baseStoryChapterThread
+      ? [chapter.baseStoryChapterThread.replace(/\s+/g, " ").slice(0, 120)]
+      : []),
     `${chapter.chapterTitle} peer reviewed study`,
     `${chapter.chapterTitle} official report statistics`,
     `${chapter.chapterTitle} government data`,
@@ -1425,7 +1549,7 @@ async function pulseResearchStage(input: {
   message: string;
 }) {
   const stage = await getStageForBook(input.bookId, StageKey.RESEARCH);
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  const metadata = parseMetadataRecord(stage?.metadataJson);
 
   await updateStageForBook(input.bookId, StageKey.RESEARCH, {
     metadataJson: {
@@ -1446,19 +1570,31 @@ async function pulseResearchStage(input: {
 
 export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
-  const outlineVersion = await getCommittedOutline(book.id);
-  const paragraphVersion = await getCommittedOutlineExpansion(book.id);
+  const [outlineVersion, paragraphVersion, baseStoryVersion] = await Promise.all([
+    getCommittedOutline(book.id),
+    getCommittedOutlineExpansion(book.id),
+    getCommittedBaseStory(book.id),
+  ]);
 
-  const outline = parseJson<BookOutline | null>(outlineVersion?.contentJson, null);
-  const paragraphOutline = parseJson<ParagraphOutline | null>(
+  const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
+  const paragraphOutline = parseArtifactWithSchema(
     paragraphVersion?.contentJson,
-    null,
+    ParagraphOutlineSchema,
   );
+  const baseStory = parseArtifactWithSchema(baseStoryVersion?.contentJson, BaseStoryBundleSchema);
+
+  if (!baseStory) {
+    throw new Error("A committed Base Story is required before Research can run.");
+  }
 
   const chapter = getChapterContext(chapterKey, outline, paragraphOutline);
   if (!chapter) {
     throw new Error(`Committed chapter ${chapterKey} was not found`);
   }
+  const chapterContext: ChapterContext = {
+    ...chapter,
+    ...getBaseStoryChapterContext(baseStory, chapterKey),
+  };
 
   // Read quality feedback if this is a retry
   const stage = await getStageForBook(book.id, StageKey.RESEARCH);
@@ -1472,11 +1608,11 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
     : "";
   await pulseResearchStage({
     bookId: book.id,
-    currentChapterKey: chapter.chapterKey,
+    currentChapterKey: chapterContext.chapterKey,
     currentAction: "Framing research questions",
-    message: `Framing research questions for ${chapter.chapterTitle}${retryMessage}`,
+    message: `Framing research questions for ${chapterContext.chapterTitle}${retryMessage}`,
   });
-  const questions = await maybeGenerateResearchQuestions(chapter);
+  const questions = await maybeGenerateResearchQuestions(chapterContext);
   let dossier: ChapterResearchDossier;
   let persistedSources: ChapterResearchSource[];
   let persistedItems: ChapterResearchItem[];
@@ -1488,15 +1624,15 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
       (async () => {
         await pulseResearchStage({
           bookId: book.id,
-          currentChapterKey: chapter.chapterKey,
+          currentChapterKey: chapterContext.chapterKey,
           currentAction: "Searching the web for source leads",
-          message: `Searching the web for ${chapter.chapterTitle}`,
+          message: `Searching the web for ${chapterContext.chapterTitle}`,
         });
         const { candidates: candidateSources, attempts: searchAttempts } =
-          await discoverCandidateSources(chapter, questions);
+          await discoverCandidateSources(chapterContext, questions);
         if (candidateSources.length === 0) {
           throw new Error(
-            `No web search results were discovered for ${chapter.chapterTitle}. ${summarizeSearchAttempts(searchAttempts)}`,
+            `No web search results were discovered for ${chapterContext.chapterTitle}. ${summarizeSearchAttempts(searchAttempts)}`,
           );
         }
         await pulseResearchStage({
@@ -1681,6 +1817,10 @@ export async function runFullResearchWorkflow(
   options: ResearchRunOptions = {},
 ) {
   const book = await getOrCreateBookBySlug(bookSlug);
+  const baseStoryVersion = await getCommittedBaseStory(book.id);
+  if (!baseStoryVersion) {
+    throw new Error("A committed Base Story is required before Research can run.");
+  }
   const { chapterSeeds: allChapterSeeds } = await getResearchChapterSeeds(book.id);
   const requestedChapterKeys = new Set(options.chapterKeys ?? []);
   const chapterSeeds =
@@ -1993,7 +2133,10 @@ export async function enqueueAndTriggerFullResearchWorkflow(
 
 export async function commitChapterResearchWorkflow(bookSlug: string, chapterKey: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
-  return commitResearchPack(book.id, chapterKey);
+  const result = await commitResearchPack(book.id, chapterKey);
+  await clearStageStaleDependency(bookSlug, StageKey.RESEARCH);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.RESEARCH);
+  return result;
 }
 
 export async function commitAllResearchWorkflow(bookSlug: string) {
@@ -2007,9 +2150,13 @@ export async function commitAllResearchWorkflow(bookSlug: string) {
 
   const committedChapterKeys: string[] = [];
   const missingChapterKeys: string[] = [];
+  const latestVersionsByChapter = await getLatestResearchPackVersionsByChapter(
+    book.id,
+    chapterSeeds.map((chapter) => chapter.chapterKey),
+  );
 
   for (const chapter of chapterSeeds) {
-    const latestVersion = (await getResearchPackVersions(book.id, chapter.chapterKey, 1))[0] ?? null;
+    const latestVersion = latestVersionsByChapter.get(chapter.chapterKey) ?? null;
     if (!latestVersion) {
       missingChapterKeys.push(chapter.chapterKey);
       continue;
@@ -2022,7 +2169,7 @@ export async function commitAllResearchWorkflow(bookSlug: string) {
     committedChapterKeys.push(chapter.chapterKey);
   }
 
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  const metadata = parseMetadataRecord(stage?.metadataJson);
   const now = new Date().toISOString();
 
   await updateStageForBook(book.id, StageKey.RESEARCH, {
@@ -2060,7 +2207,7 @@ export async function commitAllResearchWorkflow(bookSlug: string) {
 }
 
 export async function getChapterResearchWorkspace(bookSlug: string, chapterKey: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const stage = await getStageForBook(book.id, "RESEARCH");
   const versions = await getResearchPackVersions(book.id, chapterKey);
   const committedVersion = await getCommittedResearchPack(book.id, chapterKey);
@@ -2071,46 +2218,120 @@ export async function getChapterResearchWorkspace(bookSlug: string, chapterKey: 
     stage,
     versions: versions.map((version) => ({
       ...version,
-      dossier: parseJson<ChapterResearchDossier | null>(version.contentJson, null),
+      dossier: parseArtifactWithSchema(version.contentJson, ChapterResearchDossierSchema),
+      invalidContent:
+        version.contentJson != null &&
+        !parseArtifactWithSchema(version.contentJson, ChapterResearchDossierSchema),
       isCommitted: version.lifecycleState === ArtifactStatus.COMMITTED,
     })),
     committedDossier: committedVersion
-      ? parseJson<ChapterResearchDossier | null>(committedVersion.contentJson, null)
+      ? parseArtifactWithSchema(committedVersion.contentJson, ChapterResearchDossierSchema)
       : null,
     verificationCount: verifications.length,
   };
 }
 
 export async function getResearchWorkspace(bookSlug: string, selectedTabId?: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
-  const stage = await getStageForBook(book.id, "RESEARCH");
-  const { outline, paragraphOutline, chapterSeeds } = await getResearchChapterSeeds(book.id);
-  await syncResearchBinderTabsFromOutline(
-    book.id,
-    chapterSeeds.map(({ chapterKey, chapterLabel }) => ({ chapterKey, chapterLabel })),
-  );
+  const profiler = createResearchWorkspaceProfiler(bookSlug, selectedTabId);
+  profiler.mark("start");
 
-  const tabs = await listResearchBinderTabs(book.id);
-  const selectedTab =
-    tabs.find((tab) => tab.id === selectedTabId) ??
-    tabs[0] ??
-    null;
+  try {
+    const book = await getBookBySlugOrThrow(bookSlug);
+    profiler.mark("book_loaded", { bookId: book.id });
 
-  const chapterMap = new Map(chapterSeeds.map((chapter) => [chapter.chapterKey, chapter]));
-  const selectedChapterKeys = selectedTab
-    ? getBinderTabChapterKeys(selectedTab.chapterKeysJson)
-    : [];
+    const stage = await getStageForBook(book.id, "RESEARCH");
+    profiler.mark("stage_loaded", {
+      stageStatus: stage?.status ?? null,
+    });
 
-  const dossierEntries = await Promise.all(
-    selectedChapterKeys.map(async (chapterKey) => {
-      const versions = await getResearchPackVersions(book.id, chapterKey, 1);
-      const version = versions[0] ?? null;
-      const dossier = version
-        ? parseJson<ChapterResearchDossier | null>(version.contentJson, null)
-        : null;
-      const sources = version ? await getResearchSourcesForVersion(version.id) : [];
-      const items = version ? await getResearchItemsForVersion(version.id) : [];
-      const verifications = await getResearchVerificationsForChapter(book.id, chapterKey);
+    const { outline, paragraphOutline, baseStory, chapterSeeds } = await getResearchChapterSeeds(book.id);
+    profiler.mark("chapter_seeds_loaded", {
+      chapterCount: chapterSeeds.length,
+      hasOutline: Boolean(outline),
+      hasParagraphOutline: Boolean(paragraphOutline),
+    });
+
+    await syncResearchBinderTabsFromOutline(
+      book.id,
+      chapterSeeds.map(({ chapterKey, chapterLabel }) => ({ chapterKey, chapterLabel })),
+    );
+    profiler.mark("binder_tabs_synced", {
+      chapterCount: chapterSeeds.length,
+    });
+
+    const tabs = await listResearchBinderTabs(book.id);
+    const tabsWithChapterKeys = tabs.map((tab) => ({
+      ...tab,
+      chapterKeys: getBinderTabChapterKeys(tab.chapterKeysJson),
+    }));
+    profiler.mark("binder_tabs_loaded", {
+      tabCount: tabsWithChapterKeys.length,
+      ideaCount: tabsWithChapterKeys.reduce((sum, tab) => sum + tab.ideaClips.length, 0),
+    });
+
+    const selectedTab =
+      tabsWithChapterKeys.find((tab) => tab.id === selectedTabId) ??
+      tabsWithChapterKeys[0] ??
+      null;
+    profiler.mark("selected_tab_resolved", {
+      selectedTabId: selectedTab?.id ?? null,
+      selectedChapterCount: selectedTab?.chapterKeys.length ?? 0,
+    });
+
+    const chapterMap = new Map(chapterSeeds.map((chapter) => [chapter.chapterKey, chapter]));
+    const selectedChapterKeys = selectedTab?.chapterKeys ?? [];
+    const allTabbedChapterKeys = Array.from(
+      new Set(tabsWithChapterKeys.flatMap((tab) => tab.chapterKeys)),
+    );
+
+    const latestVersionsByChapter = await getLatestResearchPackVersionsByChapter(
+      book.id,
+      allTabbedChapterKeys,
+    );
+    profiler.mark("latest_versions_loaded", {
+      chapterCount: allTabbedChapterKeys.length,
+      versionCount: latestVersionsByChapter.size,
+    });
+
+    const dossierByChapter = new Map(
+      Array.from(latestVersionsByChapter.entries()).map(([chapterKey, version]) => [
+        chapterKey,
+        parseArtifactWithSchema(version.contentJson, ChapterResearchDossierSchema),
+      ]),
+    );
+    profiler.mark("dossiers_parsed", {
+      dossierCount: dossierByChapter.size,
+    });
+
+    const selectedVersionIds = selectedChapterKeys
+      .map((chapterKey) => latestVersionsByChapter.get(chapterKey)?.id)
+      .filter((value): value is string => Boolean(value));
+    const selectedSources = await getResearchSourcesForVersions(selectedVersionIds);
+    profiler.mark("selected_sources_loaded", {
+      selectedVersionCount: selectedVersionIds.length,
+      sourceCount: selectedSources.length,
+    });
+
+    const sourcesByVersionId = new Map<string, ChapterResearchSource[]>();
+
+    for (const source of selectedSources) {
+      const versionId = source.researchArtifactVersionId;
+      if (!versionId) {
+        continue;
+      }
+
+      const bucket = sourcesByVersionId.get(versionId) ?? [];
+      bucket.push(normalizeWorkspaceResearchSource(source));
+      sourcesByVersionId.set(versionId, bucket);
+    }
+    profiler.mark("sources_grouped", {
+      versionCount: sourcesByVersionId.size,
+    });
+
+    const dossierEntries = selectedChapterKeys.map((chapterKey) => {
+      const version = latestVersionsByChapter.get(chapterKey) ?? null;
+      const dossier = dossierByChapter.get(chapterKey) ?? null;
+      const sources = version ? sourcesByVersionId.get(version.id) ?? [] : [];
 
       return {
         chapter: chapterMap.get(chapterKey) ?? {
@@ -2121,8 +2342,7 @@ export async function getResearchWorkspace(bookSlug: string, selectedTabId?: str
         version,
         dossier,
         sources,
-        items,
-        verifications,
+        invalidArtifact: Boolean(version && !dossier),
         status: getDossierStatus({
           versionNumber: version?.versionNumber,
           isCommitted: version?.lifecycleState === ArtifactStatus.COMMITTED,
@@ -2131,25 +2351,23 @@ export async function getResearchWorkspace(bookSlug: string, selectedTabId?: str
             dossier?.verificationSummary.needsCorroborationItems ?? 0,
         }),
       };
-    }),
-  );
+    });
+    profiler.mark("dossier_entries_built", {
+      dossierEntryCount: dossierEntries.length,
+    });
 
-  const tabsWithSummary = await Promise.all(
-    tabs.map(async (tab) => {
-      const chapterKeys = getBinderTabChapterKeys(tab.chapterKeysJson);
-      const chapterVersions = await Promise.all(
-        chapterKeys.map(async (chapterKey) => {
-          const version = (await getResearchPackVersions(book.id, chapterKey, 1))[0] ?? null;
-          const dossier = version
-            ? parseJson<ChapterResearchDossier | null>(version.contentJson, null)
-            : null;
-
-          return {
-            version,
-            dossier,
-          };
-        }),
+    const invalidArtifactWarnings = dossierEntries
+      .filter((entry) => entry.invalidArtifact)
+      .map(
+        (entry) =>
+          `${entry.chapter.chapterLabel} has a saved research dossier version that no longer matches the expected schema. Regenerate this dossier before relying on it downstream.`,
       );
+
+    const tabsWithSummary = tabsWithChapterKeys.map((tab) => {
+      const chapterVersions = tab.chapterKeys.map((chapterKey) => ({
+        version: latestVersionsByChapter.get(chapterKey) ?? null,
+        dossier: dossierByChapter.get(chapterKey) ?? null,
+      }));
 
       const generatedCount = chapterVersions.filter((entry) => entry.version).length;
       const committedCount = chapterVersions.filter(
@@ -2171,15 +2389,15 @@ export async function getResearchWorkspace(bookSlug: string, selectedTabId?: str
 
       return {
         ...tab,
-        chapterKeys,
         summary: {
           status: getDossierStatus({
-            versionNumber: generatedCount > 0 ? 1 : undefined,
-            isCommitted: committedCount === chapterKeys.length && chapterKeys.length > 0,
+            versionNumber:
+              generatedCount > 0 ? chapterVersions[0]?.version?.versionNumber ?? 1 : undefined,
+            isCommitted: committedCount === tab.chapterKeys.length && tab.chapterKeys.length > 0,
             verifiedItems: verifiedItemCount,
             needsCorroborationItems: needsReviewCount,
           }),
-          chapterCount: chapterKeys.length,
+          chapterCount: tab.chapterKeys.length,
           generatedCount,
           committedCount,
           verifiedSourceCount,
@@ -2188,50 +2406,68 @@ export async function getResearchWorkspace(bookSlug: string, selectedTabId?: str
           ideaCount: tab.ideaClips.length,
         },
       };
-    }),
-  );
+    });
+    profiler.mark("tab_summaries_built", {
+      tabCount: tabsWithSummary.length,
+    });
 
-  const selectedTabWithSummary =
-    tabsWithSummary.find((tab) => tab.id === selectedTab?.id) ?? null;
+    const selectedTabWithSummary =
+      tabsWithSummary.find((tab) => tab.id === selectedTab?.id) ?? null;
 
-  const stageMetadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+    const stageMetadata = parseMetadataRecord(stage?.metadataJson);
 
-  return {
-    book,
-    stage,
-    outline,
-    paragraphOutline,
-    tabs: tabsWithSummary,
-    selectedTab: selectedTabWithSummary,
-    availableChapters: chapterSeeds,
-    dossierEntries,
-    progress: {
-      totalChapters:
-        typeof stageMetadata.totalChapters === "number"
-          ? stageMetadata.totalChapters
-          : chapterSeeds.length,
-      completedChapters:
-        typeof stageMetadata.completedChapters === "number"
-          ? stageMetadata.completedChapters
-          : tabsWithSummary.filter((tab) => tab.summary.generatedCount > 0).length,
-      currentChapterKey:
-        typeof stageMetadata.currentChapterKey === "string"
-          ? stageMetadata.currentChapterKey
-          : null,
-      failedChapters: Array.isArray(stageMetadata.failedChapters)
-        ? stageMetadata.failedChapters
-        : [],
-      provisionalChapters: Array.isArray(stageMetadata.provisionalChapters)
-        ? stageMetadata.provisionalChapters
-        : [],
-      automationStatus:
-        typeof stageMetadata.automationStatus === "string"
-          ? stageMetadata.automationStatus
-          : stage?.status === StageStatus.READY_FOR_REVIEW
-            ? "ready_for_review"
-            : "idle",
-    },
-  };
+    const result = {
+      book,
+      stage,
+      outline,
+      paragraphOutline,
+      baseStoryReady: Boolean(baseStory),
+      tabs: tabsWithSummary,
+      selectedTab: selectedTabWithSummary,
+      availableChapters: chapterSeeds,
+      dossierEntries,
+      invalidArtifactWarnings,
+      progress: {
+        totalChapters:
+          typeof stageMetadata.totalChapters === "number"
+            ? stageMetadata.totalChapters
+            : chapterSeeds.length,
+        completedChapters:
+          typeof stageMetadata.completedChapters === "number"
+            ? stageMetadata.completedChapters
+            : tabsWithSummary.filter((tab) => tab.summary.generatedCount > 0).length,
+        currentChapterKey:
+          typeof stageMetadata.currentChapterKey === "string"
+            ? stageMetadata.currentChapterKey
+            : null,
+        failedChapters: Array.isArray(stageMetadata.failedChapters)
+          ? stageMetadata.failedChapters
+          : [],
+        provisionalChapters: Array.isArray(stageMetadata.provisionalChapters)
+          ? stageMetadata.provisionalChapters
+          : [],
+        automationStatus:
+          typeof stageMetadata.automationStatus === "string"
+            ? stageMetadata.automationStatus
+            : stage?.status === StageStatus.READY_FOR_REVIEW
+              ? "ready_for_review"
+              : "idle",
+      },
+    };
+
+    profiler.mark("result_ready", {
+      totalChapters: result.progress.totalChapters,
+      completedChapters: result.progress.completedChapters,
+      automationStatus: result.progress.automationStatus,
+    });
+    await profiler.flush("ok");
+    return result;
+  } catch (error) {
+    await profiler.flush("error", {
+      message: error instanceof Error ? error.message : "Unknown workspace error",
+    });
+    throw error;
+  }
 }
 
 export async function runResearchBinderTabWorkflow(bookSlug: string, tabId: string) {

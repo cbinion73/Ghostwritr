@@ -7,7 +7,8 @@ import { z } from "zod";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-import { getModelForRole } from "../llm/routing";
+import { getModelForRole, resolveModelSpec } from "../llm/routing";
+import { parseModelSpec } from "../llm/providers";
 import {
   commitPromiseStageBundle,
   createPromiseArtifactVersion,
@@ -16,7 +17,7 @@ import {
   getPromiseArtifacts,
 } from "../repositories/promise-artifacts";
 import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
-import { getOrCreateBookBySlug, getStageForBook } from "../repositories/books";
+import { getBookBySlugOrThrow, getOrCreateBookBySlug, getStageForBook } from "../repositories/books";
 import { createDirectionEvent, listDirectionEventsForStage } from "../repositories/direction-events";
 import { listBookSourceDocuments } from "../repositories/source-documents";
 import {
@@ -788,6 +789,62 @@ async function getChatModel(
   });
 }
 
+async function getStructuredPromiseModel(
+  overrides: {
+    temperature?: number;
+    maxOutputTokens?: number;
+    timeoutMs?: number;
+    maxRetries?: number;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  } = {},
+) {
+  ensureEnvLoaded();
+  return getModelForRole(
+    "promise:structured",
+    {
+      temperature: overrides.temperature ?? 0.15,
+      maxOutputTokens: overrides.maxOutputTokens ?? 4000,
+      timeoutMs: overrides.timeoutMs ?? 90000,
+      maxRetries: overrides.maxRetries ?? 1,
+      reasoningEffort: overrides.reasoningEffort ?? "medium",
+    },
+    "promise:author",
+  );
+}
+
+async function getStructuredAudienceModel(
+  overrides: {
+    temperature?: number;
+    maxOutputTokens?: number;
+    timeoutMs?: number;
+    maxRetries?: number;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  } = {},
+) {
+  ensureEnvLoaded();
+  return getModelForRole(
+    "audience:structured",
+    {
+      temperature: overrides.temperature ?? 0.15,
+      maxOutputTokens: overrides.maxOutputTokens ?? 4000,
+      timeoutMs: overrides.timeoutMs ?? 90000,
+      maxRetries: overrides.maxRetries ?? 1,
+      reasoningEffort: overrides.reasoningEffort ?? "medium",
+    },
+    "audience:author",
+  );
+}
+
+function getMarketAnalysisGoogleModelId() {
+  const spec = parseModelSpec(resolveModelSpec("market-analysis:research"));
+  if (spec.provider !== "google") {
+    throw new Error(
+      `market-analysis:research must resolve to a google model, received "${spec.provider}:${spec.model}"`,
+    );
+  }
+  return spec.model;
+}
+
 async function getBookPitchModel(
   overrides: {
     temperature?: number;
@@ -1371,6 +1428,15 @@ async function getKnowledgeContextForPrompt(
   return grounding.text;
 }
 
+function deriveKnowledgeFallbackCharLimit(query?: string, maxResults?: number): number {
+  if (query && query.trim().length > 0) {
+    const requestedResults = Math.max(1, Math.min(maxResults ?? 4, 8));
+    return Math.min(16000, Math.max(6000, requestedResults * 2500));
+  }
+
+  return 30000;
+}
+
 async function getKnowledgeGroundingForPrompt(
   bookId: string,
   query?: string,
@@ -1396,11 +1462,12 @@ async function getKnowledgeGroundingForPrompt(
       }
     }
 
-    const knowledge = await getBookKnowledgeBase(bookId, 30000);
+    const fallbackCharLimit = deriveKnowledgeFallbackCharLimit(query, maxResults);
+    const knowledge = await getBookKnowledgeBase(bookId, fallbackCharLimit);
 
     if (knowledge.content && knowledge.sourceCount > 0) {
       console.log(
-        `[getKnowledgeContextForPrompt] Loaded ${knowledge.sourceCount} fallback sources, ${knowledge.content.length} characters`
+        `[getKnowledgeContextForPrompt] Loaded ${knowledge.sourceCount} fallback sources, ${knowledge.content.length} characters (limit ${fallbackCharLimit})`
       );
       const sourceTitles = knowledge.content
         .split("\n")
@@ -1807,6 +1874,40 @@ function summarizePersonasForPrompt(personas: PersonaDeepProfile[]) {
     companyType: persona.demographics.companyType,
     biggestFrustration: persona.currentSituation.biggestFrustration,
   }));
+}
+
+function buildPersonaGenerationInstruction(requestedCount: number) {
+  const countInstruction =
+    requestedCount === 1
+      ? "Generate exactly 1 reader persona that is materially distinct from any existing personas."
+      : `Generate exactly ${requestedCount} reader personas that are materially distinct from any existing personas.`;
+
+  return [
+    countInstruction,
+    "Match the schema exactly.",
+    "Return a top-level object with a `personas` array only.",
+    "For every persona include demographics.role, demographics.companyType, demographics.yearsInRole, demographics.careerPath, demographics.dayInTheLife, demographics.reportsTo, demographics.teamSize.",
+    "Use `dayInTheLife` exactly. Do not use `dayToDay`, `daySummary`, or alternate keys.",
+    "Use JSON numbers for `yearsInRole` and `teamSize`.",
+    "Always include `reportsTo` as a concrete manager or executive title.",
+    "Use only `outcome` or `feeling` for goal types.",
+    "Keep each long-form field to 1-2 sentences so the full JSON fits in one response.",
+  ].join(" ");
+}
+
+function getPersonaDeepProfileBatchSize(_requestedPersonaCount: number): number {
+  // Default to pairs for the happy path, then rely on truncation-aware retry
+  // logic to split a batch down to a single persona only when needed.
+  return _requestedPersonaCount <= 1 ? 1 : 2;
+}
+
+function getPersonaDeepProfilePhaseBudgetMs(requestedPersonaCount: number): number {
+  const boundedPersonaCount = Math.max(1, Math.min(requestedPersonaCount, 10));
+  const estimatedBatches = Math.ceil(
+    boundedPersonaCount / getPersonaDeepProfileBatchSize(boundedPersonaCount),
+  );
+
+  return Math.min(240000, Math.max(120000, estimatedBatches * 60000));
 }
 
 function summarizePersonasForComparison(personas: PersonaDeepProfile[]) {
@@ -2972,7 +3073,10 @@ async function maybeExtractPromise(
     note: string;
   }>,
 ) {
-  const model = await getChatModel();
+  const model = await getStructuredPromiseModel({
+    maxOutputTokens: 4000,
+    timeoutMs: 90000,
+  });
 
   if (!model) {
     return fallbackPromiseExtraction(bookSlug, messages, assistantReply, bookSetupProfile);
@@ -2995,7 +3099,10 @@ async function maybeExtractPromise(
 }
 
 async function maybeScorePromise(promise: PromiseBrief) {
-  const model = await getChatModel();
+  const model = await getStructuredPromiseModel({
+    maxOutputTokens: 3000,
+    timeoutMs: 60000,
+  });
 
   if (!model) {
     return fallbackScorecard(promise);
@@ -3010,7 +3117,10 @@ async function maybeScorePromise(promise: PromiseBrief) {
 }
 
 async function maybeGeneratePersonas(promise: PromiseBrief) {
-  const model = await getChatModel();
+  const model = await getStructuredAudienceModel({
+    maxOutputTokens: 5000,
+    timeoutMs: 90000,
+  });
 
   if (!model) {
     return fallbackPersonaPack(promise);
@@ -3095,7 +3205,7 @@ export async function maybeGenerateMarketReport(
 
     const client = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
     const model = client.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: getMarketAnalysisGoogleModelId(),
       generationConfig: {
         temperature: 0.25,
         topP: 0.9,
@@ -3148,7 +3258,7 @@ ${JSON.stringify(groundingContext.promptPayload, null, 2)}`;
             ? normalized.metadata.createdAt
             : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        model: "gemini-2.5-flash",
+        model: getMarketAnalysisGoogleModelId(),
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -3193,7 +3303,7 @@ export async function maybeGenerateRecommendations(
       personaContexts,
     );
 
-    // Use Gemini 2.5 Flash for market-grounded recommendations (matches Market Report phase)
+    // Use the shared market-analysis routing role for market-grounded recommendations.
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       console.log("[maybeGenerateRecommendations] No Gemini API key, using fallback");
       return {
@@ -3239,7 +3349,7 @@ export async function maybeGenerateRecommendations(
 
     const client = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
     const model = client.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: getMarketAnalysisGoogleModelId(),
       generationConfig: {
         temperature: 0.3,
         topP: 0.9,
@@ -3296,7 +3406,7 @@ ${JSON.stringify(groundingContext.promptPayload, null, 2)}`;
             ? normalized.metadata.createdAt
             : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        model: "gemini-2.5-flash",
+        model: getMarketAnalysisGoogleModelId(),
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -3647,7 +3757,10 @@ export async function maybeGenerateAudienceResearchPhase1(
 ): Promise<AudienceResearchPhase1> {
   try {
     console.log(`[maybeGenerateAudienceResearchPhase1] Starting...`);
-    const model = await getChatModel();
+    const model = await getStructuredAudienceModel({
+      maxOutputTokens: 5000,
+      timeoutMs: 90000,
+    });
     console.log(`[maybeGenerateAudienceResearchPhase1] Model obtained:`, model ? "yes" : "no");
 
     if (!model) {
@@ -3741,10 +3854,7 @@ async function generatePersonaDeepProfileBatch(params: {
         requestedPersonaCount: params.requestedCount,
         seedUserTypes: params.seedUserTypes,
         existingPersonas: summarizePersonasForPrompt(params.existingPersonas),
-        instruction:
-          params.requestedCount === 1
-            ? "Generate exactly 1 reader persona that is materially distinct from any existing personas."
-            : `Generate exactly ${params.requestedCount} reader personas that are materially distinct from any existing personas.`,
+        instruction: buildPersonaGenerationInstruction(params.requestedCount),
       }),
     ),
   ];
@@ -3886,62 +3996,6 @@ export async function maybeGeneratePersonasDeepProfile(
   try {
     log("[maybeGeneratePersonasDeepProfile] Starting Phase 2 generation...");
 
-    log("[maybeGeneratePersonasDeepProfile] Initializing LLM model...");
-    const model = await getChatModel({
-      maxOutputTokens: 5000,
-      timeoutMs: 120000,
-    });
-    log("[maybeGeneratePersonasDeepProfile] Model initialized:", model ? "yes" : "no");
-
-    if (!model) {
-      log("[maybeGeneratePersonasDeepProfile] No model available, returning fallback");
-      // Fallback: generate basic personas
-      return {
-        personas: [
-          {
-            id: "persona_1",
-            name: "Primary Persona",
-            demographics: {
-              role: "Professional in relevant field",
-              companyType: "Various",
-              yearsInRole: 5,
-              careerPath: "Progression within their field",
-              dayInTheLife: "Busy with operational demands",
-              reportsTo: "Senior leader",
-              teamSize: 5,
-            },
-            currentSituation: {
-              whatTheyDo: "Work described in the book promise",
-              whatWorks: ["Some existing approaches", "Current systems"],
-              whatDoesntWork: ["Pain points from promise"],
-              timeAllocation: "50% on pain area, 50% other",
-              biggestFrustration: "Core pain from promise",
-            },
-            goals: [
-              { goal: "Achieve outcome from promise", type: "outcome" },
-              { goal: "Feel confident and capable", type: "feeling" },
-            ],
-            painPoints: [
-              { friction: "Current challenge", realCost: "Time and opportunity lost" },
-            ],
-            objections: [
-              { objection: "Don't have time to read", proofNeeded: "Practical, quick application" },
-            ],
-            successMetrics: [{ metric: "Measurable improvement", feeling: "Greater confidence" }],
-            learningStyle: {
-              prefers: ["Practical examples", "Clear frameworks"],
-              hates: ["Theory without application"],
-              bestFormat: "Short, actionable chapters",
-            },
-            voiceBlendFit: {
-              primary: "Practical and clear",
-              reasoning: "Resonates with need for actionable solutions",
-            },
-          },
-        ],
-      };
-    }
-
     // Get knowledge base context
     log("[maybeGeneratePersonasDeepProfile] Loading knowledge base context...");
     let knowledgeContext = "";
@@ -3969,9 +4023,81 @@ export async function maybeGeneratePersonasDeepProfile(
 
     const requestedPersonaCount = Math.max(1, Math.min(numPersonas, 10));
     const personas: PersonaDeepProfile[] = [];
+    const batchSize = getPersonaDeepProfileBatchSize(requestedPersonaCount);
+    const phaseBudgetMs = getPersonaDeepProfilePhaseBudgetMs(requestedPersonaCount);
+    const phaseStartedAt = Date.now();
 
-    for (let batchStart = 0; batchStart < requestedPersonaCount; batchStart += 2) {
-      const batchCount = Math.min(2, requestedPersonaCount - batchStart);
+    log("[maybeGeneratePersonasDeepProfile] Batch size:" + batchSize);
+    log("[maybeGeneratePersonasDeepProfile] Phase budget ms:" + phaseBudgetMs);
+
+    for (let batchStart = 0; batchStart < requestedPersonaCount; batchStart += batchSize) {
+      const elapsedMs = Date.now() - phaseStartedAt;
+      const remainingBudgetMs = phaseBudgetMs - elapsedMs;
+
+      if (remainingBudgetMs < 15000) {
+        throw new Error(
+          `Persona deep profile generation exceeded the overall phase budget after ${elapsedMs}ms. Reduce persona count or retry.`,
+        );
+      }
+
+      log("[maybeGeneratePersonasDeepProfile] Initializing LLM model...");
+      const model = await getStructuredAudienceModel({
+        maxOutputTokens: 6500,
+        timeoutMs: Math.min(120000, remainingBudgetMs),
+        reasoningEffort: "high",
+      });
+      log("[maybeGeneratePersonasDeepProfile] Model initialized:", model ? "yes" : "no");
+
+      if (!model) {
+        log("[maybeGeneratePersonasDeepProfile] No model available, returning fallback");
+        // Fallback: generate basic personas
+        return {
+          personas: [
+            {
+              id: "persona_1",
+              name: "Primary Persona",
+              demographics: {
+                role: "Professional in relevant field",
+                companyType: "Various",
+                yearsInRole: 5,
+                careerPath: "Progression within their field",
+                dayInTheLife: "Busy with operational demands",
+                reportsTo: "Senior leader",
+                teamSize: 5,
+              },
+              currentSituation: {
+                whatTheyDo: "Work described in the book promise",
+                whatWorks: ["Some existing approaches", "Current systems"],
+                whatDoesntWork: ["Pain points from promise"],
+                timeAllocation: "50% on pain area, 50% other",
+                biggestFrustration: "Core pain from promise",
+              },
+              goals: [
+                { goal: "Achieve outcome from promise", type: "outcome" },
+                { goal: "Feel confident and capable", type: "feeling" },
+              ],
+              painPoints: [
+                { friction: "Current challenge", realCost: "Time and opportunity lost" },
+              ],
+              objections: [
+                { objection: "Don't have time to read", proofNeeded: "Practical, quick application" },
+              ],
+              successMetrics: [{ metric: "Measurable improvement", feeling: "Greater confidence" }],
+              learningStyle: {
+                prefers: ["Practical examples", "Clear frameworks"],
+                hates: ["Theory without application"],
+                bestFormat: "Short, actionable chapters",
+              },
+              voiceBlendFit: {
+                primary: "Practical and clear",
+                reasoning: "Resonates with need for actionable solutions",
+              },
+            },
+          ],
+        };
+      }
+
+      const batchCount = Math.min(batchSize, requestedPersonaCount - batchStart);
       const seedUserTypes = audienceResearch.identifiedUserTypes.slice(
         batchStart,
         batchStart + batchCount,
@@ -4003,6 +4129,15 @@ export async function maybeGeneratePersonasDeepProfile(
     throw error;
   }
 }
+
+export const __promiseTestUtils = {
+  buildPersonaGenerationInstruction,
+  deriveKnowledgeFallbackCharLimit,
+  extractJsonText,
+  getPersonaDeepProfilePhaseBudgetMs,
+  getPersonaDeepProfileBatchSize,
+  normalizePersonaDeepProfile,
+};
 
 // Audience Research Phase 3: Generate persona comparison analysis
 export async function maybeGeneratePersonaComparisonAnalysis(
@@ -4044,7 +4179,7 @@ export async function maybeGeneratePersonaComparisonAnalysis(
 
   try {
     log("[maybeGeneratePersonaComparisonAnalysis] Starting Phase 3 generation...");
-    const model = await getChatModel({
+    const model = await getStructuredAudienceModel({
       maxOutputTokens: 2500,
       timeoutMs: 90000,
     });
@@ -8327,6 +8462,16 @@ export async function runPromiseWorkflow(bookSlug: string, userInput: string) {
 
 export async function commitPromiseWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
+  const stage = await getStageForBook(book.id, StageKey.PROMISE);
+  const phaseApprovals = normalizePromisePhaseApprovals(stage?.metadataJson);
+  const allPromiseSectionsApproved = PROMISE_TAB_ORDER.every(
+    (tab) => phaseApprovals[tab]?.status === "approved",
+  );
+
+  if (!allPromiseSectionsApproved) {
+    throw new Error("All Promise sections must be approved before committing the Promise stage.");
+  }
+
   await commitPromiseStageBundle(book.id);
   await createDirectionEvent({
     bookId: book.id,
@@ -8338,7 +8483,7 @@ export async function commitPromiseWorkflow(bookSlug: string) {
 }
 
 export async function getPromiseWorkspace(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const bookSetupVersion = await getCommittedBookSetup(book.id);
   const sourceDocuments = await listBookSourceDocuments({
     bookId: book.id,

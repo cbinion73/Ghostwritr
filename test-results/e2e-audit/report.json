@@ -1,0 +1,326 @@
+[
+  {
+    "route": "promise",
+    "url": "http://localhost:3000/books/4-pillars/promise",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 21,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": {
+        "present": true,
+        "enabled": false
+      },
+      "generateOutline": null,
+      "commitOutline": null,
+      "generateBaseStory": null,
+      "generateResearch": null,
+      "generateExternalStories": null,
+      "startPersonalStoriesInterview": null,
+      "commitPersonalStories": null
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "Promise",
+      "Promise Document Progress",
+      "Promise Statement",
+      "Refine"
+    ],
+    "buttons": [
+      "Polish to Excellence",
+      "Seed Sample",
+      "Commit Promise",
+      "⏳Promise Statement",
+      "⏳Audience",
+      "⏳Truth",
+      "⏳Transformation",
+      "⏳Market",
+      "⏳Recommendations",
+      "⏳Book Pitch",
+      "(1/7)Promise Statement🔴",
+      "(2/7)Audience🔴",
+      "(3/7)Truth🔴",
+      "(4/7)Transformation🔴",
+      "(5/7)Market🔴",
+      "(6/7)Recommendations🔴",
+      "(7/7)Book Pitch🔴",
+      "📥 Export▼",
+      "Send",
+      "✅ Approve",
+      "✏️ Request Changes",
+      "🔄 Regenerate",
+      "←",
+      "Send @keyframes spin { to { transform: rotate(360deg); } }"
+    ],
+    "bodyPreview": "GHOSTWRITR Research and refine the book's strategic foundation before drafting begins. 4 Pillars Status: NOT_STARTED Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing Polish to Excellence Seed Sample Commit Promise STAGE WORKSPACE Promise Research, refine, and validate the book's core direction conversationally. 📁 Files Promise Document Progress 0 of 7 sections approved 0% ⏳ Promise Statement ⏳ Audience ⏳ Truth ⏳ Transformation ⏳ Market ⏳ Recommendations ⏳ Book Pitch 👉 7 sections need approval Review and approve all sections to unlock the commit button. (1/7) Promise Statement 🔴 (2/7) Audience 🔴 (3/7) Truth 🔴 (4/7) Transformation 🔴 (5/7) Market 🔴 (6/7) Recommendations 🔴 (7/7) Book Pitch 🔴 📥 Export ▼ Promise Statement Review the AI-generated promise statement below. Chat with the AI to refine it until you're satisfied, then approve to move to the next step. Chat with the AI to refine the promise statement Send ⏳ Pending ✅ Approve ✏️ Request Changes 🔄 Regenerate Refine ← Share ideas, refinements, or directions to evolve your promise. Each turn persists to Postgres as versioned Promise-stage artifacts. Send",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/promise.png"
+  },
+  {
+    "route": "outline",
+    "url": "http://localhost:3000/books/4-pillars/outline",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 23,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": null,
+      "generateOutline": {
+        "present": true,
+        "enabled": false
+      },
+      "commitOutline": {
+        "present": true,
+        "enabled": false
+      },
+      "generateBaseStory": null,
+      "generateResearch": null,
+      "generateExternalStories": null,
+      "startPersonalStoriesInterview": null,
+      "commitPersonalStories": null
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "Outline",
+      "Outline Document Progress",
+      "Phase 1 · Sections & Chapters",
+      "4 Pillars",
+      "Phase 1 Approval",
+      "AI Chat",
+      "What Commits in Phase 1",
+      "Version History"
+    ],
+    "buttons": [
+      "Generate Outline",
+      "Commit Outline",
+      "Approve Phase",
+      "Send to AI"
+    ],
+    "bodyPreview": "GHOSTWRITR Outline turns the locked Book Pitch into a meaningful section, chapter, and paragraph architecture. Phase 1 and 2 use Sonnet; Phase 3 verifies and assembles with Haiku. Book: 4 Pillars Outline stage: NOT_STARTED Book Pitch: MISSING Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Outline Lock the section and chapter architecture before deeper expansion. Back to Promise Open Dashboard Generate Outline Commit Outline Outline Document Progress 0 of 3 phases approved 0% ○ Phase 1 · Sections & Chapters 🔒 Phase 2 · Chapter Breakdowns 🔒 Phase 3 · Full ToC 🛠️ Generate this phase first Once this phase has content, you can review it, approve it, and move forward. Phase 1 · Sections & Chapters Lock the Book Pitch before outlining. Lock the Book Pitch before generating the outline phases. PHASE 1 NAVIGATOR 4 Pillars Generate Phase 1 to see the section and chapter architecture. Generate Phase 1 to review the structure. Phase 1 Approval Review Phase 1, then approve it. Generate this phase first, then approve it once you've reviewed the output. Approve Phase AI Chat Use chat to revise the outline architecture conversationally. If you have a section or chapter selected, the AI will focus on that target. Start a conversation with this phase. Ask for changes, clarification, or a fresh pass. Send to AI What Commits in Phase 1 Section architecture and sequencing. Chapter titles, purpose, hooks, and bridges. Section and chapter word-count math. The top-level transformation flow across the book. Version History",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/outline.png"
+  },
+  {
+    "route": "base-story",
+    "url": "http://localhost:3000/books/4-pillars/base-story",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 21,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": null,
+      "generateOutline": null,
+      "commitOutline": null,
+      "generateBaseStory": {
+        "present": true,
+        "enabled": false
+      },
+      "generateResearch": null,
+      "generateExternalStories": null,
+      "startPersonalStoriesInterview": null,
+      "commitPersonalStories": null
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "Base Story",
+      "Narrative Options",
+      "4 Pillars",
+      "How This Is Used Later"
+    ],
+    "buttons": [
+      "Generate Base Story",
+      "Commit Base Story"
+    ],
+    "bodyPreview": "GHOSTWRITR Build the common story thread that unifies the whole book chapter by chapter before evidence and examples are layered in. Book: 4 Pillars Base Story: NOT_STARTED Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Base Story A chapter-by-chapter story spine that ties the whole manuscript together. Back to Outline Open Dashboard Generate Base Story Commit Base Story Narrative Options The structure is chosen from the Promise and Outline so the book carries one unifying narrative thread from chapter to chapter. Progress State: idle Chapters: 0/0 Commit the full Outline ToC first, then Base Story will unlock. NARRATIVE THREAD 4 Pillars No Base Story has been generated yet. How This Is Used Later Base Story stays independent from Research and External Stories. Later chapter drafting brings all three sibling stages together under the Outline. This page is the narrative spine, not the final chapter prose.",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/base-story.png"
+  },
+  {
+    "route": "research",
+    "url": "http://localhost:3000/books/4-pillars/research",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 21,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": null,
+      "generateOutline": null,
+      "commitOutline": null,
+      "generateBaseStory": null,
+      "generateResearch": {
+        "present": true,
+        "enabled": false
+      },
+      "generateExternalStories": null,
+      "startPersonalStoriesInterview": null,
+      "commitPersonalStories": null
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "Research Dossiers",
+      "Research Progress",
+      "Research Binder"
+    ],
+    "buttons": [
+      "Generate Full Research"
+    ],
+    "bodyPreview": "GHOSTWRITR Read the Outline and Base Story, then build a chapter-by-chapter research binder of sourced, verifiable facts, figures, and supporting material. Book: 4 Pillars Research status: NOT_STARTED Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Research Dossiers Each binder tab holds a chapter dossier grounded in the Outline and Base Story. Add notes, regroup chapters when needed, and run the verification pipeline one dossier at a time. Back to Outline Open Dashboard Generate Full Research Research Progress Locked: 0 In Progress: 0 Not Started: 0 BINDER DOSSIER Research Binder Chapters completed: 0/0 Commit the paragraph-level Outline and the Base Story before generating Research. Stage state: idle No binder tabs exist yet. Add one from the right rail.",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/research.png"
+  },
+  {
+    "route": "external-stories",
+    "url": "http://localhost:3000/books/4-pillars/external-stories",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 21,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": null,
+      "generateOutline": null,
+      "commitOutline": null,
+      "generateBaseStory": null,
+      "generateResearch": null,
+      "generateExternalStories": {
+        "present": true,
+        "enabled": false
+      },
+      "startPersonalStoriesInterview": null,
+      "commitPersonalStories": null
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "External Stories",
+      "External Stories",
+      "Clip Story Lead",
+      "Binder Controls",
+      "Clipped Story Leads"
+    ],
+    "buttons": [
+      "Generate External Stories",
+      "PaperclipStory Leads & Binder ToolsHide",
+      "Add Tab"
+    ],
+    "bodyPreview": "GHOSTWRITR Research case studies, stories, and examples so each chapter has real-world depth and more proof than it strictly needs. Book: 4 Pillars External Stories: NOT_STARTED Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE External Stories Build a chapter-by-chapter vault of case studies, stories, and examples so later drafting, editing, and marketing all have options grounded in reality. Back to Outline Open Dashboard Generate External Stories STORY BINDER External Stories Chapters completed: 0/0 Commit the paragraph-level Outline and the Base Story before generating External Stories. Stage state: idle No external story tabs exist yet. PAPERCLIP Story Leads & Binder Tools HIDE PAPERCLIP Clip Story Lead PAPERCLIP Choose a story tab first. Binder Controls No chapter assigned yet Add Tab Clipped Story Leads No clipped leads yet for this story tab.",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/external-stories.png"
+  },
+  {
+    "route": "personal-stories",
+    "url": "http://localhost:3000/books/4-pillars/personal-stories",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 21,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": null,
+      "generateOutline": null,
+      "commitOutline": null,
+      "generateBaseStory": null,
+      "generateResearch": null,
+      "generateExternalStories": null,
+      "startPersonalStoriesInterview": {
+        "present": true,
+        "enabled": false
+      },
+      "commitPersonalStories": {
+        "present": true,
+        "enabled": false
+      }
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "Personal Stories",
+      "Interview",
+      "Story Encyclopedia",
+      "Personal Story Encyclopedia",
+      "How To Answer",
+      "Latest Encyclopedia Versions"
+    ],
+    "buttons": [
+      "Start Chapter-Aware Interview",
+      "Commit Encyclopedia",
+      "Send Answer",
+      "I Don't Have A Story For This"
+    ],
+    "bodyPreview": "GHOSTWRITR Interview mode for building a chapter-aware encyclopedia of personal stories, lived moments, and observations for the book. Book: 4 Pillars Personal Stories: NOT_STARTED Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Personal Stories The AI interviews you chapter by chapter and grows a reusable encyclopedia of experiences mapped back to the outline. If you do not have a story for an area, we mark it and move on. Commit the paragraph-level Outline first so Personal Stories can target real chapters instead of collecting generic anecdotes. Start Chapter-Aware Interview Commit Encyclopedia Interview One good question at a time. Raw memories are welcome. Short concrete moments are often more useful than polished stories. Click Start Interview and the AI will begin building your chapter-aware personal story encyclopedia. Current focus: Build a wide-ranging encyclopedia of lived experiences, leadership moments, failures, recoveries, identity stories, and observations that can later support the book. Send Answer Story Encyclopedia The system captures possible stories even when they are incomplete, then strengthens them over time. Interview State Status: idle Stories: 0 No-story areas: 0 Next Question: What is one experience from your life or work that changed how you lead, decide, or communicate? Chapter Coverage Commit the paragraph-level Outline to see chapter targets. No Story For This If nothing comes to mind for the current area, mark it cleanly and move to another angle. I Don't Have A Story For This ENCYCLOPEDIA Personal Story Encyclopedia No story entries yet. Start the interview and the encyclopedia will fill in as the conversation unfolds. INTERVIEWER NOTES How To Answer Give the AI the raw memory first: what happened, who was there, what was at stake, and what changed in you. It is fine if a memory is short, messy, or incomplete. The system is building an encyclop",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/personal-stories.png"
+  },
+  {
+    "route": "chapter-draft",
+    "url": "http://localhost:3000/books/4-pillars/chapter-draft",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 21,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": null,
+      "generateOutline": null,
+      "commitOutline": null,
+      "generateBaseStory": null,
+      "generateResearch": null,
+      "generateExternalStories": null,
+      "startPersonalStoriesInterview": null,
+      "commitPersonalStories": null
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "Chapter Draft",
+      "Manuscript Progress",
+      "Chapters",
+      "Chapter Draft",
+      "Editorial Notes",
+      "Source Context"
+    ],
+    "buttons": [],
+    "bodyPreview": "GHOSTWRITR Chapter-by-chapter ghostwriting workspace that synthesizes the committed promise, outline, base story, research, external stories, and personal stories. Book: 4 Pillars Chapter Draft: NOT_STARTED Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Chapter Draft The author agent drafts each chapter from the full upstream artifact stack. The reviewer agent critiques it for craft, clarity, and AI tells before the draft lands here for your review. The normal flow is one chapter at a time. Blocked: Committed Promise and committed paragraph-level Outline are required before generating chapter drafts. Manuscript Progress Counted from the actual saved draft text, not the target prompt. BOOK PROGRESS 0/0 chapters 0% of chapters drafted WORDS WRITTEN 0 Target not set ESTIMATED PAGES 0 Target not set Chapters Read the book one chapter at a time while the full manuscript is being built in the background. Commit the Promise and the paragraph-level Outline first. Then wait for committed Base Story, Research, External Stories, and Personal Stories to populate real chapter inputs before this stage synthesizes the manuscript. MANUSCRIPT Chapter Draft Chapters completed: 0/0 Stage state: idle No chapter draft yet. Once the upstream chapter dossiers contain real source material, use Generate This Chapter to write only this chapter, or Generate All Chapters to run the whole manuscript in the background. REVIEWER FEEDBACK Editorial Notes Reviewer notes will appear after the chapter is drafted. INPUT MIX Source Context Choose a chapter first.",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/chapter-draft.png"
+  },
+  {
+    "route": "editing",
+    "url": "http://localhost:3000/books/4-pillars/editing",
+    "status": 200,
+    "navigationError": null,
+    "consoleErrors": [],
+    "pageErrors": [],
+    "failedRequests": [],
+    "ignoredPrefetchAbortCount": 21,
+    "missingExpected": [],
+    "buttonStates": {
+      "commitPromise": null,
+      "generateOutline": null,
+      "commitOutline": null,
+      "generateBaseStory": null,
+      "generateResearch": null,
+      "generateExternalStories": null,
+      "startPersonalStoriesInterview": null,
+      "commitPersonalStories": null
+    },
+    "headings": [
+      "GHOSTWRITR",
+      "Editing",
+      "Manuscript Readiness",
+      "Chapter Readiness",
+      "Assembled Manuscript Preview"
+    ],
+    "buttons": [],
+    "bodyPreview": "GHOSTWRITR Read the manuscript as one book, then refine it chapter by chapter with the editor agent. Book: 4 Pillars Editing: BLOCKED Library Dashboard Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Editing This is the full-manuscript review space. Once every chapter draft exists, the editor can read the book in its entirety and then refine it chapter by chapter. Finish drafting every chapter before the editorial pass can begin. Manuscript Readiness The editor stage should only start after the draft exists as a complete book. CHAPTERS DRAFTED 0/0 DRAFT WORDS 0 EDITORIAL STATUS Blocked Chapter Readiness Every chapter needs a draft before the editor agent can make a serious full-book pass. FULL BOOK Assembled Manuscript Preview The full-book editorial pass unlocks after every chapter has a draft. Until then, use Chapter Draft to finish the manuscript chapter by chapter.",
+    "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/e2e-audit/editing.png"
+  }
+]

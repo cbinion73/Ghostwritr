@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getWorkflowRunById } from "@/lib/repositories/workflow-runs";
-import { processBaseStoryWorkflowRun } from "@/lib/workflows/base-story";
-import { processChapterDraftWorkflowRun } from "@/lib/workflows/chapter-draft";
-import { processExternalStoriesWorkflowRun } from "@/lib/workflows/external-stories";
-import { processWorkflowRun } from "@/lib/workflows/research";
+import { triggerWorkflowRunInBackground } from "@/lib/workflow-queue";
 
 export async function POST(request: Request) {
   try {
@@ -38,16 +35,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const result =
-      run.stage.stageKey === "RESEARCH"
-        ? await processWorkflowRun(body.runId)
-        : run.stage.stageKey === "EXTERNAL_STORIES"
-          ? await processExternalStoriesWorkflowRun(body.runId)
-          : run.stage.stageKey === "BASE_STORY"
-            ? await processBaseStoryWorkflowRun(body.runId)
-            : run.stage.stageKey === "CHAPTER_DRAFT"
-              ? await processChapterDraftWorkflowRun(body.runId)
-            : { skipped: true };
+    let result: unknown;
+
+    if (run.stage.stageKey === "RESEARCH") {
+      const { processWorkflowRun } = await import("@/lib/workflows/research");
+      result = await processWorkflowRun(body.runId);
+    } else if (run.stage.stageKey === "EXTERNAL_STORIES") {
+      const { processExternalStoriesWorkflowRun } = await import("@/lib/workflows/external-stories");
+      result = await processExternalStoriesWorkflowRun(body.runId);
+    } else if (run.stage.stageKey === "BASE_STORY") {
+      const { processBaseStoryWorkflowRun } = await import("@/lib/workflows/base-story");
+      result = await processBaseStoryWorkflowRun(body.runId);
+    } else if (run.stage.stageKey === "CHAPTER_DRAFT") {
+      const { processChapterDraftWorkflowRun } = await import("@/lib/workflows/chapter-draft");
+      result = await processChapterDraftWorkflowRun(body.runId);
+    } else {
+      result = { skipped: true };
+    }
+
+    if (!("skipped" in (result as Record<string, unknown>)) && !("canceled" in (result as Record<string, unknown>))) {
+      const { continueWorkflowAutomationIfEnabled } = await import("@/lib/workflows/workflow-automation");
+      await continueWorkflowAutomationIfEnabled(run.book.slug, triggerWorkflowRunInBackground);
+    }
 
     return NextResponse.json({ ok: true, result });
   } catch (error) {

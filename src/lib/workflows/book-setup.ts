@@ -1,5 +1,6 @@
 import type { BookSetupProfile } from "../book-setup-types";
 import { DEFAULT_BOOK_SETUP_PROFILE } from "../book-setup-types";
+import { parseStoredJson } from "../json-utils";
 import { StageKey } from "@prisma/client";
 import { getOrCreateBookBySlug, getStageForBook } from "../repositories/books";
 import {
@@ -10,14 +11,6 @@ import {
 } from "../repositories/book-setup-artifacts";
 import { createDirectionEvent, listDirectionEventsForStage } from "../repositories/direction-events";
 import { getWriterPersonaById, listWriterPersonas } from "../repositories/writer-personas";
-
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value && typeof value === "object") {
-    return value as T;
-  }
-
-  return fallback;
-}
 
 export async function saveBookSetupWorkflow(bookSlug: string, profile: BookSetupProfile) {
   const book = await getOrCreateBookBySlug(bookSlug);
@@ -51,7 +44,7 @@ export async function commitBookSetupWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const committedStage = await commitBookSetup(book.id);
   const committedVersion = await getCommittedBookSetup(book.id);
-  const committedProfile = parseJson<BookSetupProfile>(
+  const committedProfile = parseStoredJson<BookSetupProfile>(
     committedVersion?.contentJson,
     DEFAULT_BOOK_SETUP_PROFILE,
   );
@@ -86,7 +79,7 @@ export async function getBookSetupWorkspace(bookSlug: string) {
   const writerPersonas = await listWriterPersonas();
 
   const latestProfile = versions[0]
-    ? parseJson<BookSetupProfile>(versions[0].contentJson, DEFAULT_BOOK_SETUP_PROFILE)
+    ? parseStoredJson<BookSetupProfile>(versions[0].contentJson, DEFAULT_BOOK_SETUP_PROFILE)
     : {
         ...DEFAULT_BOOK_SETUP_PROFILE,
         workingTitle: book.titleWorking ?? "",
@@ -103,7 +96,7 @@ export async function getBookSetupWorkspace(bookSlug: string) {
         ? await getWriterPersonaById(latestProfile.writerPersonaId)
         : null,
     committedProfile: committed
-      ? parseJson<BookSetupProfile>(committed.contentJson, DEFAULT_BOOK_SETUP_PROFILE)
+      ? parseStoredJson<BookSetupProfile>(committed.contentJson, DEFAULT_BOOK_SETUP_PROFILE)
       : null,
     directionEvents,
     versions: versions.map((version) => ({

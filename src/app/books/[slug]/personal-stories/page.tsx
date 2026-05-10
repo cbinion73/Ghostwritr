@@ -22,6 +22,8 @@ export default async function PersonalStoriesStagePage({
   const { slug } = await params;
   const workspace = await getPersonalStoriesWorkspace(slug);
   const isCommitted = workspace.stage?.status === "COMMITTED";
+  const canStartInterview = workspace.outlineReady;
+  const canCommit = workspace.outlineReady && workspace.encyclopedia.entries.length > 0;
 
   return (
     <div className="page-shell">
@@ -29,8 +31,8 @@ export default async function PersonalStoriesStagePage({
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
           <p className="muted">
-            Interview mode for building a rich encyclopedia of personal stories, lived
-            moments, and observations for the book.
+            Interview mode for building a chapter-aware encyclopedia of personal stories,
+            lived moments, and observations for the book.
           </p>
         </div>
 
@@ -62,19 +64,26 @@ export default async function PersonalStoriesStagePage({
             <div className="label">Stage Workspace</div>
             <h2>Personal Stories</h2>
             <div className="muted">
-              The AI interviews you and grows a reusable encyclopedia of experiences.
-              If you do not have a story for an area, we mark it and move on.
+              The AI interviews you chapter by chapter and grows a reusable encyclopedia
+              of experiences mapped back to the outline. If you do not have a story for
+              an area, we mark it and move on.
             </div>
+            {!workspace.outlineReady ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                Commit the paragraph-level Outline first so Personal Stories can target
+                real chapters instead of collecting generic anecdotes.
+              </div>
+            ) : null}
           </div>
 
           <div className="button-row">
             <form action={seedPersonalStoriesStage.bind(null, slug)}>
-              <button className="btn" type="submit">
-                Start Interview
+              <button className="btn" type="submit" disabled={!canStartInterview}>
+                Start Chapter-Aware Interview
               </button>
             </form>
             <form action={commitPersonalStoriesStage.bind(null, slug)}>
-              <button className="btn btn-primary" type="submit">
+              <button className="btn btn-primary" type="submit" disabled={!canCommit}>
                 {isCommitted ? "Recommit Encyclopedia" : "Commit Encyclopedia"}
               </button>
             </form>
@@ -95,7 +104,7 @@ export default async function PersonalStoriesStagePage({
               {workspace.transcript.length === 0 ? (
                 <div className="empty-state">
                   Click <strong>Start Interview</strong> and the AI will begin building
-                  your personal story encyclopedia.
+                  your chapter-aware personal story encyclopedia.
                 </div>
               ) : (
                 workspace.transcript.map((message, index) => (
@@ -145,16 +154,16 @@ export default async function PersonalStoriesStagePage({
               </div>
 
               <div className="card">
-                <h4>Coverage Gaps</h4>
+                <h4>Chapter Coverage</h4>
                 <div className="pill-row">
-                  {workspace.encyclopedia.coverageGaps.length > 0 ? (
-                    workspace.encyclopedia.coverageGaps.map((gap) => (
-                      <div className="pill" key={gap}>
-                        {gap}
+                  {workspace.chapterCoverage.length > 0 ? (
+                    workspace.chapterCoverage.map((chapter) => (
+                      <div className="pill" key={chapter.chapterKey}>
+                        {chapter.chapterLabel} · {chapter.matchedStoryCount}
                       </div>
                     ))
                   ) : (
-                    <div className="muted">No major coverage gaps are flagged right now.</div>
+                    <div className="muted">Commit the paragraph-level Outline to see chapter targets.</div>
                   )}
                 </div>
               </div>

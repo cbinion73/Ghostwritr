@@ -6,8 +6,24 @@
   "scripts": {
     "check": "tsc --noEmit --pretty false",
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
+    "db:seed:references": "tsx prisma/seed-reference-books.ts",
+    "qa:e2e:battery": "node scripts/e2e-battery.mjs",
+    "qa:e2e:audit": "node scripts/e2e-audit.mjs",
+    "qa:full-system": "node scripts/full-system-regression.mjs",
+    "qa:fiction-publish": "node scripts/fiction-publish-regression.mjs",
+    "qa:fiction-scene-focus": "tsx scripts/fiction-scene-focus-regression.ts",
+    "qa:nonfiction": "node scripts/nonfiction-regression.mjs",
+    "qa:archive": "tsx scripts/archive-roundtrip-regression.ts",
+    "qa:artifact-contracts": "tsx scripts/artifact-contract-regression.ts",
+    "qa:autopilot": "tsx scripts/autopilot-regression.ts",
+    "qa:editing-trust": "tsx scripts/editing-trust-regression.ts",
+    "qa:manuscript-length": "tsx scripts/manuscript-length-regression.ts",
+    "qa:promise-phase2": "tsx scripts/promise-phase2-regression.ts",
+    "qa:prod-runtime": "node tests/production-runtime-smoke.mjs",
+    "qa:stale-dependencies": "tsx scripts/stale-dependency-regression.ts",
+    "qa:workspace-warnings": "tsx scripts/workspace-warning-regression.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate:dev": "prisma migrate dev",
@@ -34,5 +50,9 @@
     "react-dom": "^19.2.4",
     "typescript": "^6.0.2",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1",
+    "tsx": "^4.21.0"
   }
 }

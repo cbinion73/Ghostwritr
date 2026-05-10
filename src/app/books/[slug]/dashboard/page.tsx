@@ -1,57 +1,62 @@
 import Link from "next/link";
-import { ArtifactType, StageKey } from "@prisma/client";
+import { ArtifactType, BookWorkflowType, StageKey } from "@prisma/client";
+import {
+  BaseStoryBundleSchema,
+  BookOutlineSchema,
+  BookSetupProfileSchema,
+  ChapterDraftBundleSchema,
+  parseArtifactWithSchema,
+  parseMetadataRecord,
+} from "@/lib/artifact-schemas";
 
 import { DashboardAutoRefresh } from "./auto-refresh";
 import {
+  disableWorkflowAutomationAction,
+  enableWorkflowAutomationAction,
   resumeFailedDashboardStage,
+  runWorkflowAutopilotAction,
+  runWorkflowAutopilotModeAction,
+  setWorkflowAutomationModeAction,
   retryDashboardStage,
   stopDashboardStage,
 } from "./actions";
+import { FictionDashboardPage } from "./fiction-dashboard";
 import { SubmitButton } from "@/app/components/submit-button";
 
-import { getOrCreateBookBySlug } from "@/lib/repositories/books";
+import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
 import { getChapterArtifactVersions } from "@/lib/repositories/chapter-draft-artifacts";
 import { STAGE_LINKS } from "@/lib/navigation";
 import { getCommittedOutline } from "@/lib/repositories/outline-artifacts";
 import {
-  getResearchItemsForVersion,
-  getResearchPackVersions,
-  getResearchSourcesForVersion,
+  getLatestResearchPackVersionsByChapter,
+  getResearchItemsForVersions,
+  getResearchSourcesForVersions,
 } from "@/lib/repositories/research-artifacts";
 import {
-  getExternalStoriesForVersion,
-  getExternalStoryPackVersions,
-  getExternalStorySourcesForVersion,
+  getExternalStoriesForVersions,
+  getExternalStorySourcesForVersions,
+  getLatestExternalStoryPackVersionsByChapter,
 } from "@/lib/repositories/external-stories-artifacts";
 import { getBaseStoryVersions } from "@/lib/repositories/base-story-artifacts";
+import { getEditingWorkspace } from "@/lib/workflows/editing";
+import { getStageControlCapabilities } from "@/lib/workflows/stage-controls";
 import type { BookOutline } from "@/lib/outline-types";
-import type { BaseStoryBundle } from "@/lib/base-story-types";
-import type { BookSetupProfile } from "@/lib/book-setup-types";
-import type { ChapterDraftBundle } from "@/lib/chapter-draft-types";
 import { countWords, estimatePagesFromWords, toPercent } from "@/lib/manuscript-metrics";
+import type { WorkflowAutomationMode } from "@/lib/workflows/workflow-automation";
 
-function parseMetadata(value: unknown) {
-  if (value && typeof value === "object") {
-    return value as Record<string, unknown>;
-  }
-
-  return {};
-}
-
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value && typeof value === "object") {
-    return value as T;
-  }
-
-  return fallback;
-}
+type AutomationUiState = {
+  enabled?: boolean;
+  mode?: WorkflowAutomationMode;
+  lastSummary?: { title?: string; detail?: string; status?: string; at?: string };
+  history?: Array<{ title?: string; detail?: string; status?: string; at?: string }>;
+};
 
 function getProgress(stage: {
   status: string;
   metadataJson: unknown;
 }) {
-  const metadata = parseMetadata(stage.metadataJson);
+  const metadata = parseMetadataRecord(stage.metadataJson);
   const failedChapters = Array.isArray(metadata.failedChapters) ? metadata.failedChapters : [];
   const total =
     typeof metadata.totalChapters === "number" && metadata.totalChapters > 0
@@ -109,7 +114,7 @@ type ManuscriptRangeStatus = "NO_TARGET" | "UNDER" | "WITHIN" | "OVER";
 
 async function getManuscriptMetrics(bookId: string, outline: BookOutline | null) {
   const bookSetupVersion = await getCommittedBookSetup(bookId);
-  const bookSetup = parseJson<BookSetupProfile | null>(bookSetupVersion?.contentJson, null);
+  const bookSetup = parseArtifactWithSchema(bookSetupVersion?.contentJson, BookSetupProfileSchema);
   const chapterRefs =
     outline?.sections.flatMap((section) => section.chapters.map((chapter) => chapter)) ?? [];
 
@@ -119,7 +124,7 @@ async function getManuscriptMetrics(bookId: string, outline: BookOutline | null)
         await getChapterArtifactVersions(bookId, chapter.id, ArtifactType.CHAPTER_DRAFT, 1)
       )[0];
       const draft = draftVersion
-        ? parseJson<ChapterDraftBundle | null>(draftVersion.contentJson, null)
+        ? parseArtifactWithSchema(draftVersion.contentJson, ChapterDraftBundleSchema)
         : null;
       const wordCount = countWords(draft?.chapterText);
       const pageCount = estimatePagesFromWords(wordCount, bookSetup?.trimSize ?? "6 x 9 in");
@@ -169,7 +174,7 @@ async function getManuscriptMetrics(bookId: string, outline: BookOutline | null)
   };
 }
 
-function findStage(book: Awaited<ReturnType<typeof getOrCreateBookBySlug>>, stageKey: StageKey) {
+function findStage(book: Awaited<ReturnType<typeof getBookBySlugOrThrow>>, stageKey: StageKey) {
   return book.stages.find((stage) => stage.stageKey === stageKey) ?? null;
 }
 
@@ -206,14 +211,14 @@ function rangeStatusLabel(status: "NO_TARGET" | "UNDER" | "WITHIN" | "OVER") {
 }
 
 function getFailedChapterKeys(metadata: unknown) {
-  const record = parseMetadata(metadata);
+  const record = parseMetadataRecord(metadata);
   if (!Array.isArray(record.failedChapters)) {
     return new Set<string>();
   }
 
   return new Set(
     record.failedChapters
-      .map((entry) => {
+      .map((entry: unknown) => {
         if (entry && typeof entry === "object" && "chapterKey" in entry) {
           const chapterKey = entry.chapterKey;
           return typeof chapterKey === "string" ? chapterKey : null;
@@ -226,14 +231,14 @@ function getFailedChapterKeys(metadata: unknown) {
 }
 
 function getProvisionalChapterKeys(metadata: unknown) {
-  const record = parseMetadata(metadata);
+  const record = parseMetadataRecord(metadata);
   if (!Array.isArray(record.provisionalChapters)) {
     return new Set<string>();
   }
 
   return new Set(
     record.provisionalChapters.filter(
-      (entry): entry is string => typeof entry === "string",
+      (entry: unknown): entry is string => typeof entry === "string",
     ),
   );
 }
@@ -243,7 +248,7 @@ async function buildQualityReport(bookId: string, input?: {
   externalStoriesStage?: { metadataJson: unknown } | null;
 }) {
   const outlineVersion = await getCommittedOutline(bookId);
-  const outline = parseJson<BookOutline | null>(outlineVersion?.contentJson, null);
+  const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
   const chapterKeys =
     outline?.sections.flatMap((section) =>
       section.chapters.map((chapter) => ({
@@ -255,6 +260,67 @@ async function buildQualityReport(bookId: string, input?: {
   const issues: string[] = [];
   let researchReadyCount = 0;
   let externalStoriesReadyCount = 0;
+  const chapterIds = chapterKeys.map((chapter) => chapter.chapterKey);
+  const latestResearchVersionsByChapter = await getLatestResearchPackVersionsByChapter(
+    bookId,
+    chapterIds,
+  );
+  const latestExternalStoryVersionsByChapter = await getLatestExternalStoryPackVersionsByChapter(
+    bookId,
+    chapterIds,
+  );
+  const researchVersionIds = Array.from(latestResearchVersionsByChapter.values()).map(
+    (version) => version.id,
+  );
+  const externalStoryVersionIds = Array.from(latestExternalStoryVersionsByChapter.values()).map(
+    (version) => version.id,
+  );
+  const [researchSources, researchItems, storySources, stories] = await Promise.all([
+    getResearchSourcesForVersions(researchVersionIds),
+    getResearchItemsForVersions(researchVersionIds),
+    getExternalStorySourcesForVersions(externalStoryVersionIds),
+    getExternalStoriesForVersions(externalStoryVersionIds),
+  ]);
+  const researchSourcesByVersionId = new Map<string, number>();
+  const verifiedResearchItemsByVersionId = new Map<string, number>();
+  const storySourcesByVersionId = new Map<string, number>();
+  const verifiedStoriesByVersionId = new Map<string, number>();
+
+  for (const source of researchSources) {
+    if (!source.researchArtifactVersionId) continue;
+    if (!source.isVerified) continue;
+    researchSourcesByVersionId.set(
+      source.researchArtifactVersionId,
+      (researchSourcesByVersionId.get(source.researchArtifactVersionId) ?? 0) + 1,
+    );
+  }
+
+  for (const item of researchItems) {
+    if (!item.researchArtifactVersionId) continue;
+    if (item.verificationStatus !== "VERIFIED") continue;
+    verifiedResearchItemsByVersionId.set(
+      item.researchArtifactVersionId,
+      (verifiedResearchItemsByVersionId.get(item.researchArtifactVersionId) ?? 0) + 1,
+    );
+  }
+
+  for (const source of storySources) {
+    if (!source.storyArtifactVersionId) continue;
+    storySourcesByVersionId.set(
+      source.storyArtifactVersionId,
+      (storySourcesByVersionId.get(source.storyArtifactVersionId) ?? 0) + 1,
+    );
+  }
+
+  for (const story of stories) {
+    if (!story.storyArtifactVersionId) continue;
+    if (story.verificationStatus !== "VERIFIED") continue;
+    verifiedStoriesByVersionId.set(
+      story.storyArtifactVersionId,
+      (verifiedStoriesByVersionId.get(story.storyArtifactVersionId) ?? 0) + 1,
+    );
+  }
+
   const failedResearchChapters = getFailedChapterKeys(input?.researchStage?.metadataJson);
   const provisionalResearchChapters = getProvisionalChapterKeys(
     input?.researchStage?.metadataJson,
@@ -272,18 +338,12 @@ async function buildQualityReport(bookId: string, input?: {
     } else if (provisionalResearchChapters.has(chapter.chapterKey)) {
       issues.push(`${chapter.chapterLabel} is still provisional in Research.`);
     } else {
-      const researchVersion = (await getResearchPackVersions(bookId, chapter.chapterKey, 1))[0];
+      const researchVersion = latestResearchVersionsByChapter.get(chapter.chapterKey) ?? null;
       if (!researchVersion) {
         issues.push(`${chapter.chapterLabel} has no research dossier yet.`);
       } else {
-        const [researchSources, researchItems] = await Promise.all([
-          getResearchSourcesForVersion(researchVersion.id),
-          getResearchItemsForVersion(researchVersion.id),
-        ]);
-        const verifiedSources = researchSources.filter((source) => source.isVerified).length;
-        const verifiedItems = researchItems.filter(
-          (item) => item.verificationStatus === "VERIFIED",
-        ).length;
+        const verifiedSources = researchSourcesByVersionId.get(researchVersion.id) ?? 0;
+        const verifiedItems = verifiedResearchItemsByVersionId.get(researchVersion.id) ?? 0;
 
         if (verifiedSources < 2) {
           issues.push(`${chapter.chapterLabel} needs more verified research sources.`);
@@ -305,19 +365,14 @@ async function buildQualityReport(bookId: string, input?: {
       continue;
     }
 
-    const storyVersion = (await getExternalStoryPackVersions(bookId, chapter.chapterKey, 1))[0];
+    const storyVersion = latestExternalStoryVersionsByChapter.get(chapter.chapterKey) ?? null;
     if (!storyVersion) {
       issues.push(`${chapter.chapterLabel} has no external story vault yet.`);
     } else {
-      const [storySources, stories] = await Promise.all([
-        getExternalStorySourcesForVersion(storyVersion.id),
-        getExternalStoriesForVersion(storyVersion.id),
-      ]);
-      const verifiedStories = stories.filter(
-        (story) => story.verificationStatus === "VERIFIED",
-      ).length;
+      const sourceCount = storySourcesByVersionId.get(storyVersion.id) ?? 0;
+      const verifiedStories = verifiedStoriesByVersionId.get(storyVersion.id) ?? 0;
 
-      if (storySources.length < 2) {
+      if (sourceCount < 2) {
         issues.push(`${chapter.chapterLabel} needs more external story sources.`);
       } else if (verifiedStories < 3) {
         issues.push(`${chapter.chapterLabel} needs more verified external stories.`);
@@ -328,7 +383,7 @@ async function buildQualityReport(bookId: string, input?: {
   }
 
   const baseStoryVersion = (await getBaseStoryVersions(bookId, 1))[0] ?? null;
-  const baseStory = parseJson<BaseStoryBundle | null>(baseStoryVersion?.contentJson, null);
+  const baseStory = parseArtifactWithSchema(baseStoryVersion?.contentJson, BaseStoryBundleSchema);
   const baseStoryMatchesOutline =
     baseStory?.chapters.length === chapterKeys.length && chapterKeys.length > 0;
 
@@ -365,15 +420,25 @@ export default async function DashboardPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const book = await getOrCreateBookBySlug(slug);
+  const book = await getBookBySlugOrThrow(slug);
+  if (book.workflowType === BookWorkflowType.FICTION) {
+    return <FictionDashboardPage slug={slug} />;
+  }
+
+  const bookMetadata = parseMetadataRecord(book.metadataJson);
+  const automation =
+    bookMetadata.workflowAutomation && typeof bookMetadata.workflowAutomation === "object"
+      ? (bookMetadata.workflowAutomation as AutomationUiState)
+      : null;
   const outlineVersion = await getCommittedOutline(book.id);
-  const outline = parseJson<BookOutline | null>(outlineVersion?.contentJson, null);
+  const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
   const chapterLabelMap = buildChapterLabelMap(outline);
   const manuscriptMetrics = await getManuscriptMetrics(book.id, outline);
   const researchStage = findStage(book, StageKey.RESEARCH);
   const externalStoriesStage = findStage(book, StageKey.EXTERNAL_STORIES);
   const baseStoryStage = findStage(book, StageKey.BASE_STORY);
   const chapterDraftStage = findStage(book, StageKey.CHAPTER_DRAFT);
+  const editingStage = findStage(book, StageKey.EDITING);
 
   const cards = [
     {
@@ -399,6 +464,12 @@ export default async function DashboardPage({
       label: "Chapter Draft",
       href: `/books/${slug}/chapter-draft`,
       stage: chapterDraftStage,
+    },
+    {
+      key: "editing",
+      label: "Editing",
+      href: `/books/${slug}/editing`,
+      stage: editingStage,
     },
   ].map((card) => {
     const progress = getProgress(
@@ -426,6 +497,7 @@ export default async function DashboardPage({
     return {
       ...card,
       progress,
+      controls: getStageControlCapabilities(card.stage?.stageKey),
       currentChapterLabel,
       issueSummary:
         latestFailure?.message?.split(". ")[0] ??
@@ -449,6 +521,7 @@ export default async function DashboardPage({
     researchStage,
     externalStoriesStage,
   });
+  const editingWorkspace = await getEditingWorkspace(slug);
   const liveFeed = cards
     .flatMap((card) => {
       const entries = [];
@@ -548,6 +621,122 @@ export default async function DashboardPage({
             <Link className="btn" href={`/books/${slug}/chapter-draft`}>
               Open Chapter Draft
             </Link>
+            <Link className="btn" href={`/books/${slug}/publish`}>
+              Open Publish
+            </Link>
+          </div>
+        </section>
+
+        <section className="glass-panel section-panel">
+          <div className="section-header">
+            <div>
+              <h3>Workflow Automation</h3>
+              <div className="muted">
+                Nonfiction autopilot takes over after the strategic stages are committed. It will queue Base Story, Research, External Stories, Chapter Draft, and Editing as soon as each boundary is ready.
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            <strong>{automation?.enabled ? "Continuous Autopilot Enabled" : "Manual Downstream Control"}</strong>
+            <div className="muted" style={{ marginTop: 8 }}>
+              {automation?.enabled
+                ? "When a background stage finishes, GHOSTWRITR will keep advancing the next eligible downstream stage automatically."
+                : "Run Autopilot to advance the workflow one intelligent step now, or enable continuous autopilot to keep the downstream pipeline moving."}
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              Current mode: {(automation?.mode ?? "manual").replace(/_/g, " ")}
+            </div>
+            {automation?.lastSummary?.title ? (
+              <div className="muted" style={{ marginTop: 8 }}>
+                Latest: {automation.lastSummary.title} {automation.lastSummary.detail ? `- ${automation.lastSummary.detail}` : ""}
+              </div>
+            ) : null}
+            <div className="button-row" style={{ marginTop: 12 }}>
+              <form action={runWorkflowAutopilotAction.bind(null, slug)}>
+                <button className="btn btn-primary" type="submit">Run Autopilot</button>
+              </form>
+              <form action={runWorkflowAutopilotModeAction.bind(null, slug)}>
+                <input type="hidden" name="mode" value="run_to_full_draft" />
+                <button className="btn" type="submit">Run To Full Draft</button>
+              </form>
+              {automation?.enabled ? (
+                <form action={disableWorkflowAutomationAction.bind(null, slug)}>
+                  <button className="btn" type="submit">Disable Continuous Autopilot</button>
+                </form>
+              ) : (
+                <form action={enableWorkflowAutomationAction.bind(null, slug)}>
+                  <button className="btn" type="submit">Enable Continuous Autopilot</button>
+                </form>
+              )}
+            </div>
+            <div className="button-row" style={{ marginTop: 12 }}>
+              <form action={setWorkflowAutomationModeAction.bind(null, slug)}>
+                <input type="hidden" name="mode" value="assisted" />
+                <button className="btn" type="submit">Set Assisted Mode</button>
+              </form>
+              <form action={setWorkflowAutomationModeAction.bind(null, slug)}>
+                <input type="hidden" name="mode" value="run_to_next_boundary" />
+                <button className="btn" type="submit">Set Boundary Mode</button>
+              </form>
+            </div>
+            {automation?.history && automation.history.length > 0 ? (
+              <div style={{ marginTop: 16 }}>
+                <strong>Automation History</strong>
+                <div className="muted" style={{ marginTop: 8 }}>
+                  {automation.history.slice(0, 5).map((entry) => (
+                    <div key={`${entry.at ?? "unknown"}-${entry.title ?? "event"}`} style={{ marginTop: 6 }}>
+                      {entry.title ?? "Workflow event"}
+                      {entry.detail ? ` - ${entry.detail}` : ""}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="card" style={{ marginTop: 18 }}>
+            <strong>Publish Handoff</strong>
+            <div className="muted" style={{ marginTop: 8 }}>
+              Status:{" "}
+              {editingWorkspace.publishPackageSyncState.status === "synced"
+                ? "Synced"
+                : editingWorkspace.publishPackageSyncState.status === "stale"
+                  ? "Refresh required"
+                  : "Package missing"}
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              {editingWorkspace.publishPackageSyncState.detail}
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              Final handoff:{" "}
+              {editingWorkspace.finalHandoffState
+                ? `Finalized ${new Date(editingWorkspace.finalHandoffState.finalizedAt).toLocaleString()}`
+                : "Not finalized yet"}
+            </div>
+          </div>
+          <div className="card" style={{ marginTop: 18 }}>
+            <strong>Draft Quality Watchlist</strong>
+            {editingWorkspace.draftQualityRollup ? (
+              <>
+                <div className="muted" style={{ marginTop: 8 }}>
+                  {editingWorkspace.draftQualityRollup.headline}
+                </div>
+                <div className="muted" style={{ marginTop: 8 }}>
+                  Average score: {editingWorkspace.draftQualityRollup.averageScore}/100 • Revision flags:{" "}
+                  {editingWorkspace.draftQualityRollup.chaptersNeedingRevision}
+                </div>
+                {editingWorkspace.draftQualityRollup.blockers.length > 0 ? (
+                  <ul className="clean-list" style={{ marginTop: 10 }}>
+                    {editingWorkspace.draftQualityRollup.blockers.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : (
+              <div className="muted" style={{ marginTop: 8 }}>
+                Draft quality telemetry will appear here once the current chapter drafts have been regenerated with scoring.
+              </div>
+            )}
           </div>
         </section>
 
@@ -727,7 +916,11 @@ export default async function DashboardPage({
                       <input name="stageKey" type="hidden" value={card.stage?.stageKey ?? ""} />
                       <SubmitButton
                         className="btn"
-                        disabled={!card.stage || !["queued", "running"].includes(card.progress.automationStatus)}
+                        disabled={
+                          !card.stage ||
+                          !card.controls.canCancel ||
+                          !["queued", "running"].includes(card.progress.automationStatus)
+                        }
                         label="Stop"
                         pendingLabel="Stopping..."
                       />
@@ -736,7 +929,7 @@ export default async function DashboardPage({
                       <input name="stageKey" type="hidden" value={card.stage?.stageKey ?? ""} />
                       <SubmitButton
                         className="btn"
-                        disabled={!card.stage}
+                        disabled={!card.stage || !card.controls.canRetry}
                         label="Retry"
                         pendingLabel="Retrying..."
                       />
@@ -745,7 +938,11 @@ export default async function DashboardPage({
                       <input name="stageKey" type="hidden" value={card.stage?.stageKey ?? ""} />
                       <SubmitButton
                         className="btn"
-                        disabled={!card.stage || card.progress.failedChapters.length === 0}
+                        disabled={
+                          !card.stage ||
+                          !card.controls.canResumeFailed ||
+                          card.progress.failedChapters.length === 0
+                        }
                         label="Resume Failed"
                         pendingLabel="Resuming..."
                       />

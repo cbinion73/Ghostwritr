@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-05-08T16:47:50.603Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "bookSlug": "nonfiction-smoke",
+  "pageChecks": [
+    {
+      "route": "promise",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/promise",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Research and refine the book's strategic foundation before drafting begins. Systems of Influence Status: COMMITTED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing Polish to Excellence Seed Sample Recommit STAGE WORKSPACE Promise Research, refine, and validate the book's core direction conversationally. 📁 Files Promise Document Progress 0 of 7 sections approved 0% ⏳ Promise Statement ⏳ Audience ⏳ Truth ⏳ Transformation ⏳ Market ⏳ Recommendations ⏳ Book Pitch 👉 7 sections need approval Review and approve all sections to unlock the commit button. (1/7) Promise Statement 🔴 (2/7) Audience 🔴 (3/7) Truth 🔴 (4/7) Transformation 🔴 (5/7) Market 🔴 (6/7) Recommendations 🔴 (7/7) Book Pitch 🔴 📥 Export ▼ Promise Statement Review the AI-generated promise statement below. Chat with the AI to refine it until you're satisfied, then approve to move to the next step. Chat with the AI to refine the promise statement Send ⏳ Pending ✅ Approve ✏️ Request Changes 🔄 Regenerate Refine ← Share ideas, refinements, or directions to evolve your promise. Each turn persists to Postgres as versioned Promise-stage artifacts. Send",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/nonfiction-regression/promise.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "outline",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/outline",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Outline turns the locked Book Pitch into a meaningful section, chapter, and paragraph architecture. Phase 1 and 2 use Sonnet; Phase 3 verifies and assembles with Haiku. Book: Systems of Influence Outline stage: COMMITTED Book Pitch: LOCKED INPUT Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Outline Review the complete table of contents package before Base Story begins. Research stays manual. Back to Promise Open Dashboard Back to Phase 2 Generate Table of Contents Commit Outline Outline Document Progress 3 of 3 phases approved 100% ✅ Phase 1 · Sections & Chapters ✅ Phase 2 · Chapter Breakdowns ✅ Phase 3 · Full ToC 🛠️ Generate this phase first Once this phase has content, you can review it, approve it, and move forward. Phase 3 · Full ToC The locked Book Pitch and Promise work remain the governing blueprint. Promise Statement This book gives leaders a clear system for building trust, alignment, ownership, and accountability at scale. Book Pitch Anchor Title: Target words: 42,000 Not available yet. Generate the Table of Contents to assemble and verify the locked Outline and Chapter Breakdowns. Phase 3 Approval Review the final Table of Contents, then approve it. Generate this phase first, then approve it once you've reviewed the output. Approve Phase AI Chat Phase 3 is a validation and assembly pass. Use chat to reassemble the ToC or to diagnose whether requested changes belong back in Phase 1 or Phase 2. Start a conversation with this phase. Ask for changes, clarification, or a fresh pass. Send to AI What Commits in Phase 3 The full section > chapter > paragraph ToC package. The final locked outline blueprint for Base Story. The approved structure that downstream story and research work will use. Next Stage Once you commit the full ToC, Base Story begins. Research stays idle until you explicitly start it from the Research stage. Version History v1 COMMITTED The book moves from proble",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/nonfiction-regression/outline.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "dashboard",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/dashboard",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Parallel production dashboard for the stages launched from the committed outline. Book: Systems of Influence Dashboard mode: READY Library Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing PRODUCTION DASHBOARD Parallel Progress Outline has been committed. The downstream stages are running independently and will populate their workspaces as they complete. Back to Outline Open Chapter Draft Open Publish Workflow Automation Nonfiction autopilot takes over after the strategic stages are committed. It will queue Base Story, Research, External Stories, Chapter Draft, and Editing as soon as each boundary is ready. Manual Downstream Control Run Autopilot to advance the workflow one intelligent step now, or enable continuous autopilot to keep the downstream pipeline moving. Current mode: run to full draft Latest: Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Run Autopilot Run To Full Draft Enable Continuous Autopilot Set Assisted Mode Set Boundary Mode Automation History Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Automation mode updated - Workflow automation is now set to run to full draft. Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Automation mode updated - Workflow automation is now set to run to next boundary. Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Publish Handoff Status: Refresh required Manuscript has changed since the publish package was prepared. Refresh the package before handoff. Final handoff: Not finalized yet Draft Quality Watchlist 2 chapters still need another draft pass before the editorial finish is truly clean. Average score: 47/100 • Revision flags: 2 Chapter 1: The Leader Who Keeps Filling the Gap is at 44/100 with needs attention readiness.",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/nonfiction-regression/dashboard.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "chapter-draft",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/chapter-draft",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Chapter-by-chapter ghostwriting workspace that synthesizes the committed promise, outline, base story, research, external stories, and personal stories. Book: Systems of Influence Chapter Draft: COMMITTED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Chapter Draft The author agent drafts each chapter from the full upstream artifact stack. The reviewer agent critiques it for craft, clarity, and AI tells before the draft lands here for your review. The normal flow is one chapter at a time. Open Publish Regenerate This Chapter Commit Chapter Expand Toward Target Generate All Chapters Expand Under-Target Chapters Repair Weak Chapters Use Generate This Chapter to work chapter by chapter. After you review it, use Next Chapter to move forward. Use Generate All Chapters only when you want the full manuscript pipeline to run in the background. Use Expand Toward Target when the selected chapter is materially short on finished prose. 2 drafted chapters currently need repair. Manuscript Progress Counted from the actual saved draft text, not the target prompt. BOOK PROGRESS 2/2 chapters 100% of chapters drafted WORDS WRITTEN 4,303 Target 42,000 ESTIMATED PAGES 18 Target 190 Chapters Read the book one chapter at a time while the full manuscript is being built in the background. Chapter 1: The Leader Who Keeps Filling the Gap Committed The Cost of Compensating 2,191 words 9 pages Target 21,025 words (17,661-24,389) Under target • 18,834 words under 2 research 1 external stories 1 personal stories Review: revise Chapter 2: When Alignment Looks Real but Isn’t Committed The Cost of Compensating 2,112 words 9 pages Target 20,975 words (17,619-24,331) Under target • 18,863 words under 2 research 1 external stories 1 personal stories Review: revise MANUSCRIPT Chapter 1: The Leader Who Keeps Filling the Gap Regenerate This Chapter Commit Chapter Next Chapter Chapters completed: 2/2 Stage state: committed ",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/nonfiction-regression/chapter-draft.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "editing",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/editing",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Read the manuscript as one book, then refine it chapter by chapter with the editor agent. Book: Systems of Influence Editing: READY_FOR_REVIEW Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Editing This is the full-manuscript review space. Once every chapter draft exists, the editor can read the book in its entirety and then refine it chapter by chapter. Reassemble Manuscript Expand Draft Toward Target Commit Editing Stage Open Publish Export Manuscript ▼ Manuscript Readiness The editor stage should only start after the draft exists as a complete book. CHAPTERS DRAFTED 2/2 DRAFT WORDS 4,293 EDITORIAL STATUS Ready for full-book review TYPESET READINESS Export-ready DRAFT QUALITY 47/100 REVISION FLAGS 2 Draft Quality Rollup Persistent chapter-quality signals carried forward from the drafting stages. AVERAGE SCORE 47/100 STRONG CHAPTERS 0 WATCH CHAPTERS 0 NEEDS ATTENTION 2 2 chapters still need another draft pass before the editorial finish is truly clean. Weakest chapter: Chapter 1: The Leader Who Keeps Filling the Gap • Revision passes already spent: 4 Current Blockers Chapter 1: The Leader Who Keeps Filling the Gap is at 44/100 with needs attention readiness. Length fit: 2,191 words against a 17,661-24,389 target band. Paragraph length fit: 1 planned paragraph still need length correction against the blueprint. Edito... Chapter 2: When Alignment Looks Real but Isn’t is at 50/100 with needs attention readiness. Length fit: 2,112 words against a 17,619-24,331 target band. Editorial review: 1 AI-authorship flag(s) still need attention. Editorial Readiness Gate A go/no-go view for whether the manuscript is ready to commit or still needs another revision pass. READINESS SCORE 17/100 RECOMMENDATION blocked EVALUATED 5/8/2026, 12:47:43 PM NEXT MOVE Run another draft-length pass before treating Editing as final. Recovery Path If the manuscript is blocked because core chapters are still too sh",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/nonfiction-regression/editing.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "publish",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/publish",
+      "status": 200,
+      "navigationError": null,
+      "bodyPreview": "GHOSTWRITR Final publishing workspace for export readiness, delivery formats, and handoff quality. Book: Systems of Influence Publish: EDITORIALLY BLOCKED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing Publish FINAL WORKSPACE Publish This is the final handoff surface for the manuscript package: export formats, packaging notes, and readiness to move from ghostwriting into publishing delivery. Open Editing Refresh Package Export Manuscript ▼ Export Publish Package Export Interior Layout Publish Readiness A final operational readout before you hand the book to printing, ebook conversion, or a publishing partner. Publish Package Sync Status: Refresh required. Manuscript has changed since the publish package was prepared. Refresh the package before handoff. Last refreshed 5/7/2026, 10:06:49 PM PACKAGE STATUS Prepared, needs editorial revision TOTAL WORDS 4,293 CHAPTERS 2 EXPORT FORMATS docx, html, markdown, json DRAFT QUALITY 47/100 Publishing Package The latest prepared publishing package snapshot for the current manuscript assembly. Systems of Influence A field guide to building trust, alignment, and durable leadership momentum Prepared 5/7/2026, 10:06:49 PM Status: Prepared, needs editorial revision The manuscript is assembled and export-ready from the Editing stage. A true final typesetting pass may still adjust pagination and front/back matter. Draft quality headline: 2 chapters still need another draft pass before the editorial finish is truly clean. Trim: 6 x 9 in Target pages: 190 Final Delivery Checklist Manuscript assembled from the latest committed draft inputs. Editorial revisions and current readiness state are reflected in the latest manuscript version. Package includes the standard export set: DOCX, HTML, Markdown, and JSON. Final print layout and front/back matter can proceed from this package. Editorial Gate Readiness score: 17/100 Recommendation: blocked Next action: Run another draft-length pass b",
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/nonfiction-regression/publish.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    }
+  ],
+  "exportChecks": [
+    {
+      "format": "html",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "format": "json",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "format": "publish-package",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "format": "typeset-package",
+      "status": 200,
+      "missingExpected": []
+    }
+  ]
+}

@@ -14,11 +14,22 @@ enum BookStatus {
   ARCHIVED
 }
 
+enum BookWorkflowType {
+  NONFICTION
+  FICTION
+}
+
 enum StageKey {
   BOOK_SETUP
   PROMISE
   AUDIENCE
   MARKET_ANALYSIS
+  STORY_SETUP
+  STORY_CORE
+  WORLD_CAST
+  PLOT_BLUEPRINT
+  SCENE_PLAN
+  FICTION_DRAFT
   OUTLINE
   BASE_STORY
   RESEARCH
@@ -48,6 +59,12 @@ enum ArtifactType {
   CORE_TRUTHS
   TRANSFORMATION_ARC
   BOOK_PROMISE_REPORT
+  STORY_SETUP_PROFILE
+  STORY_CORE_BIBLE
+  WORLD_CAST_BIBLE
+  FICTION_PLOT_BLUEPRINT
+  FICTION_SCENE_PLAN
+  FICTION_DRAFT_MANUSCRIPT
   OUTLINE
   OUTLINE_EXPANSION
   CHAPTER_PARAGRAPH_PLAN
@@ -60,6 +77,8 @@ enum ArtifactType {
   CHAPTER_DRAFT
   EDITORIAL_REVIEW
   AI_VOICE_REVIEW
+  EDITORIAL_ASSESSMENT
+  MANUSCRIPT_REVISION
   MANUSCRIPT_ASSEMBLY
   LENGTH_ADJUSTMENT
   PUBLISHING_PACKAGE
@@ -262,6 +281,7 @@ model Book {
   titleWorking String?
   subtitle     String?
   status       BookStatus @default(DRAFT)
+  workflowType BookWorkflowType @default(NONFICTION)
   metadataJson Json       @default("{}")
   ownerUserId  String?    @db.Uuid
   createdAt    DateTime   @default(now())

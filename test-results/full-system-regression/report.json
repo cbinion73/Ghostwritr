@@ -1,0 +1,316 @@
+{
+  "generatedAt": "2026-05-08T16:48:48.242Z",
+  "baseUrl": "http://127.0.0.1:3000",
+  "pageChecks": [
+    {
+      "route": "library",
+      "url": "http://127.0.0.1:3000/",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Start a new book, reopen an active one, or clear out old projects from one calm library view. LIBRARY Book Workspace Each book keeps its own Promise, Outline, dossiers, stories, and manuscript flow so you can move between projects cleanly. OPENING AREA Book Library Create a new book, jump back into an existing one, or remove a project you no longer need. Start A New Book Create a book and set up basic metadata, or jump straight into the Promise Wizard to define your book's core concept. WITH SETUP FIRST Nonfiction workflow Fiction workflow Create Book & Setup OR JUMP TO WIZARD Nonfiction workflow Fiction workflow Start Workflow ✨ RESTORE FROM ARCHIVE Import Book Archive Existing Books Switch between books from here instead of editing URLs by hand. Systems of Influence A field guide to building trust, alignment, and durable leadership momentum Nonfiction workflow Progress: 67% • Automation: run to full draft Next constraint: PERSONAL STORIES PERSONAL STORIES • BLOCKED Publish not ready Publish refresh required Handoff not finalized Waiting on Personal Stories Publish handoff: Manuscript has changed since the publish package was prepared. Refresh the package before handoff. Open Book Open Outline Open Draft Restart Wizard Delete Branch Book Export Archive Fiction Smoke fiction-smoke Fiction workflow Progress: 88% • Automation: run to full draft Next constraint: EDITING review EDITING • READY FOR REVIEW Publish not ready Publish synced Handoff not finalized Fiction autopilot advanced the workflow Publish handoff: Publish package is synced to the latest manuscript assembly. Open Book Open Plot Open Draft Delete Branch Book Export Archive Fiction Wizard Smoke 1777664238245 fiction-wizard-smoke-1777664238245 Fiction workflow Progress: 0% • Automation: manual Next constraint: BOOK SETUP in progress BOOK SETUP • IN PROGRESS Publish not ready Publish package missing Handoff not finalized No automation summary yet Publish handoff: No manuscript assembly is available for package generation yet. Open Book Open Plot Open Draft Delete Branch Book Export Archive Fiction UI Smoke 1777664219383 fiction-ui-smoke-1777664219383 Fiction workflow Progress: 0% • Automation:",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/library.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-promise",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/promise",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Research and refine the book's strategic foundation before drafting begins. Systems of Influence Status: COMMITTED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing Polish to Excellence Seed Sample Recommit STAGE WORKSPACE Promise Research, refine, and validate the book's core direction conversationally. 📁 Files Promise Document Progress 0 of 7 sections approved 0% ⏳ Promise Statement ⏳ Audience ⏳ Truth ⏳ Transformation ⏳ Market ⏳ Recommendations ⏳ Book Pitch 👉 7 sections need approval Review and approve all sections to unlock the commit button. (1/7) Promise Statement 🔴 (2/7) Audience 🔴 (3/7) Truth 🔴 (4/7) Transformation 🔴 (5/7) Market 🔴 (6/7) Recommendations 🔴 (7/7) Book Pitch 🔴 📥 Export ▼ Promise Statement Review the AI-generated promise statement below. Chat with the AI to refine it until you're satisfied, then approve to move to the next step. Chat with the AI to refine the promise statement Send ⏳ Pending ✅ Approve ✏️ Request Changes 🔄 Regenerate Refine ← Share ideas, refinements, or directions to evolve your promise. Each turn persists to Postgres as versioned Promise-stage artifacts. Send",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-promise.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-outline",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/outline",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Outline turns the locked Book Pitch into a meaningful section, chapter, and paragraph architecture. Phase 1 and 2 use Sonnet; Phase 3 verifies and assembles with Haiku. Book: Systems of Influence Outline stage: COMMITTED Book Pitch: LOCKED INPUT Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Outline Review the complete table of contents package before Base Story begins. Research stays manual. Back to Promise Open Dashboard Back to Phase 2 Generate Table of Contents Commit Outline Outline Document Progress 3 of 3 phases approved 100% ✅ Phase 1 · Sections & Chapters ✅ Phase 2 · Chapter Breakdowns ✅ Phase 3 · Full ToC 🛠️ Generate this phase first Once this phase has content, you can review it, approve it, and move forward. Phase 3 · Full ToC The locked Book Pitch and Promise work remain the governing blueprint. Promise Statement This book gives leaders a clear system for building trust, alignment, ownership, and accountability at scale. Book Pitch Anchor Title: Target words: 42,000 Not available yet. Generate the Table of Contents to assemble and verify the locked Outline and Chapter Breakdowns. Phase 3 Approval Review the final Table of Contents, then approve it. Generate this phase first, then approve it once you've reviewed the output. Approve Phase AI Chat Phase 3 is a validation and assembly pass. Use chat to reassemble the ToC or to diagnose whether requested changes belong back in Phase 1 or Phase 2. Start a conversation with this phase. Ask for changes, clarification, or a fresh pass. Send to AI What Commits in Phase 3 The full section > chapter > paragraph ToC package. The final locked outline blueprint for Base Story. The approved structure that downstream story and research work will use. Next Stage Once you commit the full ToC, Base Story begins. Research stays idle until you explicitly start it from the Research stage. Version History v1 COMMITTED The book moves from problem diagnosis to framework, then into practical application.",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-outline.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-base-story",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/base-story",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Build the common story thread that unifies the whole book chapter by chapter before evidence and examples are layered in. Book: Systems of Influence Base Story: COMMITTED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Base Story A chapter-by-chapter story spine that ties the whole manuscript together. Back to Outline Open Dashboard Regenerate Base Story Commit Base Story Narrative Options The structure is chosen from the Promise and Outline so the book carries one unifying narrative thread from chapter to chapter. Progress State: idle Chapters: 2/2 Selected Format GUIDE JOURNEY Available Formats Guide Journey The reader is guided through a clearer operating model. Best for: Practical leadership books NARRATIVE THREAD Systems of Influence Story Premise A leader learns that sustainable influence comes from designing conditions, not performing authority. Book Thread Move from overcompensation to system stewardship. Book-Level Movement Me: The leader is overloaded. We: This pattern is common. Truth: Influence is structural. You: Design conditions differently. We Closing: Teams can become trustworthy on purpose. CHAPTER THREAD Chapter 1: The Leader Who Keeps Filling the Gap Chapter Purpose Recognition Thread Role Expose the pain of compensation. Chapter Story A leader absorbs recurring friction until they realize the role itself is being used as a patch. Chapter-Level Movement Me: The leader is stretched thin. We: Many leaders know this pattern. Truth: Compensation signals a system issue. You: Look for the gap underneath the effort. We Closing: The pattern can be redesigned. CHAPTER THREAD Chapter 2: When Alignment Looks Real but Isn’t Chapter Purpose Reframe alignment Thread Role Show why meetings do not create commitment by themselves. Chapter Story A plan collapses because agreement never became shared ownership. Chapter-Level Movement Me: The leader sees the unraveling. We: This happens across teams. Truth: Alignment is designed, not assumed. You: Engineer explicit ownership. We Closing: Trust becomes visible when the system supports it. How This Is Used Later Base Story stays inde",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-base-story.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-research",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/research",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Read the Outline and Base Story, then build a chapter-by-chapter research binder of sourced, verifiable facts, figures, and supporting material. Book: Systems of Influence Research status: COMMITTED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Research Dossiers Each binder tab holds a chapter dossier grounded in the Outline and Base Story. Add notes, regroup chapters when needed, and run the verification pipeline one dossier at a time. Back to Outline Open Dashboard Regenerate Full Research Generate Selected Dossier Commit Selected Dossier Commit All Research Research Progress Locked: 2 In Progress: 0 Not Started: 0 Chapter 1: The Leader Who Keeps Filling the Gap 1 dossier Committed1 src2 items0 ideas Chapter 2: When Alignment Looks Real but Isn’t 1 dossier Committed1 src2 items0 ideas BINDER DOSSIER Chapter 1: The Leader Who Keeps Filling the Gap Chapters completed: 2/2 Stage state: fixture committed Tab Coverage Chapter 1: The Leader Who Keeps Filling the Gap CHAPTER DOSSIER Chapter 1: The Leader Who Keeps Filling the Gap Version 1 Expose the cost of compensating. Committed Verified sources: 1/1 Verified items: 2/2 Needs corroboration: 0 Research Questions How does over-functioning change team behavior over time? Verified Facts Repeated rescue behavior trains teams to escalate uncertainty upward instead of resolving it locally. Statistics And Definitions Examples And Counterpoints Source Register Open Gaps",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-research.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-external-stories",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/external-stories",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Research case studies, stories, and examples so each chapter has real-world depth and more proof than it strictly needs. Book: Systems of Influence External Stories: BLOCKED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE External Stories Build a chapter-by-chapter vault of case studies, stories, and examples so later drafting, editing, and marketing all have options grounded in reality. Stale: The committed Outline changed, so downstream chapter-level artifacts are stale. Recommended recovery: Regenerate the story vault so the examples and case studies match the refreshed upstream inputs. Back to Outline Open Dashboard Regenerate Story Vault Chapter 1: The Leader Who Keeps Filling the Gap 1 dossier Committed1 stories1 verified0 ideas Chapter 2: When Alignment Looks Real but Isn’t 1 dossier Committed1 stories1 verified0 ideas STORY BINDER Chapter 1: The Leader Who Keeps Filling the Gap Chapters completed: 2/2 Stage state: fixture committed CHAPTER STORY VAULT Chapter 1: The Leader Who Keeps Filling the Gap Commit Chapter Vault Provide a concrete outside example of a leader becoming the system patch. Stories: 1 Verified: 1 Sources: 1 Best Story Candidates The COO who became the escalation desk failure • opening hook Tier A A scaling operator spent every morning resolving issues that should have been handled inside the line. Shows how rescue work can look noble while weakening the system. Story Types Covered Source Register PAPERCLIP Story Leads & Binder Tools HIDE PAPERCLIP Clip Story Lead PAPERCLIP Clip Story Lead Binder Controls No chapter assigned yet Chapter 1: The Leader Who Keeps Filling the Gap Chapter 2: When Alignment Looks Real but Isn’t Add Tab Organize This Tab Clipped Story Leads No clipped leads yet for this story tab.",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-external-stories.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-personal-stories",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/personal-stories",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Interview mode for building a chapter-aware encyclopedia of personal stories, lived moments, and observations for the book. Book: Systems of Influence Personal Stories: BLOCKED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Personal Stories The AI interviews you chapter by chapter and grows a reusable encyclopedia of experiences mapped back to the outline. If you do not have a story for an area, we mark it and move on. Start Chapter-Aware Interview Commit Encyclopedia Interview One good question at a time. Raw memories are welcome. Short concrete moments are often more useful than polished stories. Click Start Interview and the AI will begin building your chapter-aware personal story encyclopedia. Current focus: Leadership moments that revealed the cost of compensating for broken systems. Send Answer Story Encyclopedia The system captures possible stories even when they are incomplete, then strengthens them over time. Interview State Status: idle Stories: 1 No-story areas: 0 Next Question: What moment made you realize your team was depending on your effort instead of clear conditions? Chapter Coverage Chapter 1: The Leader Who Keeps Filling the Gap · 0 Chapter 2: When Alignment Looks Real but Isn’t · 0 No Story For This If nothing comes to mind for the current area, mark it cleanly and move to another angle. I Don't Have A Story For This ENCYCLOPEDIA Personal Story Encyclopedia LEADERSHIP The team update that never became ownership Strong A weekly status ritual masked missing accountability until a key launch slipped. Lesson: Clarity without ownership is only temporary comfort. Why it matters: It grounds the framework in lived operational pain. Life area: Work nf-ch2 frustration clarity INTERVIEWER NOTES How To Answer Give the AI the raw memory first: what happened, who was there, what was at stake, and what changed in you. It is fine if a memory is short, messy, or incomplete. The system is building an encyclopedia, not a polished manuscript yet. If a topic has no real story behind it, say so. That is better than inventing one. Latest Encyclopedia Versions v1 committed Committed ",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-personal-stories.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-chapter-draft",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/chapter-draft",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Chapter-by-chapter ghostwriting workspace that synthesizes the committed promise, outline, base story, research, external stories, and personal stories. Book: Systems of Influence Chapter Draft: COMMITTED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Chapter Draft The author agent drafts each chapter from the full upstream artifact stack. The reviewer agent critiques it for craft, clarity, and AI tells before the draft lands here for your review. The normal flow is one chapter at a time. Open Publish Regenerate This Chapter Commit Chapter Expand Toward Target Generate All Chapters Expand Under-Target Chapters Repair Weak Chapters Use Generate This Chapter to work chapter by chapter. After you review it, use Next Chapter to move forward. Use Generate All Chapters only when you want the full manuscript pipeline to run in the background. Use Expand Toward Target when the selected chapter is materially short on finished prose. 2 drafted chapters currently need repair. Manuscript Progress Counted from the actual saved draft text, not the target prompt. BOOK PROGRESS 2/2 chapters 100% of chapters drafted WORDS WRITTEN 4,303 Target 42,000 ESTIMATED PAGES 18 Target 190 Chapters Read the book one chapter at a time while the full manuscript is being built in the background. Chapter 1: The Leader Who Keeps Filling the Gap Committed The Cost of Compensating 2,191 words 9 pages Target 21,025 words (17,661-24,389) Under target • 18,834 words under 2 research 1 external stories 1 personal stories Review: revise Chapter 2: When Alignment Looks Real but Isn’t Committed The Cost of Compensating 2,112 words 9 pages Target 20,975 words (17,619-24,331) Under target • 18,863 words under 2 research 1 external stories 1 personal stories Review: revise MANUSCRIPT Chapter 1: The Leader Who Keeps Filling the Gap Regenerate This Chapter Commit Chapter Next Chapter Chapters completed: 2/2 Stage state: committed Chapter words: 2,191 Chapter pages: 9 Chapter target: 21,025 Target band: 17,661-24,389 Length status: Under target Generation mode: This chapter has a draft. Regenerate only if you want a fresh versi",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-chapter-draft.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-dashboard",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/dashboard",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Parallel production dashboard for the stages launched from the committed outline. Book: Systems of Influence Dashboard mode: READY Library Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing PRODUCTION DASHBOARD Parallel Progress Outline has been committed. The downstream stages are running independently and will populate their workspaces as they complete. Back to Outline Open Chapter Draft Open Publish Workflow Automation Nonfiction autopilot takes over after the strategic stages are committed. It will queue Base Story, Research, External Stories, Chapter Draft, and Editing as soon as each boundary is ready. Manual Downstream Control Run Autopilot to advance the workflow one intelligent step now, or enable continuous autopilot to keep the downstream pipeline moving. Current mode: run to full draft Latest: Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Run Autopilot Run To Full Draft Enable Continuous Autopilot Set Assisted Mode Set Boundary Mode Automation History Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Automation mode updated - Workflow automation is now set to run to full draft. Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Automation mode updated - Workflow automation is now set to run to next boundary. Waiting on Personal Stories - Personal Stories is the last human-sourced boundary before chapter drafting. Publish Handoff Status: Refresh required Manuscript has changed since the publish package was prepared. Refresh the package before handoff. Final handoff: Not finalized yet Draft Quality Watchlist 2 chapters still need another draft pass before the editorial finish is truly clean. Average score: 47/100 • Revision flags: 2 Chapter 1: The Leader Who Keeps Filling the Gap is at 44/100 with needs attention readiness. Length fit: 2,191 words against a 17,661-24,389 target band. Paragraph length fit: 1 planned paragraph still need length correction against the blueprint. Edito... Chapter 2: When Alignment Looks Rea",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-dashboard.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-editing",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/editing",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Read the manuscript as one book, then refine it chapter by chapter with the editor agent. Book: Systems of Influence Editing: READY_FOR_REVIEW Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing STAGE WORKSPACE Editing This is the full-manuscript review space. Once every chapter draft exists, the editor can read the book in its entirety and then refine it chapter by chapter. Reassemble Manuscript Expand Draft Toward Target Commit Editing Stage Open Publish Export Manuscript ▼ Manuscript Readiness The editor stage should only start after the draft exists as a complete book. CHAPTERS DRAFTED 2/2 DRAFT WORDS 4,293 EDITORIAL STATUS Ready for full-book review TYPESET READINESS Export-ready DRAFT QUALITY 47/100 REVISION FLAGS 2 Draft Quality Rollup Persistent chapter-quality signals carried forward from the drafting stages. AVERAGE SCORE 47/100 STRONG CHAPTERS 0 WATCH CHAPTERS 0 NEEDS ATTENTION 2 2 chapters still need another draft pass before the editorial finish is truly clean. Weakest chapter: Chapter 1: The Leader Who Keeps Filling the Gap • Revision passes already spent: 4 Current Blockers Chapter 1: The Leader Who Keeps Filling the Gap is at 44/100 with needs attention readiness. Length fit: 2,191 words against a 17,661-24,389 target band. Paragraph length fit: 1 planned paragraph still need length correction against the blueprint. Edito... Chapter 2: When Alignment Looks Real but Isn’t is at 50/100 with needs attention readiness. Length fit: 2,112 words against a 17,619-24,331 target band. Editorial review: 1 AI-authorship flag(s) still need attention. Editorial Readiness Gate A go/no-go view for whether the manuscript is ready to commit or still needs another revision pass. READINESS SCORE 17/100 RECOMMENDATION blocked EVALUATED 5/8/2026, 12:48:21 PM NEXT MOVE Run another draft-length pass before treating Editing as final. Recovery Path If the manuscript is blocked because core chapters are still too short, run Expand Draft Toward Target. It will deepen the most under-target chapters, then refresh the manuscript assembly and publish package automatically. Editorial Engine Generate structured assessm",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-editing.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "nonfiction-publish",
+      "url": "http://127.0.0.1:3000/books/nonfiction-smoke/publish",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Final publishing workspace for export readiness, delivery formats, and handoff quality. Book: Systems of Influence Publish: EDITORIALLY BLOCKED Book Setup Promise Outline Base Story Research External Stories Personal Stories Chapter Draft Editing Publish FINAL WORKSPACE Publish This is the final handoff surface for the manuscript package: export formats, packaging notes, and readiness to move from ghostwriting into publishing delivery. Open Editing Refresh Package Export Manuscript ▼ Export Publish Package Export Interior Layout Publish Readiness A final operational readout before you hand the book to printing, ebook conversion, or a publishing partner. Publish Package Sync Status: Refresh required. Manuscript has changed since the publish package was prepared. Refresh the package before handoff. Last refreshed 5/7/2026, 10:06:49 PM PACKAGE STATUS Prepared, needs editorial revision TOTAL WORDS 4,293 CHAPTERS 2 EXPORT FORMATS docx, html, markdown, json DRAFT QUALITY 47/100 Publishing Package The latest prepared publishing package snapshot for the current manuscript assembly. Systems of Influence A field guide to building trust, alignment, and durable leadership momentum Prepared 5/7/2026, 10:06:49 PM Status: Prepared, needs editorial revision The manuscript is assembled and export-ready from the Editing stage. A true final typesetting pass may still adjust pagination and front/back matter. Draft quality headline: 2 chapters still need another draft pass before the editorial finish is truly clean. Trim: 6 x 9 in Target pages: 190 Final Delivery Checklist Manuscript assembled from the latest committed draft inputs. Editorial revisions and current readiness state are reflected in the latest manuscript version. Package includes the standard export set: DOCX, HTML, Markdown, and JSON. Final print layout and front/back matter can proceed from this package. Editorial Gate Readiness score: 17/100 Recommendation: blocked Next action: Run another draft-length pass before treating Editing as final. Draft Quality Baseline Average score: 47/100 Revision flags: 2 Strong / watch / needs attention: 0 / 0 / 2 Weakest chapter: Chapter 1: The Leader Who Keeps Filling the",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/nonfiction-publish.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-story-setup",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/story-setup",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Fiction workflow for novel-length, planning-first, chapter-based co-writing. Book: Fiction Smoke Workflow: Fiction Stage: COMMITTED Library Story Dashboard Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION STAGE Story Setup Lock genre, tone, audience, POV, tense, and premise intent. Open Story Dashboard Regenerate Commit Stage Story Cockpit The live novel state, so every stage stays connected to the same story memory. PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. PLOT CHAPTERS 2 SCENES PLANNED 4 DRAFT WORDS 3,800 Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Open Editing Premise A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. Genre: Literary Suspense Tone: Elegant, tense, intimate POV: Close third person Tense: Past Story Question What happens when the system protecting you is the thing consuming you? Target Reader Readers who like quiet tension and moral complexity. Artifact Lineage Structured storage stays available, but it is now the fallback editor instead of the primary fiction UI. VERSIONS v1 • COMMITTED • 5/7/2026, 10:06:49 PM Advanced JSON Editor",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-story-setup.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-story-core",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/story-core",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Fiction workflow for novel-length, planning-first, chapter-based co-writing. Book: Fiction Smoke Workflow: Fiction Stage: COMMITTED Library Story Dashboard Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION STAGE Story Core Define theme, conflict, protagonist pressure, and story engine. Open Story Dashboard Regenerate Commit Stage Story Cockpit The live novel state, so every stage stays connected to the same story memory. PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. PLOT CHAPTERS 2 SCENES PLANNED 4 DRAFT WORDS 3,800 Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Open Editing Theme Truth costs more than comfort. Central Conflict Elena must expose the family system that protects her while it destroys everyone she loves. Transformation Arc From compliant strategist to self-authoring truth teller. Protagonist: Elena Ward Antagonist Force: A family apparatus that disguises coercion as protection. Stakes: If she stays silent, she inherits safety and loses herself. Artifact Lineage Structured storage stays available, but it is now the fallback editor instead of the primary fiction UI. VERSIONS v1 • COMMITTED • 5/7/2026, 10:06:49 PM Advanced JSON Editor",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-story-core.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-world-cast",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/world-cast",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Fiction workflow for novel-length, planning-first, chapter-based co-writing. Book: Fiction Smoke Workflow: Fiction Stage: COMMITTED Library Story Dashboard Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION STAGE World & Cast Build the story world, rules, cast, and relational tension. Open Story Dashboard Regenerate Commit Stage Story Cockpit The live novel state, so every stage stays connected to the same story memory. PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. PLOT CHAPTERS 2 SCENES PLANNED 4 DRAFT WORDS 3,800 Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Open Editing Setting An old-money coastal estate and private club network in New England. Atmosphere Salt air, moneyed restraint, and curated memory. World Rules Power is exercised through implication, not direct force. Family loyalty is rewarded only when it remains silent. Elena Ward Protagonist Desire: To understand what her mother left behind. Flaw: She over-trusts systems that appear orderly. Julian Ward Primary pressure source Desire: To keep the inheritance story controlled. Flaw: He confuses stewardship with entitlement. Artifact Lineage Structured storage stays available, but it is now the fallback editor instead of the primary fiction UI. VERSIONS v1 • COMMITTED • 5/7/2026, 10:06:49 PM Advanced JSON Editor",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-world-cast.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-plot-blueprint",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/plot-blueprint",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Fiction workflow for novel-length, planning-first, chapter-based co-writing. Book: Fiction Smoke Workflow: Fiction Stage: COMMITTED Library Story Dashboard Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION STAGE Plot Blueprint Shape acts, turning points, and chapter beats. Open Story Dashboard Open Draft Regenerate Commit Stage Story Cockpit The live novel state, so every stage stays connected to the same story memory. PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. PLOT CHAPTERS 2 SCENES PLANNED 4 DRAFT WORDS 3,800 Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Open Editing Chapter Beat Map 2 chapters mapped across 2 acts. Chapter 1: The Summons Elena is called home to receive an inheritance with conditions. 2,200 words Chapter 2: The Marina Dinner Julian stages a dinner to measure what Elena knows. 2,400 words Chapter 1: The Summons Organic chapter architecture before scene-level planning begins. Beat Elena is called home to receive an inheritance with conditions. POV: Elena Target: 2,200 words Purpose Trigger the return and establish suspicion. Conflict Elena must return to a system she distrusts. Turn She notices evidence that the family story has been edited. Hook A portrait has been removed from the wall. Story Memory The story engine that each beat must serve. Theme Truth costs more than comfort. Central Conflict Elena must expose the family system that protects her while it destroys everyone she loves. Turning Points Elena receives the inheritance summons. A hidden key reveals the first lie. Artifact Lineage Structured storage stays available, but it is now the fallback editor instead of the primary fiction UI. VERSIONS v1 • COMMITTED • 5/7/2026, 10:06:50 PM Advanced JSON Editor",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-plot-blueprint.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-scene-plan",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/scene-plan",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Fiction workflow for novel-length, planning-first, chapter-based co-writing. Book: Fiction Smoke Workflow: Fiction Stage: COMMITTED Library Story Dashboard Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION STAGE Scene Plan Plan chapter-level and scene-level progression. Open Story Dashboard Open Draft Regenerate Commit Stage Story Cockpit The live novel state, so every stage stays connected to the same story memory. PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. PLOT CHAPTERS 2 SCENES PLANNED 4 DRAFT WORDS 3,800 Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Open Editing Chapter Scene Map 2 chapters and 4 scenes planned. Chapter 1: The Summons Elena receives the call, returns home, and sees the first sign of editorial manipulation. 2 scenes • 2,200 words Chapter 2: The Marina Dinner Julian tests Elena socially while an ally quietly signals danger. 2 scenes • 2,400 words Chapter 1: The Summons Scene-by-scene continuity and momentum for the selected chapter. Open Draft Workspace POV: Elena Target: 2,200 words 2 scenes Chapter Purpose Re-enter the family system Chapter Summary Elena receives the call, returns home, and sees the first sign of editorial manipulation. Inherited Beat Elena is called home to receive an inheritance with conditions. Scene 1: The Call Elena's apartment • Elena Objective: Understand why the family lawyer is calling. Conflict: The family is summoning her back on its own terms. Outcome: She learns there is an inheritance with conditions. Reveal: Her mother left something behind. Bridge: She boards the train north. Scene 2: The Hallway Ward estate • Elena Objective: Assess the family terrain on arrival. Conflict: Every surface is curated to keep her off-balance. Outcome: She notices the missing portrait. Reveal: Someone edited the visible family story. Bridge: She prepares for dinner with Julian. Story Memory This context should stay alive while drafting scenes into prose. Continuity Rules Elena notices detail before she names its meaning. The family",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-scene-plan.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-draft",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/draft",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Fiction workflow for novel-length, planning-first, chapter-based co-writing. Book: Fiction Smoke Workflow: Fiction Stage: COMMITTED Draft coverage: 2/2 Library Story Dashboard Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION STAGE Draft Draft chapter prose from the scene plan and story bible. Open Story Dashboard Open Editing Regenerate Full Draft Repair Weak Chapters Commit Draft Story Cockpit The live novel state, so every stage stays connected to the same story memory. PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. PLOT CHAPTERS 2 SCENES PLANNED 4 DRAFT WORDS 3,800 Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Open Editing Draft Progress 2/2 chapters currently have prose. Chapter 1: The Summons 1,816 words drafted Quality: 84/100 • watch Regenerate Chapter Expand Toward Target Chapter 2: The Marina Dinner 1,984 words drafted Quality: 84/100 • watch Regenerate Chapter Expand Toward Target Chapter 1: The Summons The draft sits at the center, with planning context visible beside it. Regenerate This Chapter Expand Toward Target Expand Under-Target Chapters POV: Elena 1,816 words Quality: 84/100 Revision passes: 0 Target: 2,200 words Chapter Summary Elena receives the call, returns home, and sees the first sign of editorial manipulation. Quality Signals Length fit: 1,816 words against a 1,804-2,596 target band. POV continuity: Planned POV is Elena; draft POV is Elena. Scene carry-through: 2 of 2 planned scene anchors echo back in the draft. Scene objectives: 2 of 2 planned scene objectives are visibly doing work in the chapter. Story memory: The prose is not obviously carrying forward cast or conflict anchors yet. Continuity rules: 2 reveal anchor(s) and 2 continuity-rule anchor(s) appear in the prose. Bridge momentum: 2 of 2 planned bridge anchors are visibly pulling the chapter forward. World pressure: 1 world-rule anchor(s) and 0 relationship-pressure anchor(s) surface in the prose. Prose naturalness: The chapter still includes planning-shaped or meta-writing langua",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-draft.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-dashboard",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/dashboard",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Fiction cockpit for a planning-first, chapter-based co-writing workflow. Book: Fiction Smoke Mode: Fiction Chapters drafted: 2/2 Library Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing FICTION DASHBOARD Story Cockpit One place to see the novel’s premise, plot pressure, scene coverage, and draft readiness. Open Editing Open Editing Open Publish Next Best Move The manuscript has full chapter coverage and is ready for whole-book revision. Workflow Automation Autopilot is off. Use Run Autopilot to advance the next eligible fiction stage now. Current mode: run to full draft Latest: Fiction autopilot advanced the workflow - Editing loop completed and committed Run Autopilot Run To Full Draft Enable Continuous Autopilot Set Assisted Mode Set Boundary Mode Automation History Fiction autopilot advanced the workflow - Editing loop completed and committed Automation mode updated - Workflow automation is now set to run to full draft. Fiction autopilot advanced the workflow - Editing loop completed and committed Automation mode updated - Workflow automation is now set to run to next boundary. Assisted mode paused at Editing - Run the editorial loop manually when you want to advance the manuscript through the final revision pass. Publish Handoff Status: Synced Publish package is synced to the latest manuscript assembly. Final handoff: Not finalized yet Draft Quality Watchlist Draft quality is stable across 2 chapters. Average score: 84/100 • Revision flags: 0 PREMISE A burned-out strategist discovers a hidden inheritance that pulls her into a family conspiracy. THEME Truth costs more than comfort. CENTRAL CONFLICT Elena must expose the family system that protects her while it destroys everyone she loves. DRAFT WORDS 3,800 Workflow Progress The fiction pipeline remains separate from nonfiction and advances through its own artifacts. Story Setup Lock genre, tone, audience, POV, tense, and premise intent. Status: COMMITTED Open Story Setup Story Core Define theme, conflict, protagonist pressure, and story engine. Status: COMMITTED Open Story Core World & Cast Build the story world, rules, cast, and relational tension. Status: COM",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-dashboard.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-editing",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/editing",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Read the manuscript as one book, then refine it chapter by chapter with the editor agent. Book: Fiction Smoke Editing: READY_FOR_REVIEW Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing STAGE WORKSPACE Editing This is the full-manuscript review space for the fiction workflow. Once the committed draft exists, the editor can read the novel in its entirety and then refine it chapter by chapter. Reassemble Manuscript Expand Draft Toward Target Commit Editing Stage Open Publish Export Manuscript ▼ Manuscript Readiness The editor stage should only start after the draft exists as a complete book. CHAPTERS DRAFTED 2/2 DRAFT WORDS 3,800 EDITORIAL STATUS Ready for full-book review TYPESET READINESS Export-ready DRAFT QUALITY 84/100 REVISION FLAGS 0 Draft Quality Rollup Persistent chapter-quality signals carried forward from the drafting stages. AVERAGE SCORE 84/100 STRONG CHAPTERS 0 WATCH CHAPTERS 2 NEEDS ATTENTION 0 Draft quality is stable across 2 chapters. Weakest chapter: Chapter 1: The Summons • Revision passes already spent: 0 Editorial Readiness Gate A go/no-go view for whether the manuscript is ready to commit or still needs another revision pass. READINESS SCORE 82/100 RECOMMENDATION blocked EVALUATED 5/8/2026, 12:48:39 PM NEXT MOVE Run another draft-length pass before treating Editing as final. Recovery Path If the manuscript is blocked because core chapters are still too short, run Expand Draft Toward Target. It will deepen the most under-target chapters, then refresh the manuscript assembly and publish package automatically. Editorial Engine Generate structured assessments, create revision candidates, then apply the accepted revision back into the manuscript assembly. ASSESSMENT Run Editorial Assessment REVISION MODE Structural Edit Clarity Pass Pacing Pass Continuity Pass Voice Consistency Line Edit CHAPTER FOCUS Whole book Chapter 1: The Summons Chapter 2: The Marina Dinner Generate Assessment REVISION Create Revision Candidate REVISION MODE Structural Edit Clarity Pass Pacing Pass Continuity Pass Voice Consistency Line Edit CHAPTER FOCUS Highest-leverage chapters Chapter 1: The Summons Chapter 2: The Marina Di",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-editing.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    },
+    {
+      "route": "fiction-publish",
+      "url": "http://127.0.0.1:3000/books/fiction-smoke/publish",
+      "status": 200,
+      "navigationError": null,
+      "missingExpected": [],
+      "missingExpectedAny": [],
+      "bodyPreview": "GHOSTWRITR Final publishing workspace for export readiness, delivery formats, and handoff quality. Book: Fiction Smoke Publish: EDITORIALLY BLOCKED Book Setup Story Setup Story Core World & Cast Plot Blueprint Scene Plan Draft Editing Publish FINAL WORKSPACE Publish This is the final handoff surface for the manuscript package: export formats, packaging notes, and readiness to move from ghostwriting into publishing delivery. Open Editing Refresh Package Export Manuscript ▼ Export Publish Package Export Interior Layout Publish Readiness A final operational readout before you hand the book to printing, ebook conversion, or a publishing partner. Publish Package Sync Status: Synced. Publish package is synced to the latest manuscript assembly. Last refreshed 5/8/2026, 12:47:34 PM PACKAGE STATUS Prepared, needs editorial revision TOTAL WORDS 3,800 CHAPTERS 2 EXPORT FORMATS docx, html, markdown, json DRAFT QUALITY 84/100 Publishing Package The latest prepared publishing package snapshot for the current manuscript assembly. Fiction Smoke Prepared 5/8/2026, 12:47:34 PM Status: Prepared, needs editorial revision The manuscript is assembled and export-ready from the Editing stage. A true final typesetting pass may still adjust pagination and front/back matter. Draft quality headline: Draft quality is stable across 2 chapters. Trim: 6 x 9 in Target pages: 300 Final Delivery Checklist Manuscript assembled from the latest committed draft inputs. Editorial revisions and current readiness state are reflected in the latest manuscript version. Package includes the standard export set: DOCX, HTML, Markdown, and JSON. Final print layout and front/back matter can proceed from this package. Editorial Gate Readiness score: 82/100 Recommendation: blocked Next action: Run another draft-length pass before treating Editing as final. Draft Quality Baseline Average score: 84/100 Revision flags: 0 Strong / watch / needs attention: 0 / 2 / 0 Weakest chapter: Chapter 1: The Summons Draft quality is stable across 2 chapters. Front Matter Plan Title page Copyright page Dedication Author note (optional) Back Matter Plan Acknowledgments About the author Reader discussion questions (optional) Typese",
+      "screenshotPath": "/Users/chris/Desktop/GHOSTWRITR/test-results/full-system-regression/fiction-publish.png",
+      "consoleErrors": [],
+      "pageErrors": [],
+      "failedRequests": []
+    }
+  ],
+  "apiChecks": [
+    {
+      "route": "nonfiction-json-export",
+      "url": "http://127.0.0.1:3000/api/books/nonfiction-smoke/manuscript-export?format=json",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "route": "fiction-json-export",
+      "url": "http://127.0.0.1:3000/api/books/fiction-smoke/manuscript-export?format=json",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "route": "nonfiction-publish-package",
+      "url": "http://127.0.0.1:3000/api/books/nonfiction-smoke/publish-package",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "route": "nonfiction-archive",
+      "url": "http://127.0.0.1:3000/api/books/nonfiction-smoke/archive",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "route": "nonfiction-typeset-package",
+      "url": "http://127.0.0.1:3000/api/books/nonfiction-smoke/typeset-package",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "route": "fiction-publish-package",
+      "url": "http://127.0.0.1:3000/api/books/fiction-smoke/publish-package",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "route": "fiction-archive",
+      "url": "http://127.0.0.1:3000/api/books/fiction-smoke/archive",
+      "status": 200,
+      "missingExpected": []
+    },
+    {
+      "route": "fiction-typeset-package",
+      "url": "http://127.0.0.1:3000/api/books/fiction-smoke/typeset-package",
+      "status": 200,
+      "missingExpected": []
+    }
+  ]
+}

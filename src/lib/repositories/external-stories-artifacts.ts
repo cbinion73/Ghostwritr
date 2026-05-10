@@ -48,6 +48,26 @@ function getArtifactTitle(chapterKey: string, chapterTitle: string) {
   return `External Stories: ${chapterKey} - ${chapterTitle}`;
 }
 
+function getArtifactChapterKey(
+  metadataJson: Prisma.JsonValue | null | undefined,
+  title?: string | null,
+) {
+  if (metadataJson && typeof metadataJson === "object" && !Array.isArray(metadataJson)) {
+    const chapterKey = (metadataJson as Record<string, unknown>).chapterKey;
+    if (typeof chapterKey === "string" && chapterKey.trim().length > 0) {
+      return chapterKey;
+    }
+  }
+
+  if (typeof title === "string" && title.startsWith("External Stories: ")) {
+    const remainder = title.slice("External Stories: ".length);
+    const separatorIndex = remainder.indexOf(" - ");
+    return separatorIndex >= 0 ? remainder.slice(0, separatorIndex) : remainder;
+  }
+
+  return null;
+}
+
 export async function getExternalStoryPackVersions(bookId: string, chapterKey: string, limit = 6) {
   const artifact = await withDbRetry(() =>
     db.artifact.findFirst({
@@ -66,6 +86,52 @@ export async function getExternalStoryPackVersions(bookId: string, chapterKey: s
   );
 
   return artifact?.versions ?? [];
+}
+
+export async function getLatestExternalStoryPackVersionsByChapter(
+  bookId: string,
+  chapterKeys?: string[],
+) {
+  const chapterKeySet = chapterKeys ? new Set(chapterKeys) : null;
+  const artifacts = await withDbRetry(() =>
+    db.artifact.findMany({
+      where: {
+        bookId,
+        artifactType: ArtifactType.EXTERNAL_STORY_PACK,
+      },
+      select: {
+        title: true,
+        metadataJson: true,
+        versions: {
+          orderBy: { versionNumber: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    }),
+  );
+
+  const versionsByChapter = new Map<string, { id: string; lifecycleState: ArtifactStatus } & { [key: string]: unknown }>();
+
+  for (const artifact of artifacts) {
+    const chapterKey = getArtifactChapterKey(artifact.metadataJson, artifact.title);
+    const version = artifact.versions[0];
+
+    if (!chapterKey || !version) {
+      continue;
+    }
+
+    if (chapterKeySet && !chapterKeySet.has(chapterKey)) {
+      continue;
+    }
+
+    if (!versionsByChapter.has(chapterKey)) {
+      versionsByChapter.set(chapterKey, version as unknown as { id: string; lifecycleState: ArtifactStatus });
+    }
+  }
+
+  return versionsByChapter;
 }
 
 export async function getCommittedExternalStoryPack(bookId: string, chapterKey: string) {
@@ -108,11 +174,66 @@ export async function getExternalStoriesForVersion(storyArtifactVersionId: strin
   );
 }
 
+export async function getExternalStorySourcesForVersions(storyArtifactVersionIds: string[]) {
+  if (storyArtifactVersionIds.length === 0) {
+    return [];
+  }
+
+  return withDbRetry(() =>
+    db.externalStorySource.findMany({
+      where: {
+        storyArtifactVersionId: {
+          in: storyArtifactVersionIds,
+        },
+      },
+      orderBy: [{ sourceTier: "asc" }, { title: "asc" }],
+    }),
+  );
+}
+
+export async function getExternalStoriesForVersions(storyArtifactVersionIds: string[]) {
+  if (storyArtifactVersionIds.length === 0) {
+    return [];
+  }
+
+  return withDbRetry(() =>
+    db.externalStoryItem.findMany({
+      where: {
+        storyArtifactVersionId: {
+          in: storyArtifactVersionIds,
+        },
+      },
+      orderBy: [{ storyType: "asc" }, { createdAt: "asc" }],
+    }),
+  );
+}
+
 export async function getExternalStoryVerificationsForChapter(bookId: string, chapterKey: string) {
   return withDbRetry(() =>
     db.externalStoryVerification.findMany({
       where: { bookId, chapterKey },
       orderBy: { createdAt: "asc" },
+    }),
+  );
+}
+
+export async function getExternalStoryVerificationsForChapters(
+  bookId: string,
+  chapterKeys: string[],
+) {
+  if (chapterKeys.length === 0) {
+    return [];
+  }
+
+  return withDbRetry(() =>
+    db.externalStoryVerification.findMany({
+      where: {
+        bookId,
+        chapterKey: {
+          in: chapterKeys,
+        },
+      },
+      orderBy: [{ chapterKey: "asc" }, { createdAt: "asc" }],
     }),
   );
 }

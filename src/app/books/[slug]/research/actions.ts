@@ -3,29 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import {
-  addResearchBinderTabWorkflow,
-  addResearchIdeaClipWorkflow,
-  archiveResearchBinderTabWorkflow,
-  combineResearchBinderTabsWorkflow,
-  commitAllResearchWorkflow,
-  commitResearchBinderTabWorkflow,
-  deleteResearchIdeaClipWorkflow,
-  enqueueAndTriggerFullResearchWorkflow,
-  renameResearchBinderTabWorkflow,
-  runResearchBinderTabWorkflow,
-  separateResearchBinderTabWorkflow,
-} from "@/lib/workflows/research";
-import {
-  cancelStageWorkflow,
-  resumeFailedStageWorkflow,
-  retryStageWorkflow,
-} from "@/lib/workflows/stage-controls";
-import { triggerWorkflowRunInBackground } from "@/lib/workflow-queue";
 import { StageKey } from "@prisma/client";
 
 function getTabPath(slug: string, tabId?: string) {
   return tabId ? `/books/${slug}/research?tabId=${tabId}` : `/books/${slug}/research`;
+}
+
+async function getResearchWorkflows() {
+  return import("@/lib/workflows/research");
+}
+
+async function getStageControls() {
+  return import("@/lib/workflows/stage-controls");
+}
+
+async function getWorkflowQueue() {
+  return import("@/lib/workflow-queue");
 }
 
 export async function runSelectedResearchDossier(slug: string, formData: FormData) {
@@ -34,28 +27,40 @@ export async function runSelectedResearchDossier(slug: string, formData: FormDat
     return;
   }
 
+  const { runResearchBinderTabWorkflow } = await getResearchWorkflows();
   await runResearchBinderTabWorkflow(slug, tabId);
   revalidatePath(`/books/${slug}/research`);
 }
 
 export async function runFullResearchStage(slug: string) {
+  const [{ enqueueAndTriggerFullResearchWorkflow }, { triggerWorkflowRunInBackground }] =
+    await Promise.all([getResearchWorkflows(), getWorkflowQueue()]);
   await enqueueAndTriggerFullResearchWorkflow(slug, triggerWorkflowRunInBackground);
   revalidatePath(`/books/${slug}/research`);
 }
 
 export async function stopResearchStage(slug: string) {
+  const { cancelStageWorkflow } = await getStageControls();
   await cancelStageWorkflow(slug, StageKey.RESEARCH);
   revalidatePath(`/books/${slug}/research`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
 export async function retryResearchStage(slug: string) {
+  const [{ retryStageWorkflow }, { triggerWorkflowRunInBackground }] = await Promise.all([
+    getStageControls(),
+    getWorkflowQueue(),
+  ]);
   await retryStageWorkflow(slug, StageKey.RESEARCH, triggerWorkflowRunInBackground);
   revalidatePath(`/books/${slug}/research`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
 export async function resumeFailedResearchStage(slug: string) {
+  const [{ resumeFailedStageWorkflow }, { triggerWorkflowRunInBackground }] = await Promise.all([
+    getStageControls(),
+    getWorkflowQueue(),
+  ]);
   await resumeFailedStageWorkflow(slug, StageKey.RESEARCH, triggerWorkflowRunInBackground);
   revalidatePath(`/books/${slug}/research`);
   revalidatePath(`/books/${slug}/dashboard`);
@@ -67,11 +72,13 @@ export async function commitSelectedResearchDossier(slug: string, formData: Form
     return;
   }
 
+  const { commitResearchBinderTabWorkflow } = await getResearchWorkflows();
   await commitResearchBinderTabWorkflow(slug, tabId);
   revalidatePath(`/books/${slug}/research`);
 }
 
 export async function commitAllResearch(slug: string) {
+  const { commitAllResearchWorkflow } = await getResearchWorkflows();
   await commitAllResearchWorkflow(slug);
   revalidatePath(`/books/${slug}/research`);
   revalidatePath(`/books/${slug}/dashboard`);
@@ -85,6 +92,7 @@ export async function addResearchBinderTab(slug: string, formData: FormData) {
     return;
   }
 
+  const { addResearchBinderTabWorkflow } = await getResearchWorkflows();
   const tab = await addResearchBinderTabWorkflow(slug, label, chapterKey);
   revalidatePath(`/books/${slug}/research`);
   redirect(getTabPath(slug, tab.id));
@@ -98,6 +106,7 @@ export async function renameResearchBinderTab(slug: string, formData: FormData) 
     return;
   }
 
+  const { renameResearchBinderTabWorkflow } = await getResearchWorkflows();
   await renameResearchBinderTabWorkflow(slug, tabId, label);
   revalidatePath(`/books/${slug}/research`);
   redirect(getTabPath(slug, tabId));
@@ -110,6 +119,7 @@ export async function archiveResearchBinderTab(slug: string, formData: FormData)
     return;
   }
 
+  const { archiveResearchBinderTabWorkflow } = await getResearchWorkflows();
   await archiveResearchBinderTabWorkflow(slug, tabId);
   revalidatePath(`/books/${slug}/research`);
   redirect(`/books/${slug}/research`);
@@ -123,6 +133,7 @@ export async function combineResearchBinderTabs(slug: string, formData: FormData
     return;
   }
 
+  const { combineResearchBinderTabsWorkflow } = await getResearchWorkflows();
   await combineResearchBinderTabsWorkflow(slug, sourceTabId, targetTabId);
   revalidatePath(`/books/${slug}/research`);
   redirect(getTabPath(slug, targetTabId));
@@ -137,6 +148,7 @@ export async function separateResearchBinderTab(slug: string, formData: FormData
     return;
   }
 
+  const { separateResearchBinderTabWorkflow } = await getResearchWorkflows();
   const tab = await separateResearchBinderTabWorkflow(slug, sourceTabId, chapterKey, newLabel);
   revalidatePath(`/books/${slug}/research`);
   redirect(getTabPath(slug, tab.id));
@@ -152,6 +164,7 @@ export async function addResearchIdeaClip(slug: string, formData: FormData) {
     return;
   }
 
+  const { addResearchIdeaClipWorkflow } = await getResearchWorkflows();
   await addResearchIdeaClipWorkflow({
     bookSlug: slug,
     tabId,
@@ -171,6 +184,7 @@ export async function deleteResearchIdeaClip(slug: string, formData: FormData) {
     return;
   }
 
+  const { deleteResearchIdeaClipWorkflow } = await getResearchWorkflows();
   await deleteResearchIdeaClipWorkflow(slug, ideaId);
   revalidatePath(`/books/${slug}/research`);
   redirect(getTabPath(slug, tabId || undefined));

@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-05-08T16:48:51.653Z",
+  "baseUrl": "http://127.0.0.1:3101",
+  "pageResults": [
+    {
+      "key": "library",
+      "url": "http://127.0.0.1:3101/",
+      "status": 200,
+      "missingExpected": [],
+      "bodyPreview": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/2836e9893becdf45.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-9660626b6ab2c75c.js\"/><script src=\"/_next/static/chunks/4bd1b696-c2f6e0877b6c10aa.js\" async=\"\"></script><script src=\"/_next/static/chunks/3794-dc6730702800bbce.js\" async=\"\"></script><script src=\"/_next/static/chunks/main-app-5d58e3158c2c17b5.js\" async=\"\"></script><script src=\"/_next/static/chunks/8500-3953cc33eeceb44e.js\" async=\"\"></script><script src=\"/_next/static/chunks/app/page-d364fea92effe173.js\" async=\"\"></script><title>GHOSTWRITR</title><meta name=\"description\" content=\"Book research and ghostwriting platform\"/><script src=\"/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><div class=\"page-shell library-shell\"><aside class=\"glass-panel sidebar\"><div class=\"brand-mark\"><h1>GHOSTWRITR</h1><p class=\"muted\">Start a new book, reopen an active one, or clear out old projects from one calm library view.</p"
+    },
+    {
+      "key": "nonfiction-promise",
+      "url": "http://127.0.0.1:3101/books/nonfiction-smoke/promise",
+      "status": 200,
+      "missingExpected": [],
+      "bodyPreview": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/2836e9893becdf45.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-9660626b6ab2c75c.js\"/><script src=\"/_next/static/chunks/4bd1b696-c2f6e0877b6c10aa.js\" async=\"\"></script><script src=\"/_next/static/chunks/3794-dc6730702800bbce.js\" async=\"\"></script><script src=\"/_next/static/chunks/main-app-5d58e3158c2c17b5.js\" async=\"\"></script><script src=\"/_next/static/chunks/8500-3953cc33eeceb44e.js\" async=\"\"></script><script src=\"/_next/static/chunks/app/books/%5Bslug%5D/promise/page-67b5bfdf77144166.js\" async=\"\"></script><title>GHOSTWRITR</title><meta name=\"description\" content=\"Book research and ghostwriting platform\"/><script src=\"/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><div style=\"display:grid;grid-template-columns:240px 1fr 360px;height:100vh;width:100vw;background-color:var(--bg, #efe6d6)\"><aside style=\"display:flex;flex-direction:column;gap:24px;padding:20px;border-r"
+    },
+    {
+      "key": "fiction-publish",
+      "url": "http://127.0.0.1:3101/books/fiction-smoke/publish",
+      "status": 200,
+      "missingExpected": [],
+      "bodyPreview": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/2836e9893becdf45.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-9660626b6ab2c75c.js\"/><script src=\"/_next/static/chunks/4bd1b696-c2f6e0877b6c10aa.js\" async=\"\"></script><script src=\"/_next/static/chunks/3794-dc6730702800bbce.js\" async=\"\"></script><script src=\"/_next/static/chunks/main-app-5d58e3158c2c17b5.js\" async=\"\"></script><script src=\"/_next/static/chunks/8500-3953cc33eeceb44e.js\" async=\"\"></script><script src=\"/_next/static/chunks/app/books/%5Bslug%5D/publish/page-58309ed8ff14cefb.js\" async=\"\"></script><title>GHOSTWRITR</title><meta name=\"description\" content=\"Book research and ghostwriting platform\"/><script src=\"/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body><div hidden=\"\"><!--$--><!--/$--></div><div class=\"page-shell\"><aside class=\"glass-panel sidebar\"><div class=\"brand-mark\"><h1>GHOSTWRITR</h1><p class=\"muted\">Final publishing workspace for export readiness, delivery formats, and handoff qualit"
+    }
+  ],
+  "apiResults": [
+    {
+      "key": "nonfiction-archive",
+      "url": "http://127.0.0.1:3101/api/books/nonfiction-smoke/archive",
+      "status": 200,
+      "headers": {
+        "content-type": "application/zip",
+        "content-disposition": "attachment; filename=\"Systems-of-Influence-archive.zip\""
+      },
+      "missingExpected": []
+    },
+    {
+      "key": "fiction-publish-package",
+      "url": "http://127.0.0.1:3101/api/books/fiction-smoke/publish-package",
+      "status": 200,
+      "headers": {
+        "content-type": "application/zip",
+        "content-disposition": "attachment; filename=\"fiction-smoke-publish-package.zip\""
+      },
+      "missingExpected": []
+    },
+    {
+      "key": "fiction-typeset-package",
+      "url": "http://127.0.0.1:3101/api/books/fiction-smoke/typeset-package",
+      "status": 200,
+      "headers": {
+        "content-type": "application/zip",
+        "content-disposition": "attachment; filename=\"fiction-smoke-typeset-package.zip\""
+      },
+      "missingExpected": []
+    }
+  ],
+  "serverLogs": [
+    "> ghostwritr@0.1.0 start",
+    "> next start --hostname 127.0.0.1 --port 3101",
+    "▲ Next.js 16.2.3",
+    "- Local:         http://127.0.0.1:3101",
+    "- Network:       http://127.0.0.1:3101",
+    "✓ Ready in 132ms"
+  ]
+}

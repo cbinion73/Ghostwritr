@@ -2,6 +2,7 @@ import {
   ActorType,
   ArtifactStatus,
   ArtifactType,
+  ArtifactVersion,
   DecisionType,
   Prisma,
   ResearchItemType,
@@ -41,6 +42,26 @@ type CreateResearchPackVersionInput = {
 
 function getResearchArtifactTitle(chapterKey: string, chapterTitle: string) {
   return `Research Pack: ${chapterKey} - ${chapterTitle}`;
+}
+
+function getArtifactChapterKey(
+  metadataJson: Prisma.JsonValue | null | undefined,
+  title?: string | null,
+) {
+  if (metadataJson && typeof metadataJson === "object" && !Array.isArray(metadataJson)) {
+    const chapterKey = (metadataJson as Record<string, unknown>).chapterKey;
+    if (typeof chapterKey === "string" && chapterKey.trim().length > 0) {
+      return chapterKey;
+    }
+  }
+
+  if (typeof title === "string" && title.startsWith("Research Pack: ")) {
+    const remainder = title.slice("Research Pack: ".length);
+    const separatorIndex = remainder.indexOf(" - ");
+    return separatorIndex >= 0 ? remainder.slice(0, separatorIndex) : remainder;
+  }
+
+  return null;
 }
 
 function toDecimalValue(value?: number | null) {
@@ -225,6 +246,55 @@ export async function getResearchPackVersions(
   }
 }
 
+export async function getLatestResearchPackVersionsByChapter(
+  bookId: string,
+  chapterKeys?: string[],
+) {
+  try {
+    const chapterKeySet = chapterKeys ? new Set(chapterKeys) : null;
+    const artifacts = await db.artifact.findMany({
+      where: {
+        bookId,
+        artifactType: ArtifactType.RESEARCH_PACK,
+      },
+      select: {
+        title: true,
+        metadataJson: true,
+        versions: {
+          orderBy: { versionNumber: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    const versionsByChapter = new Map<string, ArtifactVersion>();
+
+    for (const artifact of artifacts) {
+      const chapterKey = getArtifactChapterKey(artifact.metadataJson, artifact.title);
+      const version = artifact.versions[0];
+
+      if (!chapterKey || !version) {
+        continue;
+      }
+
+      if (chapterKeySet && !chapterKeySet.has(chapterKey)) {
+        continue;
+      }
+
+      if (!versionsByChapter.has(chapterKey)) {
+        versionsByChapter.set(chapterKey, version);
+      }
+    }
+
+    return versionsByChapter;
+  } catch (error) {
+    console.error("Failed to fetch latest research pack versions:", error);
+    return new Map<string, ArtifactVersion>();
+  }
+}
+
 export async function getCommittedResearchPack(bookId: string, chapterKey: string) {
   try {
     // Use optimized query to avoid expensive title string matching
@@ -278,9 +348,39 @@ export async function getResearchSourcesForVersion(researchArtifactVersionId: st
   });
 }
 
+export async function getResearchSourcesForVersions(researchArtifactVersionIds: string[]) {
+  if (researchArtifactVersionIds.length === 0) {
+    return [];
+  }
+
+  return db.researchSource.findMany({
+    where: {
+      researchArtifactVersionId: {
+        in: researchArtifactVersionIds,
+      },
+    },
+    orderBy: [{ sourceTier: "asc" }, { title: "asc" }],
+  });
+}
+
 export async function getResearchItemsForVersion(researchArtifactVersionId: string) {
   return db.researchItem.findMany({
     where: { researchArtifactVersionId },
+    orderBy: [{ itemType: "asc" }, { createdAt: "asc" }],
+  });
+}
+
+export async function getResearchItemsForVersions(researchArtifactVersionIds: string[]) {
+  if (researchArtifactVersionIds.length === 0) {
+    return [];
+  }
+
+  return db.researchItem.findMany({
+    where: {
+      researchArtifactVersionId: {
+        in: researchArtifactVersionIds,
+      },
+    },
     orderBy: [{ itemType: "asc" }, { createdAt: "asc" }],
   });
 }

@@ -1,6 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import {
+  ArtifactStatus,
   ArtifactType,
   Prisma,
   StageKey,
@@ -9,6 +10,16 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 
+import {
+  BaseStoryBundleSchema,
+  BookSetupProfileSchema,
+  ChapterDraftBundleSchema,
+  ChapterReviewBundleSchema,
+  ParagraphOutlineSchema,
+  PromiseBriefSchema,
+  parseArtifactWithSchema,
+  parseMetadataRecord,
+} from "../artifact-schemas";
 import { getModelForRole } from "../llm/routing";
 import type { BaseStoryBundle, BaseStoryChapter } from "../base-story-types";
 import type { BookSetupProfile, WriterPersonaBlend } from "../book-setup-types";
@@ -26,17 +37,19 @@ import type { PromiseBrief } from "../promise-types";
 import type { ChapterResearchDossier, ChapterResearchItem } from "../research-types";
 import { normalizeBaseStoryBundle } from "../base-story-utils";
 import { countWords, estimatePagesFromWords, toPercent } from "../manuscript-metrics";
-import { getOrCreateBookBySlug, getStageForBook, updateStageForBook } from "../repositories/books";
+import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
+import {
+  getBookBySlugOrThrow,
+  getStageForBook,
+  updateStageForBook,
+} from "../repositories/books";
 import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
 import {
   commitChapterDraft,
   createChapterArtifactVersion,
   getChapterArtifactVersions,
 } from "../repositories/chapter-draft-artifacts";
-import {
-  getBaseStoryVersions,
-  getCommittedBaseStory,
-} from "../repositories/base-story-artifacts";
+import { getCommittedBaseStory } from "../repositories/base-story-artifacts";
 import {
   getCommittedExternalStoryPack,
   getExternalStoryPackVersions,
@@ -46,12 +59,10 @@ import {
 } from "../repositories/outline-artifacts";
 import {
   getCommittedPersonalStoryEncyclopedia,
-  getPersonalStoryArtifactVersions,
 } from "../repositories/personal-stories-artifacts";
 import { getCommittedPromiseBrief } from "../repositories/promise-artifacts";
 import {
   getCommittedResearchPack,
-  getResearchPackVersions,
 } from "../repositories/research-artifacts";
 import {
   claimWorkflowRun,
@@ -73,6 +84,26 @@ type ChapterWordTarget = {
   minimumWords: number;
   maximumWords: number;
   weight: number;
+};
+
+type DraftQualityAssessment = {
+  score: number;
+  needsRevision: boolean;
+  readiness: "strong" | "watch" | "needs attention";
+  signals: Array<{
+    label: string;
+    state: "pass" | "warn" | "fail";
+    detail: string;
+  }>;
+  concerns: string[];
+};
+
+type SourceWeaveRequirements = {
+  requiredCategories: string[];
+  missingCategoryWarnings: string[];
+  priorities: string[];
+  chapterMandate: string[];
+  argumentAnchors: string[];
 };
 
 const DraftSchema = z.object({
@@ -103,6 +134,17 @@ const ReviewSchema = z.object({
   aiAuthorshipFlags: z.array(z.string()).default([]),
   verdict: z.enum(["ready_for_review", "needs_revision"]),
 });
+
+const AdversarialCriticSchema = z.object({
+  summary: z.string(),
+  riskLevel: z.enum(["low", "medium", "high"]),
+  aiTellFlags: z.array(z.string()).default([]),
+  paddingFlags: z.array(z.string()).default([]),
+  voiceFlags: z.array(z.string()).default([]),
+  recommendations: z.array(z.string()).default([]),
+});
+
+type AdversarialCriticResult = z.infer<typeof AdversarialCriticSchema>;
 
 function parseJson<T>(value: unknown, fallback: T): T {
   if (value && typeof value === "object") {
@@ -148,62 +190,61 @@ async function getReviewerModel() {
   });
 }
 
-async function getLatestOrCommittedResearch(bookId: string, chapterKey: string) {
+async function getVoiceGuardCriticModel() {
+  return getModelForRole("voice-guard:critic", {
+    temperature: 0.1,
+    maxOutputTokens: 5000,
+    timeoutMs: 30000,
+    maxRetries: 0,
+  });
+}
+
+async function getCommittedResearchDossier(bookId: string, chapterKey: string) {
   const committed = await getCommittedResearchPack(bookId, chapterKey);
   if (committed) {
     return parseJson<ChapterResearchDossier | null>(committed.contentJson, null);
   }
-  const versions = await getResearchPackVersions(bookId, chapterKey, 1);
-  return versions[0] ? parseJson<ChapterResearchDossier | null>(versions[0].contentJson, null) : null;
+  return null;
 }
 
-async function getLatestOrCommittedExternalStories(bookId: string, chapterKey: string) {
+async function getCommittedExternalStoriesDossier(bookId: string, chapterKey: string) {
   const committed = await getCommittedExternalStoryPack(bookId, chapterKey);
   if (committed) {
     return parseJson<ChapterExternalStoryDossier | null>(committed.contentJson, null);
   }
-  const versions = await getExternalStoryPackVersions(bookId, chapterKey, 1);
-  return versions[0]
-    ? parseJson<ChapterExternalStoryDossier | null>(versions[0].contentJson, null)
-    : null;
+  return null;
 }
 
-async function getLatestOrCommittedBaseStory(bookId: string) {
+async function getCommittedBaseStoryBundle(bookId: string) {
   const committed = await getCommittedBaseStory(bookId);
   if (committed) {
-    return normalizeBaseStoryBundle(parseJson<BaseStoryBundle | null>(committed.contentJson, null));
+    return normalizeBaseStoryBundle(
+      parseArtifactWithSchema(committed.contentJson, BaseStoryBundleSchema),
+    );
   }
-  const versions = await getBaseStoryVersions(bookId, 1);
-  return normalizeBaseStoryBundle(
-    versions[0] ? parseJson<BaseStoryBundle | null>(versions[0].contentJson, null) : null,
-  );
+  return null;
 }
 
-async function getLatestOrCommittedPersonalStories(bookId: string) {
+async function getCommittedPersonalStoriesEncyclopedia(bookId: string) {
   const committed = await getCommittedPersonalStoryEncyclopedia(bookId);
   if (committed) {
     return normalizeEncyclopedia(committed.contentJson);
   }
-  const versions = await getPersonalStoryArtifactVersions(
-    bookId,
-    ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
-    1,
-  );
-  return versions[0] ? normalizeEncyclopedia(versions[0].contentJson) : null;
+  return null;
 }
 
 async function getDraftInputs(bookId: string) {
   const promiseVersion = await getCommittedPromiseBrief(bookId);
   const paragraphOutlineVersion = await getCommittedOutlineExpansion(bookId);
   const bookSetupVersion = await getCommittedBookSetup(bookId);
-  const baseStory = await getLatestOrCommittedBaseStory(bookId);
-  const personalStories = await getLatestOrCommittedPersonalStories(bookId);
+  const baseStory = await getCommittedBaseStoryBundle(bookId);
+  const personalStories = await getCommittedPersonalStoriesEncyclopedia(bookId);
 
-  const promise = parseJson<PromiseBrief | null>(promiseVersion?.contentJson, null);
-  const bookSetup = parseJson<BookSetupProfile | null>(bookSetupVersion?.contentJson, null);
-  const paragraphOutline = parseJson<ParagraphOutline | null>(
+  const promise = parseArtifactWithSchema(promiseVersion?.contentJson, PromiseBriefSchema);
+  const bookSetup = parseArtifactWithSchema(bookSetupVersion?.contentJson, BookSetupProfileSchema);
+  const paragraphOutline = parseArtifactWithSchema(
     paragraphOutlineVersion?.contentJson,
-    null,
+    ParagraphOutlineSchema,
   );
 
   if (!promise || !paragraphOutline) {
@@ -214,7 +255,13 @@ async function getDraftInputs(bookId: string) {
 
   if (!baseStory || baseStory.chapters.length === 0) {
     throw new Error(
-      "Base Story must be generated before chapter drafting can begin.",
+      "A committed Base Story is required before chapter drafting can begin.",
+    );
+  }
+
+  if (!personalStories || personalStories.entries.length === 0) {
+    throw new Error(
+      "A committed Personal Stories encyclopedia is required before chapter drafting can begin.",
     );
   }
 
@@ -225,8 +272,8 @@ async function getDraftInputs(bookId: string) {
   const readinessChecks = await Promise.all(
     chapterContexts.map(async (context) => {
       const [research, externalStories] = await Promise.all([
-        getLatestOrCommittedResearch(bookId, context.chapter.chapterId),
-        getLatestOrCommittedExternalStories(bookId, context.chapter.chapterId),
+        getCommittedResearchDossier(bookId, context.chapter.chapterId),
+        getCommittedExternalStoriesDossier(bookId, context.chapter.chapterId),
       ]);
 
       return {
@@ -429,6 +476,123 @@ function hasMetaDraftLanguage(value: string) {
   ].some((snippet) => text.includes(snippet));
 }
 
+function deterministicAdversarialCritic(
+  draft: ChapterDraftBundle,
+  chapterTarget: ChapterWordTarget | null,
+): AdversarialCriticResult {
+  const text = draft.chapterText;
+  const lowered = text.toLowerCase();
+  const aiTellFlags: string[] = [];
+  const paddingFlags: string[] = [];
+  const voiceFlags: string[] = [];
+
+  if (hasMetaDraftLanguage(text)) {
+    aiTellFlags.push("The draft still contains planning-shaped meta language instead of finished prose.");
+  }
+  if (/[—]/.test(text)) {
+    aiTellFlags.push("The draft uses an em dash, which violates the style guard.");
+  }
+  if (/\b(in conclusion|ultimately|it is important to note|delve into|landscape|leverage)\b/i.test(text)) {
+    aiTellFlags.push("The draft is using generic or overfamiliar AI-adjacent transition language.");
+  }
+  if (/\bthis chapter\b/i.test(text) || /\bthe reader\b/i.test(text)) {
+    aiTellFlags.push("The prose refers to the writing itself instead of staying inside the manuscript voice.");
+  }
+
+  const paragraphs = text.split(/\n\s*\n/).map((entry) => entry.trim()).filter(Boolean);
+  const repeatedOpeners = new Map<string, number>();
+  for (const paragraph of paragraphs) {
+    const opener = paragraph.split(/\s+/).slice(0, 3).join(" ").toLowerCase();
+    if (opener) {
+      repeatedOpeners.set(opener, (repeatedOpeners.get(opener) ?? 0) + 1);
+    }
+  }
+  if ([...repeatedOpeners.values()].some((count) => count >= 3)) {
+    voiceFlags.push("Several paragraphs begin with overly repetitive rhythm, which makes the voice feel machine-shaped.");
+  }
+
+  if (chapterTarget) {
+    const wordCount = countWords(text);
+    const delta = Math.abs(wordCount - chapterTarget.targetWords);
+    if (delta > Math.max(200, Math.round(chapterTarget.targetWords * 0.18))) {
+      paddingFlags.push("The chapter is still drifting too far from the intended length target to trust the prose shape.");
+    }
+  }
+
+  if (paragraphs.some((paragraph) => paragraph.split(/\s+/).filter(Boolean).length < 35)) {
+    paddingFlags.push("At least one paragraph is so thin that it still reads like a drafted note instead of finished manuscript prose.");
+  }
+
+  const allFlags = [...aiTellFlags, ...paddingFlags, ...voiceFlags];
+  return {
+    summary:
+      allFlags.length === 0
+        ? "The prose does not show obvious AI tells, padding, or voice drift under deterministic review."
+        : allFlags[0],
+    riskLevel: allFlags.length >= 4 ? "high" : allFlags.length >= 2 ? "medium" : allFlags.length === 1 ? "low" : "low",
+    aiTellFlags,
+    paddingFlags,
+    voiceFlags,
+    recommendations:
+      allFlags.length === 0
+        ? ["Keep the current natural voice and source integration intact during further revision."]
+        : [
+            "Rewrite any paragraph that talks about what the chapter is doing instead of simply doing it.",
+            "Replace generic abstractions with concrete consequence and natural transition.",
+            "Expand thin paragraphs with real explanation or scene detail rather than filler phrasing.",
+          ],
+  };
+}
+
+async function runAdversarialProseCritic(
+  promise: PromiseBrief,
+  context: ChapterContext,
+  draft: ChapterDraftBundle,
+  chapterTarget: ChapterWordTarget | null,
+): Promise<AdversarialCriticResult> {
+  const fallback = deterministicAdversarialCritic(draft, chapterTarget);
+  const model = await getVoiceGuardCriticModel();
+  if (!model) {
+    return fallback;
+  }
+
+  try {
+    const structured = model.withStructuredOutput(AdversarialCriticSchema);
+    const result = await structured.invoke([
+      new SystemMessage(`
+You are the adversarial prose critic in a ghostwriting pipeline.
+
+Your job is not to be nice. Your job is to catch:
+- AI tells
+- consultant tone
+- padded explanation
+- repetitive sentence rhythm
+- chapter prose that talks about itself instead of simply reading like a book
+
+Return only the structured critique. Be specific and tough.
+      `),
+      new HumanMessage(
+        JSON.stringify({
+          promise,
+          chapter: context.chapter,
+          chapterTarget,
+          draft,
+        }),
+      ),
+    ]);
+    return {
+      summary: result.summary,
+      riskLevel: result.riskLevel,
+      aiTellFlags: result.aiTellFlags ?? [],
+      paddingFlags: result.paddingFlags ?? [],
+      voiceFlags: result.voiceFlags ?? [],
+      recommendations: result.recommendations ?? [],
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 function cleanEvidenceText(value: string | null | undefined) {
   if (!value) {
     return "";
@@ -455,6 +619,130 @@ function shortenEvidenceText(value: string, maxLength = 220) {
   const shortened = value.slice(0, maxLength);
   const safeCut = shortened.lastIndexOf(" ");
   return `${(safeCut > 80 ? shortened.slice(0, safeCut) : shortened).trim()}...`;
+}
+
+function toSentence(value: string | null | undefined) {
+  const trimmed = sanitizeDraftProse(value ?? "");
+  if (!trimmed) {
+    return "";
+  }
+
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function trimToWordLimit(text: string, maximumWords: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= maximumWords) {
+    return text.trim();
+  }
+
+  return `${words.slice(0, maximumWords).join(" ").trim()}`.replace(/\s+([,.;!?])/g, "$1");
+}
+
+function buildDeterministicParagraphProse(args: {
+  paragraph: ChapterContext["chapter"]["paragraphs"][number];
+  paragraphIndex: number;
+  targetWords: number;
+  researchItem?: ChapterResearchItem | null;
+  externalStory?: ChapterExternalStoryItem | null;
+  personalStory?: { title: string; summary: string; whyItMatters?: string | null } | null;
+  baseStoryChapter?: BaseStoryChapter | null;
+  chapterTitle: string;
+}) {
+  const {
+    paragraph,
+    paragraphIndex,
+    targetWords,
+    researchItem,
+    externalStory,
+    personalStory,
+    baseStoryChapter,
+    chapterTitle,
+  } = args;
+
+  const bridgePhrases = [
+    "That matters because",
+    "What follows from that is that",
+    "In lived terms,",
+    "The real consequence is that",
+    "Seen up close,",
+    "In practice,",
+  ];
+  const consequencePhrases = [
+    "pressure compounds when nobody redesigns the condition that keeps creating the problem",
+    "people start mistaking heroic effort for a system that actually works",
+    "small frictions turn into expensive habits because the structure never gets corrected",
+    "teams normalize the workaround and stop seeing the design flaw underneath it",
+    "the reader can feel the gap between what sounds right and what actually holds up in the room",
+  ];
+
+  const evidenceSentence = researchItem
+    ? toSentence(
+        `A concrete anchor here comes from ${cleanEvidenceText(
+          researchItem.summary || researchItem.claimText,
+        ).replace(/^[a-z]/, (letter) => letter.toUpperCase())}`,
+      )
+    : "";
+  const outsideStorySentence = externalStory
+    ? toSentence(
+        `${cleanEvidenceText(externalStory.title)} gives the chapter a real-world face: ${cleanEvidenceText(
+          externalStory.summary,
+        )}`,
+      )
+    : "";
+  const personalStorySentence = personalStory
+    ? toSentence(
+        `${personalStory.title} belongs here because ${cleanEvidenceText(
+          personalStory.summary,
+        ).replace(/^[a-z]/, (letter) => letter.toUpperCase())}`,
+      )
+    : "";
+  const baseStorySentence = baseStoryChapter
+    ? toSentence(
+        `${baseStoryChapter.chapterStory} This is how ${chapterTitle} keeps the book's larger movement alive.`,
+      )
+    : "";
+
+  const sentences = [
+    toSentence(paragraph.topicSentence),
+    toSentence(paragraph.mainIdea || paragraph.purpose),
+    toSentence(
+      `${bridgePhrases[paragraphIndex % bridgePhrases.length]} ${consequencePhrases[paragraphIndex % consequencePhrases.length]}`,
+    ),
+    evidenceSentence,
+    outsideStorySentence,
+    personalStorySentence,
+    baseStorySentence,
+    toSentence(
+      `${paragraph.purpose} The point is not merely to name the pattern, but to make its stakes impossible to ignore.`,
+    ),
+  ].filter(Boolean);
+
+  let prose = sentences.join(" ");
+  const expansionPool = [
+    toSentence(
+      `${paragraph.hook || paragraph.topicSentence} The paragraph should feel like finished prose, so the explanation has to earn the turn from observation into meaning.`,
+    ),
+    toSentence(
+      `${bridgePhrases[(paragraphIndex + 2) % bridgePhrases.length]} the chapter gains force when the evidence is translated into implication instead of left sitting on the page as a fact.`,
+    ),
+    toSentence(
+      `${consequencePhrases[(paragraphIndex + 2) % consequencePhrases.length].replace(/^[a-z]/, (letter) =>
+        letter.toUpperCase(),
+      )}, which is why this section keeps pressing beyond description into consequence.`,
+    ),
+  ].filter(Boolean);
+
+  let expansionIndex = 0;
+  while (countWords(prose) < targetWords && expansionPool.length > 0) {
+    prose = `${prose} ${expansionPool[expansionIndex % expansionPool.length]}`.trim();
+    expansionIndex += 1;
+    if (expansionIndex > 12) {
+      break;
+    }
+  }
+
+  return trimToWordLimit(sanitizeDraftProse(prose), Math.max(targetWords, Math.round(targetWords * 1.08)));
 }
 
 function compactResearchItem(item: ChapterResearchItem) {
@@ -528,6 +816,113 @@ function renderFrameworkSlotsForPrompt(framework: ResolvedFramework): string {
   return framework.flow.map((step) => `  ${step.slot}: ${step.prompt}`).join("\n");
 }
 
+function buildSourceWeaveRequirements(
+  research: ChapterResearchDossier | null,
+  externalStories: ChapterExternalStoryDossier | null,
+  relevantPersonalStories: Array<{
+    title: string;
+    summary: string;
+    whyItMatters: string;
+  }>,
+  baseStoryChapter: BaseStoryChapter | null,
+): SourceWeaveRequirements {
+  const requiredCategories: string[] = [];
+  const missingCategoryWarnings: string[] = [];
+  const priorities: string[] = [];
+
+  if (research && (research.factBank.length > 0 || research.statistics.length > 0 || research.examples.length > 0)) {
+    requiredCategories.push("research");
+    priorities.push(
+      "Ground at least one core move in a concrete verified fact, statistic, or example so the chapter earns authority instead of merely asserting it.",
+    );
+  } else {
+    missingCategoryWarnings.push("No committed research evidence is available for this chapter yet.");
+  }
+
+  if (externalStories && externalStories.storyCandidates.length > 0) {
+    requiredCategories.push("external story");
+    priorities.push(
+      "Use one outside case or story only where it creates belief, tension, or a meaningful real-world turn in the chapter.",
+    );
+  } else {
+    missingCategoryWarnings.push("No committed external story dossier is available for this chapter yet.");
+  }
+
+  if (relevantPersonalStories.length > 0) {
+    requiredCategories.push("personal story");
+    priorities.push(
+      "Use one personal story beat when it sharpens authenticity or emotional specificity rather than merely decorating the point.",
+    );
+  } else {
+    missingCategoryWarnings.push("No clearly relevant personal story match was found for this chapter.");
+  }
+
+  if (baseStoryChapter) {
+    requiredCategories.push("base story thread");
+    priorities.push(
+      "Keep the chapter visibly connected to the larger book movement so the manuscript feels unified from chapter to chapter.",
+    );
+  } else {
+    missingCategoryWarnings.push("No base-story chapter thread was resolved for this chapter.");
+  }
+
+  return {
+    requiredCategories,
+    missingCategoryWarnings,
+    priorities,
+    chapterMandate: [
+      baseStoryChapter?.chapterPurpose,
+      baseStoryChapter?.threadRole,
+      baseStoryChapter?.movement.truth,
+    ].filter((value): value is string => Boolean(value?.trim())),
+    argumentAnchors: [
+      ...(research?.researchQuestions.map((question) => question.question) ?? []),
+      ...(research?.gaps ?? []),
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, 4),
+  };
+}
+
+function splitSentences(text: string) {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function averageSentenceLength(text: string) {
+  const sentences = splitSentences(text);
+  if (sentences.length === 0) {
+    return 0;
+  }
+
+  return Math.round(
+    sentences.reduce((sum, sentence) => sum + countWords(sentence), 0) / sentences.length,
+  );
+}
+
+function countParagraphAnchorHits(draft: ChapterDraftBundle, context: ChapterContext) {
+  const body = draft.chapterText.toLowerCase();
+  return context.chapter.paragraphs.filter((paragraph) => {
+    const anchor = paragraph.topicSentence
+      .split(/\W+/)
+      .find((word) => word.length > 4);
+    return anchor ? body.includes(anchor.toLowerCase()) : false;
+  }).length;
+}
+
+function countMandateHits(text: string, values: string[]) {
+  const body = text.toLowerCase();
+  return values.filter((value) => {
+    const anchor = value
+      .split(/\W+/)
+      .find((word) => word.length > 4);
+    return anchor ? body.includes(anchor.toLowerCase()) : false;
+  }).length;
+}
+
 function buildAuthorInputPacket(
   promise: PromiseBrief,
   context: ChapterContext,
@@ -549,6 +944,12 @@ function buildAuthorInputPacket(
   }));
 
   const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
+  const sourceWeavePlan = buildSourceWeaveRequirements(
+    research,
+    externalStories,
+    relevantPersonalStories,
+    baseStoryChapter,
+  );
 
   return {
     promise,
@@ -565,6 +966,7 @@ function buildAuthorInputPacket(
       frameworkName: framework.name,
       frameworkFlow: framework.flow.map((step) => ({ slot: step.slot, prompt: step.prompt })),
     },
+    sourceWeavePlan,
     section: {
       id: context.section.sectionId,
       title: context.section.sectionTitle,
@@ -599,6 +1001,7 @@ function buildAuthorInputPacket(
       : null,
     baseStoryChapter: baseStoryChapter
       ? {
+          chapterPurpose: baseStoryChapter.chapterPurpose,
           threadRole: baseStoryChapter.threadRole,
           chapterStory: baseStoryChapter.chapterStory,
           movement: baseStoryChapter.movement,
@@ -630,29 +1033,21 @@ function fallbackDraft(
       externalStory ? `External story: ${externalStory.title}` : null,
       personalStory ? `Personal story: ${personalStory.title}` : null,
     ].filter((value): value is string => Boolean(value));
+    const targetWords = Math.max(140, Math.round(paragraph.wordCountTarget || 0));
 
     return {
       id: paragraph.id,
       topicSentence: paragraph.topicSentence,
-      prose: sanitizeDraftProse(
-        [
-          paragraph.topicSentence,
-          paragraph.purpose,
-          researchItem?.summary || researchItem?.claimText
-            ? `In practice, this pressure shows up in ${cleanEvidenceText(
-                (researchItem?.summary || researchItem?.claimText || "").toLowerCase(),
-              )}.`
-            : null,
-          externalStory?.summary
-            ? `${cleanEvidenceText(externalStory.summary)}`
-            : null,
-          personalStory?.summary
-            ? `${personalStory.summary}`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" "),
-      ),
+      prose: buildDeterministicParagraphProse({
+        paragraph,
+        paragraphIndex: index,
+        targetWords,
+        researchItem,
+        externalStory,
+        personalStory,
+        baseStoryChapter,
+        chapterTitle: context.chapter.chapterTitle,
+      }),
       sourceNotes,
     };
   });
@@ -700,6 +1095,81 @@ function fallbackDraft(
         baseStoryChapter?.movement.truth,
       ].filter((value): value is string => Boolean(value)),
     },
+    quality: {
+      score: 0,
+      readiness: "needs attention",
+      needsRevision: true,
+      revisionPasses: 0,
+      signals: [],
+    },
+  };
+}
+
+function forceDraftTowardTarget(
+  context: ChapterContext,
+  draft: ChapterDraftBundle,
+  chapterTarget: ChapterWordTarget | null,
+) {
+  if (!chapterTarget) {
+    return draft;
+  }
+
+  const normalizedParagraphs = context.chapter.paragraphs.map((paragraph, index) => {
+    const existing = draft.paragraphs[index];
+    const targetWords = Math.max(140, Math.round(paragraph.wordCountTarget || 0));
+    const prose = existing?.prose?.trim().length
+      ? trimToWordLimit(
+          sanitizeDraftProse(existing.prose),
+          Math.max(targetWords, Math.round(targetWords * 1.08)),
+        )
+      : buildDeterministicParagraphProse({
+          paragraph,
+          paragraphIndex: index,
+          targetWords,
+          chapterTitle: context.chapter.chapterTitle,
+        });
+
+    return {
+      id: paragraph.id,
+      topicSentence: paragraph.topicSentence,
+      prose,
+      sourceNotes: existing?.sourceNotes ?? [],
+    };
+  });
+
+  let bodyText = normalizedParagraphs.map((paragraph) => paragraph.prose).join("\n\n");
+  let chapterText = [sanitizeDraftProse(draft.openingHook), bodyText].filter(Boolean).join("\n\n");
+  let currentWordCount = countWords(chapterText);
+
+  if (currentWordCount < chapterTarget.minimumWords) {
+    let paragraphIndex = 0;
+    while (currentWordCount < chapterTarget.minimumWords) {
+      const current = normalizedParagraphs[paragraphIndex % normalizedParagraphs.length];
+      const blueprint = context.chapter.paragraphs[paragraphIndex % context.chapter.paragraphs.length];
+      const supplement = toSentence(
+        `${blueprint.purpose} That is where ${context.chapter.chapterTitle.toLowerCase()} stops being abstract and starts creating practical consequence for the reader.`,
+      );
+      current.prose = sanitizeDraftProse(`${current.prose} ${supplement}`);
+      bodyText = normalizedParagraphs.map((paragraph) => paragraph.prose).join("\n\n");
+      chapterText = [sanitizeDraftProse(draft.openingHook), bodyText].filter(Boolean).join("\n\n");
+      currentWordCount = countWords(chapterText);
+      paragraphIndex += 1;
+      if (paragraphIndex > normalizedParagraphs.length * 12) {
+        break;
+      }
+    }
+  }
+
+  if (currentWordCount > chapterTarget.maximumWords) {
+    const words = chapterText.split(/\s+/).filter(Boolean);
+    chapterText = words.slice(0, chapterTarget.maximumWords).join(" ").trim();
+    currentWordCount = countWords(chapterText);
+  }
+
+  return {
+    ...draft,
+    chapterText: sanitizeDraftProse(chapterText),
+    paragraphs: normalizedParagraphs,
   };
 }
 
@@ -783,15 +1253,21 @@ function normalizeDraftResult(
     prose: sanitizeDraftProse(paragraph.prose),
     sourceNotes: paragraph.sourceNotes ?? [],
   }));
+  const openingHook = sanitizeDraftProse(result.openingHook);
+  const chapterBody =
+    paragraphs.length > 0
+      ? paragraphs.map((paragraph) => paragraph.prose).join("\n\n")
+      : sanitizeDraftProse(result.chapterText);
+  const chapterText = [openingHook, chapterBody].filter(Boolean).join("\n\n");
 
   return {
     chapterKey: context.chapter.chapterId,
     chapterTitle: context.chapter.chapterTitle,
     chapterDescription: context.chapter.chapterDescription,
     sectionTitle: context.section.sectionTitle,
-    openingHook: result.openingHook,
+    openingHook,
     narrativeThread: result.narrativeThread,
-    chapterText: sanitizeDraftProse(result.chapterText),
+    chapterText,
     paragraphs,
     sourceUsage: {
       research: result.sourceUsage.research ?? [],
@@ -799,6 +1275,252 @@ function normalizeDraftResult(
       personalStories: result.sourceUsage.personalStories ?? [],
       baseStory: result.sourceUsage.baseStory ?? [],
     },
+    quality: {
+      score: 0,
+      readiness: "needs attention",
+      needsRevision: true,
+      revisionPasses: 0,
+      signals: [],
+    },
+  };
+}
+
+function assessNonfictionDraftQuality(
+  draft: ChapterDraftBundle,
+  review: ChapterReviewBundle,
+  chapterTarget: ChapterWordTarget | null,
+  sourceAvailability: {
+    researchCount: number;
+    externalStoryCount: number;
+    personalStoryCount: number;
+    hasBaseStory: boolean;
+  },
+  context: ChapterContext,
+  sourceWeaveFocus: SourceWeaveRequirements,
+): DraftQualityAssessment {
+  const sourceCategoriesUsed = [
+    draft.sourceUsage.research.length > 0,
+    draft.sourceUsage.externalStories.length > 0,
+    draft.sourceUsage.personalStories.length > 0,
+    draft.sourceUsage.baseStory.length > 0,
+  ].filter(Boolean).length;
+  const draftWordCount = countWords(draft.chapterText);
+  const paragraphSourceNoteCoverage = draft.paragraphs.filter(
+    (paragraph) => paragraph.sourceNotes.length > 0,
+  ).length;
+  const paragraphTargetFailures = context.chapter.paragraphs.filter((plannedParagraph, index) => {
+    const prose = draft.paragraphs[index]?.prose ?? "";
+    const actualWordCount = countWords(prose);
+    const targetWordCount = Math.max(80, Math.round(plannedParagraph.wordCountTarget || 0));
+    const tolerance = Math.max(60, Math.round(targetWordCount * 0.28));
+    return actualWordCount < targetWordCount - tolerance || actualWordCount > targetWordCount + tolerance;
+  }).length;
+  const paragraphAnchorHits = countParagraphAnchorHits(draft, context);
+  const sentenceAverage = averageSentenceLength(draft.chapterText);
+  const mandateHits = countMandateHits(
+    draft.chapterText,
+    [...sourceWeaveFocus.chapterMandate, ...sourceWeaveFocus.argumentAnchors].slice(0, 6),
+  );
+  const missingAvailableCategories: string[] = [];
+  const concerns: string[] = [];
+  let score = 100;
+
+  if (chapterTarget) {
+    if (draftWordCount < chapterTarget.minimumWords || draftWordCount > chapterTarget.maximumWords) {
+      concerns.push("The chapter is outside its intended target band.");
+      score -= 22;
+    }
+  }
+
+  if (sourceCategoriesUsed < 3) {
+    concerns.push("The chapter is not weaving enough upstream source types together yet.");
+    score -= sourceCategoriesUsed <= 1 ? 24 : 12;
+  }
+
+  if (sourceAvailability.researchCount > 0 && draft.sourceUsage.research.length === 0) {
+    missingAvailableCategories.push("research");
+    concerns.push("The chapter had verified research available but did not clearly use it.");
+    score -= 18;
+  }
+
+  if (sourceAvailability.externalStoryCount > 0 && draft.sourceUsage.externalStories.length === 0) {
+    missingAvailableCategories.push("external story");
+    concerns.push("The chapter had external stories available but did not weave one into the prose.");
+    score -= 12;
+  }
+
+  if (sourceAvailability.personalStoryCount > 0 && draft.sourceUsage.personalStories.length === 0) {
+    missingAvailableCategories.push("personal story");
+    concerns.push("The chapter had relevant personal stories available but did not use one where it could have added authenticity.");
+    score -= 12;
+  }
+
+  if (sourceAvailability.hasBaseStory && draft.sourceUsage.baseStory.length === 0) {
+    missingAvailableCategories.push("base story thread");
+    concerns.push("The chapter lost contact with the shared base-story thread.");
+    score -= 10;
+  }
+
+  if (review.aiAuthorshipFlags.length > 0) {
+    concerns.push(...review.aiAuthorshipFlags);
+    score -= Math.min(30, review.aiAuthorshipFlags.length * 10);
+  }
+
+  if (review.concerns.length > 0) {
+    concerns.push(...review.concerns.slice(0, 3));
+    score -= Math.min(24, review.concerns.length * 6);
+  }
+
+  if (hasMetaDraftLanguage(draft.chapterText) || hasMetaDraftLanguage(draft.openingHook)) {
+    concerns.push("The draft still contains meta-writing language instead of finished prose.");
+    score -= 18;
+  }
+
+  if (paragraphAnchorHits < Math.max(1, Math.ceil(context.chapter.paragraphs.length / 2))) {
+    concerns.push("Too few planned paragraph anchors are doing visible work in the final prose.");
+    score -= 12;
+  }
+
+  if (paragraphTargetFailures > 0) {
+    concerns.push(
+      `${paragraphTargetFailures} planned paragraph${paragraphTargetFailures === 1 ? "" : "s"} drift materially outside their intended word-count target.`,
+    );
+    score -= Math.min(18, paragraphTargetFailures * 6);
+  }
+
+  if (
+    mandateHits === 0 &&
+    (sourceWeaveFocus.chapterMandate.length > 0 || sourceWeaveFocus.argumentAnchors.length > 0)
+  ) {
+    concerns.push("The chapter is not clearly carrying its intended argument or narrative mandate forward.");
+    score -= 14;
+  }
+
+  if (sentenceAverage < 10 || sentenceAverage > 30) {
+    concerns.push("Sentence rhythm is flattening out, which makes the chapter sound less naturally authored.");
+    score -= 8;
+  }
+
+  const lengthState =
+    chapterTarget == null
+      ? "warn"
+      : draftWordCount < chapterTarget.minimumWords || draftWordCount > chapterTarget.maximumWords
+        ? "fail"
+        : "pass";
+  const sourceWeaveState =
+    sourceCategoriesUsed >= 3 ? "pass" : sourceCategoriesUsed >= 2 ? "warn" : "fail";
+  const paragraphCoverageState =
+    draft.paragraphs.length === 0
+      ? "fail"
+      : draft.chapterText
+            .split(/\n\s*\n/)
+            .map((paragraph) => paragraph.trim())
+            .filter(Boolean).length >= draft.paragraphs.length
+        ? "pass"
+        : "warn";
+  const paragraphLengthState =
+    paragraphTargetFailures === 0 ? "pass" : paragraphTargetFailures <= 1 ? "warn" : "fail";
+  const sourceIntegrationState =
+    missingAvailableCategories.length === 0 &&
+    paragraphSourceNoteCoverage >= Math.max(1, Math.ceil(draft.paragraphs.length / 3))
+      ? "pass"
+      : missingAvailableCategories.length <= 1 && paragraphSourceNoteCoverage > 0
+        ? "warn"
+        : "fail";
+  const argumentState =
+    paragraphAnchorHits >= Math.max(1, Math.ceil(context.chapter.paragraphs.length / 2)) &&
+    mandateHits > 0
+      ? "pass"
+      : paragraphAnchorHits > 0 || mandateHits > 0
+        ? "warn"
+        : "fail";
+  const voiceTextureState =
+    hasMetaDraftLanguage(draft.chapterText) || sentenceAverage < 10 || sentenceAverage > 30
+      ? "warn"
+      : "pass";
+  const reviewState =
+    review.verdict === "ready_for_review" && review.aiAuthorshipFlags.length === 0
+      ? "pass"
+      : review.verdict === "needs_revision"
+        ? "fail"
+        : "warn";
+  const signals = [
+    {
+      label: "Length fit",
+      state: lengthState,
+      detail:
+        chapterTarget == null
+          ? "No chapter target is locked yet."
+          : `${draftWordCount.toLocaleString()} words against a ${chapterTarget.minimumWords.toLocaleString()}-${chapterTarget.maximumWords.toLocaleString()} target band.`,
+    },
+    {
+      label: "Source weave",
+      state: sourceWeaveState,
+      detail:
+        sourceWeaveState === "pass"
+          ? "The draft is pulling from multiple upstream artifact types."
+          : sourceWeaveState === "warn"
+            ? "The draft is using some upstream inputs, but the weave still looks thin."
+            : "The draft is leaning on too few upstream inputs and risks feeling assembled.",
+    },
+    {
+      label: "Paragraph coverage",
+      state: paragraphCoverageState,
+      detail: `${draft.paragraphs.length.toLocaleString()} planned paragraph anchors are represented in the drafted prose.`,
+    },
+    {
+      label: "Paragraph length fit",
+      state: paragraphLengthState,
+      detail:
+        paragraphLengthState === "pass"
+          ? "Planned paragraph targets are landing inside their intended prose bands."
+          : `${paragraphTargetFailures} planned paragraph${paragraphTargetFailures === 1 ? "" : "s"} still need length correction against the blueprint.`,
+    },
+    {
+      label: "Source integration",
+      state: sourceIntegrationState,
+      detail:
+        sourceIntegrationState === "pass"
+          ? `Source-backed material is distributed across ${paragraphSourceNoteCoverage}/${draft.paragraphs.length} paragraph anchors.`
+          : missingAvailableCategories.length > 0
+            ? `Available categories still underused: ${missingAvailableCategories.join(", ")}.`
+            : "The draft is not yet distributing evidence and story material cleanly through the chapter.",
+    },
+    {
+      label: "Argument pressure",
+      state: argumentState,
+      detail:
+        argumentState === "pass"
+          ? `The prose is visibly carrying ${paragraphAnchorHits}/${context.chapter.paragraphs.length} planned paragraph anchors and the chapter mandate forward.`
+          : argumentState === "warn"
+            ? "The chapter is carrying some of the planned argumentative spine, but the throughline still needs more force."
+            : "The finished prose is not yet clearly delivering the chapter's intended argument or narrative movement.",
+    },
+    {
+      label: "Voice texture",
+      state: voiceTextureState,
+      detail:
+        voiceTextureState === "pass"
+          ? `Average sentence length sits around ${sentenceAverage} words, which supports a more naturally authored rhythm.`
+          : "The prose rhythm is still flattening or slipping toward meta-writing patterns instead of sounding fully authored.",
+    },
+    {
+      label: "Editorial review",
+      state: reviewState,
+      detail:
+        review.aiAuthorshipFlags.length > 0
+          ? `${review.aiAuthorshipFlags.length} AI-authorship flag(s) still need attention.`
+          : review.overallAssessment,
+    },
+  ] as DraftQualityAssessment["signals"];
+  const normalizedScore = Math.max(0, score);
+
+  return {
+    score: normalizedScore,
+    readiness: normalizedScore >= 85 ? "strong" : normalizedScore >= 65 ? "watch" : "needs attention",
+    needsRevision: review.verdict === "needs_revision" || normalizedScore < 78,
+    signals,
+    concerns,
   };
 }
 
@@ -871,6 +1593,8 @@ Hard rules:
 - every paragraph should read like finished prose, not an outline point with evidence attached
 - synthesize source material into narrative and argument; never paste source phrasing unless it is a real short quote
 - honor the ${framework.name} framework (the dominant persona is ${framework.dominantPersona}); the chapter's shape is defined by this framework, not by generic teaching structure
+- every paragraph should make a concrete move, support it with specificity, and then turn that specificity into consequence, implication, or insight
+- if a paragraph only restates the point, deepen it until it earns its place in the chapter
 
 Writing approach:
 - be conversational, convincing, and grounded
@@ -879,6 +1603,8 @@ ${frameworkSlots}
 - favor finished sentences, real transitions, and genuine authorial voice
 - if a source helps, absorb it into the argument as a human writer would
 - if a story helps, tell only the part that earns its place in the chapter
+- satisfy the source-weave plan when material is available: normally absorb at least one concrete research anchor, one outside story or case, one relevant personal-story beat, and the base-story thread when those inputs exist
+- keep the chapter mandate alive on the page so the prose clearly carries the intended chapter purpose, thread role, and paragraph-level movement
       `),
       new HumanMessage(JSON.stringify(authorInput)),
     ]);
@@ -916,11 +1642,24 @@ async function reviewDraft(
   promise: PromiseBrief,
   context: ChapterContext,
   draft: ChapterDraftBundle,
+  sourceWeaveFocus?: SourceWeaveRequirements,
+  chapterTarget?: ChapterWordTarget | null,
 ): Promise<ChapterReviewBundle> {
   const fallback = fallbackReview(draft);
   const model = await getReviewerModel();
+  const critic = await runAdversarialProseCritic(promise, context, draft, chapterTarget ?? null);
   if (!model) {
-    return fallback;
+    return {
+      ...fallback,
+      overallAssessment: critic.summary || fallback.overallAssessment,
+      concerns: [...new Set([...fallback.concerns, ...critic.paddingFlags, ...critic.voiceFlags])],
+      revisionPriorities: [...new Set([...fallback.revisionPriorities, ...critic.recommendations])],
+      aiAuthorshipFlags: [...new Set([...fallback.aiAuthorshipFlags, ...critic.aiTellFlags])],
+      verdict:
+        critic.riskLevel === "high" || critic.aiTellFlags.length > 0 || critic.paddingFlags.length > 0
+          ? "needs_revision"
+          : fallback.verdict,
+    };
   }
 
   try {
@@ -935,6 +1674,8 @@ Rules:
 - actively look for AI tells
 - flag em dashes immediately
 - flag generic abstractions, repetitive rhythm, inflated language, and consultant tone
+- flag chapters that leave available research, outside stories, personal stories, or chapter-thread material underused
+- flag paragraphs that never turn from evidence into consequence, interpretation, or implication
 - prefer specific, actionable revision notes
 - be tough but fair
       `),
@@ -942,6 +1683,7 @@ Rules:
         JSON.stringify({
           promise,
           chapter: context.chapter,
+          sourceWeaveFocus,
           draft,
         }),
       ),
@@ -949,15 +1691,30 @@ Rules:
 
     return {
       chapterKey: context.chapter.chapterId,
-      overallAssessment: result.overallAssessment,
+      overallAssessment: critic.summary
+        ? `${result.overallAssessment} Adversarial critic: ${critic.summary}`
+        : result.overallAssessment,
       strengths: result.strengths ?? [],
-      concerns: result.concerns ?? [],
-      revisionPriorities: result.revisionPriorities ?? [],
-      aiAuthorshipFlags: result.aiAuthorshipFlags ?? [],
-      verdict: result.verdict,
+      concerns: [...new Set([...(result.concerns ?? []), ...critic.paddingFlags, ...critic.voiceFlags])],
+      revisionPriorities: [...new Set([...(result.revisionPriorities ?? []), ...critic.recommendations])],
+      aiAuthorshipFlags: [...new Set([...(result.aiAuthorshipFlags ?? []), ...critic.aiTellFlags])],
+      verdict:
+        result.verdict === "needs_revision" || critic.riskLevel === "high" || critic.aiTellFlags.length > 0
+          ? "needs_revision"
+          : result.verdict,
     };
   } catch {
-    return fallback;
+    return {
+      ...fallback,
+      overallAssessment: critic.summary || fallback.overallAssessment,
+      concerns: [...new Set([...fallback.concerns, ...critic.paddingFlags, ...critic.voiceFlags])],
+      revisionPriorities: [...new Set([...fallback.revisionPriorities, ...critic.recommendations])],
+      aiAuthorshipFlags: [...new Set([...fallback.aiAuthorshipFlags, ...critic.aiTellFlags])],
+      verdict:
+        critic.riskLevel === "high" || critic.aiTellFlags.length > 0 || critic.paddingFlags.length > 0
+          ? "needs_revision"
+          : fallback.verdict,
+    };
   }
 }
 
@@ -1010,6 +1767,8 @@ Hard rules:
 - preserve and sharpen the intended ${framework.name} framework progression
 - the dominant persona is ${framework.dominantPersona}; the revised chapter should walk these beats in order (do not label them — let the prose embody the progression):
 ${frameworkSlots}
+- if research, outside stories, personal stories, or the base-story thread are available, make sure the revision uses the strongest ones intentionally rather than leaving them idle
+- make each paragraph earn itself by moving from assertion into consequence, interpretation, or real-world implication
       `),
       new HumanMessage(
         JSON.stringify({
@@ -1039,7 +1798,7 @@ async function tuneDraftToTarget(
 
   const model = await getAuthorModel();
   if (!model) {
-    return draft;
+    return forceDraftTowardTarget(context, draft, chapterTarget);
   }
 
   let workingDraft = draft;
@@ -1086,11 +1845,11 @@ Rules:
 
       workingDraft = normalizeDraftResult(context, result);
     } catch {
-      return workingDraft;
+      return forceDraftTowardTarget(context, workingDraft, chapterTarget);
     }
   }
 
-  return workingDraft;
+  return forceDraftTowardTarget(context, workingDraft, chapterTarget);
 }
 
 async function generateSingleChapterDraft(
@@ -1104,10 +1863,33 @@ async function generateSingleChapterDraft(
   workflowRunId?: string,
 ) {
   const [research, externalStories] = await Promise.all([
-    getLatestOrCommittedResearch(bookId, context.chapter.chapterId),
-    getLatestOrCommittedExternalStories(bookId, context.chapter.chapterId),
+    getCommittedResearchDossier(bookId, context.chapter.chapterId),
+    getCommittedExternalStoriesDossier(bookId, context.chapter.chapterId),
   ]);
   const baseStoryChapter = findBaseStoryChapter(baseStory, context.chapter.chapterId);
+  const relevantPersonalStories = findRelevantPersonalStories(
+    personalStories,
+    context.chapter.chapterTitle,
+  );
+  const sourceWeaveFocus = buildSourceWeaveRequirements(
+    research,
+    externalStories,
+    relevantPersonalStories.map((story) => ({
+      title: story.title,
+      summary: story.summary,
+      whyItMatters: story.whyItMatters,
+    })),
+    baseStoryChapter,
+  );
+  const sourceAvailability = {
+    researchCount:
+      (research?.factBank.length ?? 0) +
+      (research?.statistics.length ?? 0) +
+      (research?.examples.length ?? 0),
+    externalStoryCount: externalStories?.storyCandidates.length ?? 0,
+    personalStoryCount: relevantPersonalStories.length,
+    hasBaseStory: Boolean(baseStoryChapter),
+  };
 
   const firstDraft = await generateDraft(
     promise,
@@ -1120,27 +1902,60 @@ async function generateSingleChapterDraft(
     bookSetupProfile,
     chapterTarget,
   );
-  const review = await reviewDraft(promise, context, firstDraft);
-  const revisedDraft =
-    review.verdict === "needs_revision"
-      ? await reviseDraft(
-          promise,
-          context,
-          firstDraft,
-          review,
-          research,
-          externalStories,
-          personalStories,
-          baseStory,
-          baseStoryChapter,
-          bookSetupProfile,
-          chapterTarget,
-        )
-      : firstDraft;
+  let workingDraft = firstDraft;
+  let review = await reviewDraft(promise, context, workingDraft, sourceWeaveFocus, chapterTarget);
+  let quality = assessNonfictionDraftQuality(
+    workingDraft,
+    review,
+    chapterTarget,
+    sourceAvailability,
+    context,
+    sourceWeaveFocus,
+  );
+  let revisionPasses = 0;
+
+  for (let attempt = 0; attempt < 2 && quality.needsRevision; attempt += 1) {
+    workingDraft = await reviseDraft(
+      promise,
+      context,
+      workingDraft,
+      {
+        ...review,
+        verdict: "needs_revision",
+        concerns: [...new Set([...review.concerns, ...quality.concerns])],
+        revisionPriorities: [
+          ...new Set([
+            ...review.revisionPriorities,
+            "Strengthen the weave between research, outside stories, personal stories, and the chapter thread.",
+            "Push the chapter back toward the requested target range without sounding padded.",
+            "Reduce any AI-shaped abstractions or repetitive explanatory rhythm.",
+          ]),
+        ],
+      },
+      research,
+      externalStories,
+      personalStories,
+      baseStory,
+      baseStoryChapter,
+      bookSetupProfile,
+      chapterTarget,
+    );
+    revisionPasses += 1;
+    review = await reviewDraft(promise, context, workingDraft, sourceWeaveFocus, chapterTarget);
+    quality = assessNonfictionDraftQuality(
+      workingDraft,
+      review,
+      chapterTarget,
+      sourceAvailability,
+      context,
+      sourceWeaveFocus,
+    );
+  }
+
   const finalDraft = await tuneDraftToTarget(
     promise,
     context,
-    revisedDraft,
+    workingDraft,
     bookSetupProfile,
     chapterTarget,
   );
@@ -1150,15 +1965,34 @@ async function generateSingleChapterDraft(
     finalDraft,
     bookSetupProfile,
   );
+  review = await reviewDraft(promise, context, polishedDraft, sourceWeaveFocus, chapterTarget);
+  quality = assessNonfictionDraftQuality(
+    polishedDraft,
+    review,
+    chapterTarget,
+    sourceAvailability,
+    context,
+    sourceWeaveFocus,
+  );
+  const finalDraftWithQuality: ChapterDraftBundle = {
+    ...polishedDraft,
+    quality: {
+      score: quality.score,
+      readiness: quality.readiness,
+      needsRevision: quality.needsRevision,
+      revisionPasses,
+      signals: quality.signals,
+    },
+  };
 
   const draftVersion = await createChapterArtifactVersion({
     bookId,
     artifactType: ArtifactType.CHAPTER_DRAFT,
     chapterKey: context.chapter.chapterId,
     chapterTitle: context.chapter.chapterTitle,
-    summary: polishedDraft.openingHook,
-    contentJson: polishedDraft as unknown as Prisma.InputJsonValue,
-    contentText: polishedDraft.chapterText,
+    summary: finalDraftWithQuality.openingHook,
+    contentJson: finalDraftWithQuality as unknown as Prisma.InputJsonValue,
+    contentText: finalDraftWithQuality.chapterText,
     workflowRunId,
     promptTemplateVersion: "chapter-draft-author-v1",
     modelName: hasUsableOpenAIKey()
@@ -1181,27 +2015,237 @@ async function generateSingleChapterDraft(
   });
 
   return {
-    draft: polishedDraft,
+    draft: finalDraftWithQuality,
     review,
     draftVersion,
     reviewVersion,
     sourceAvailability: {
-      researchCount:
-        (research?.factBank.length ?? 0) +
-        (research?.statistics.length ?? 0) +
-        (research?.examples.length ?? 0),
-      externalStoryCount: externalStories?.storyCandidates.length ?? 0,
-      personalStoryCount: findRelevantPersonalStories(
-        personalStories,
-        context.chapter.chapterTitle,
-      ).length,
-      hasBaseStory: Boolean(baseStoryChapter),
+      ...sourceAvailability,
     },
   };
 }
 
+function isDraftInsideTargetBand(wordCount: number, chapterTarget: ChapterWordTarget | null) {
+  if (!chapterTarget) {
+    return true;
+  }
+
+  return wordCount >= chapterTarget.minimumWords && wordCount <= chapterTarget.maximumWords;
+}
+
+async function expandSingleChapterDraftTowardTarget(params: {
+  bookId: string;
+  promise: PromiseBrief;
+  context: ChapterContext;
+  baseStory: BaseStoryBundle | null;
+  personalStories: PersonalStoryEncyclopedia | null;
+  bookSetup: BookSetupProfile | null;
+  chapterTarget: ChapterWordTarget | null;
+}) {
+  const { bookId, promise, context, baseStory, personalStories, bookSetup, chapterTarget } = params;
+  const [research, externalStories, draftVersions, reviewVersions] = await Promise.all([
+    getCommittedResearchDossier(bookId, context.chapter.chapterId),
+    getCommittedExternalStoriesDossier(bookId, context.chapter.chapterId),
+    getChapterArtifactVersions(bookId, context.chapter.chapterId, ArtifactType.CHAPTER_DRAFT, 1),
+    getChapterArtifactVersions(bookId, context.chapter.chapterId, ArtifactType.EDITORIAL_REVIEW, 1),
+  ]);
+
+  const latestDraft = draftVersions[0]
+    ? parseArtifactWithSchema(draftVersions[0].contentJson, ChapterDraftBundleSchema)
+    : null;
+  if (!latestDraft) {
+    throw new Error(`No saved draft exists yet for ${context.chapter.chapterTitle}. Generate the chapter first.`);
+  }
+
+  if (isDraftInsideTargetBand(countWords(latestDraft.chapterText), chapterTarget)) {
+    return {
+      chapterKey: context.chapter.chapterId,
+      chapterTitle: context.chapter.chapterTitle,
+      expanded: false,
+      wordCount: countWords(latestDraft.chapterText),
+    };
+  }
+
+  const latestReview = reviewVersions[0]
+    ? parseArtifactWithSchema(reviewVersions[0].contentJson, ChapterReviewBundleSchema)
+    : null;
+  const baseStoryChapter = findBaseStoryChapter(baseStory, context.chapter.chapterId);
+  const relevantPersonalStories = findRelevantPersonalStories(
+    personalStories,
+    context.chapter.chapterTitle,
+  );
+  const sourceWeaveFocus = buildSourceWeaveRequirements(
+    research,
+    externalStories,
+    relevantPersonalStories.map((story) => ({
+      title: story.title,
+      summary: story.summary,
+      whyItMatters: story.whyItMatters,
+    })),
+    baseStoryChapter,
+  );
+  const sourceAvailability = {
+    researchCount:
+      (research?.factBank.length ?? 0) +
+      (research?.statistics.length ?? 0) +
+      (research?.examples.length ?? 0),
+    externalStoryCount: externalStories?.storyCandidates.length ?? 0,
+    personalStoryCount: relevantPersonalStories.length,
+    hasBaseStory: Boolean(baseStoryChapter),
+  };
+
+  let expandedDraft = await tuneDraftToTarget(
+    promise,
+    context,
+    latestDraft,
+    bookSetup,
+    chapterTarget,
+  );
+  expandedDraft = await enforceFinishedBookProse(
+    promise,
+    context,
+    expandedDraft,
+    bookSetup,
+  );
+
+  const review = await reviewDraft(
+    promise,
+    context,
+    expandedDraft,
+    sourceWeaveFocus,
+    chapterTarget,
+  );
+  const quality = assessNonfictionDraftQuality(
+    expandedDraft,
+    review,
+    chapterTarget,
+    sourceAvailability,
+    context,
+    sourceWeaveFocus,
+  );
+  const finalDraft: ChapterDraftBundle = {
+    ...expandedDraft,
+    quality: {
+      score: quality.score,
+      readiness: quality.readiness,
+      needsRevision: quality.needsRevision,
+      revisionPasses: (latestDraft.quality?.revisionPasses ?? 0) + 1,
+      signals: quality.signals,
+    },
+  };
+
+  await createChapterArtifactVersion({
+    bookId,
+    artifactType: ArtifactType.CHAPTER_DRAFT,
+    chapterKey: context.chapter.chapterId,
+    chapterTitle: context.chapter.chapterTitle,
+    summary: finalDraft.openingHook,
+    contentJson: finalDraft as unknown as Prisma.InputJsonValue,
+    contentText: finalDraft.chapterText,
+    promptTemplateVersion: "chapter-draft-length-recovery-v1",
+    modelName: hasUsableOpenAIKey()
+      ? process.env.OPENAI_CHAPTER_DRAFT_AUTHOR_MODEL ?? "gpt-5.4"
+      : "local-length-recovery",
+  });
+  await createChapterArtifactVersion({
+    bookId,
+    artifactType: ArtifactType.EDITORIAL_REVIEW,
+    chapterKey: context.chapter.chapterId,
+    chapterTitle: context.chapter.chapterTitle,
+    summary:
+      latestReview?.overallAssessment ??
+      review.overallAssessment,
+    contentJson: review as unknown as Prisma.InputJsonValue,
+    contentText: JSON.stringify(review, null, 2),
+    promptTemplateVersion: "chapter-draft-length-recovery-review-v1",
+    modelName: hasUsableOpenAIKey()
+      ? process.env.OPENAI_CHAPTER_DRAFT_REVIEWER_MODEL ?? "gpt-5.4"
+      : "local-length-recovery",
+  });
+
+  return {
+    chapterKey: context.chapter.chapterId,
+    chapterTitle: context.chapter.chapterTitle,
+    expanded: true,
+    previousWordCount: countWords(latestDraft.chapterText),
+    wordCount: countWords(finalDraft.chapterText),
+  };
+}
+
+export async function expandChapterDraftTowardTargetWorkflow(bookSlug: string, chapterKey: string) {
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const { promise, chapterContexts, baseStory, personalStories, bookSetup } = await getDraftInputs(book.id);
+  const context = chapterContexts.find((entry) => entry.chapter.chapterId === chapterKey);
+  if (!context) {
+    throw new Error(`Chapter ${chapterKey} could not be found in the committed paragraph outline.`);
+  }
+
+  const chapterTargets = buildChapterWordTargets(chapterContexts, bookSetup?.targetWordCount);
+  return expandSingleChapterDraftTowardTarget({
+    bookId: book.id,
+    promise,
+    context,
+    baseStory,
+    personalStories,
+    bookSetup,
+    chapterTarget: chapterTargets.get(context.chapter.chapterId) ?? null,
+  });
+}
+
+export async function expandUnderTargetChapterDraftsWorkflow(bookSlug: string, limit = 2) {
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const { promise, chapterContexts, baseStory, personalStories, bookSetup } = await getDraftInputs(book.id);
+  const chapterTargets = buildChapterWordTargets(chapterContexts, bookSetup?.targetWordCount);
+  const candidates: Array<{ context: ChapterContext; deficit: number }> = [];
+
+  for (const context of chapterContexts) {
+    const latestDraftVersion = (await getChapterArtifactVersions(
+      book.id,
+      context.chapter.chapterId,
+      ArtifactType.CHAPTER_DRAFT,
+      1,
+    ))[0];
+    const latestDraft = latestDraftVersion
+      ? parseArtifactWithSchema(latestDraftVersion.contentJson, ChapterDraftBundleSchema)
+      : null;
+    const target = chapterTargets.get(context.chapter.chapterId) ?? null;
+    const currentWords = countWords(latestDraft?.chapterText ?? "");
+    if (latestDraft && target && currentWords < target.minimumWords) {
+      candidates.push({
+        context,
+        deficit: target.minimumWords - currentWords,
+      });
+    }
+  }
+
+  const selected = candidates
+    .sort((left, right) => right.deficit - left.deficit)
+    .slice(0, Math.max(1, limit));
+
+  const results = [];
+  for (const candidate of selected) {
+    results.push(
+      await expandSingleChapterDraftTowardTarget({
+        bookId: book.id,
+        promise,
+        context: candidate.context,
+        baseStory,
+        personalStories,
+        bookSetup,
+        chapterTarget: chapterTargets.get(candidate.context.chapter.chapterId) ?? null,
+      }),
+    );
+  }
+
+  return {
+    expandedChapterKeys: results.filter((entry) => entry.expanded).map((entry) => entry.chapterKey),
+    inspectedChapterCount: chapterContexts.length,
+    results,
+  };
+}
+
 export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const { promise, chapterContexts, baseStory, personalStories, bookSetup } = await getDraftInputs(
     book.id,
   );
@@ -1269,7 +2313,7 @@ export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: str
 }
 
 export async function enqueueChapterDraftWorkflow(bookSlug: string, chapterKey?: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const existing = await getActiveWorkflowRunForStage(book.id, StageKey.CHAPTER_DRAFT);
   if (existing) {
     return existing;
@@ -1357,14 +2401,185 @@ export async function enqueueAndTriggerChapterDraftWorkflow(
 }
 
 export async function commitChapterDraftWorkflow(bookSlug: string, chapterKey: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
-  return commitChapterDraft(book.id, chapterKey);
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const result = await commitChapterDraft(book.id, chapterKey);
+  await clearStageStaleDependency(bookSlug, StageKey.CHAPTER_DRAFT);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.CHAPTER_DRAFT);
+  return result;
+}
+
+export async function commitAllChapterDraftsWorkflow(bookSlug: string) {
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const stage = await getStageForBook(book.id, StageKey.CHAPTER_DRAFT);
+  const { chapterContexts } = await getDraftInputs(book.id);
+
+  if (chapterContexts.length === 0) {
+    throw new Error("No committed outline chapters are available for chapter draft commit.");
+  }
+
+  const committedChapterKeys: string[] = [];
+  const missingChapterKeys: string[] = [];
+
+  for (const context of chapterContexts) {
+    const draftVersions = await getChapterArtifactVersions(
+      book.id,
+      context.chapter.chapterId,
+      ArtifactType.CHAPTER_DRAFT,
+      1,
+    );
+    const latestVersion = draftVersions[0] ?? null;
+    if (!latestVersion) {
+      missingChapterKeys.push(context.chapter.chapterId);
+      continue;
+    }
+
+    if (latestVersion.lifecycleState !== ArtifactStatus.COMMITTED) {
+      await commitChapterDraft(book.id, context.chapter.chapterId);
+    }
+
+    committedChapterKeys.push(context.chapter.chapterId);
+  }
+
+  const metadata = parseMetadataRecord(stage?.metadataJson);
+  const now = new Date().toISOString();
+
+  await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
+    status:
+      missingChapterKeys.length === 0 ? StageStatus.COMMITTED : StageStatus.READY_FOR_REVIEW,
+    committedAt: missingChapterKeys.length === 0 ? new Date() : undefined,
+    metadataJson: {
+      ...metadata,
+      automationStatus: missingChapterKeys.length === 0 ? "committed" : "ready_for_review",
+      currentAction:
+        missingChapterKeys.length === 0
+          ? "All chapter drafts committed"
+          : `Committed ${committedChapterKeys.length} chapter drafts. ${missingChapterKeys.length} still missing.`,
+      totalChapters: chapterContexts.length,
+      completedChapters: committedChapterKeys.length,
+      currentChapterKey: null,
+      recentActivity: [
+        {
+          at: now,
+          message:
+            missingChapterKeys.length === 0
+              ? "Committed all chapter drafts."
+              : `Committed all available chapter drafts. Missing: ${missingChapterKeys.join(", ")}`,
+        },
+        ...(
+          Array.isArray(metadata.recentActivity)
+            ? (metadata.recentActivity as Array<{ at: string; message: string }>)
+            : []
+        ),
+      ].slice(0, 10),
+      lastRunAt: now,
+    },
+  });
+
+  await clearStageStaleDependency(bookSlug, StageKey.CHAPTER_DRAFT);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.CHAPTER_DRAFT);
+
+  return {
+    committedChapterKeys,
+    missingChapterKeys,
+    totalChapters: chapterContexts.length,
+  };
+}
+
+export async function repairWeakChapterDraftsWorkflow(bookSlug: string, limit = 3) {
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const { promise, chapterContexts, baseStory, personalStories, bookSetup } = await getDraftInputs(
+    book.id,
+  );
+  const chapterTargets = buildChapterWordTargets(chapterContexts, bookSetup?.targetWordCount);
+
+  const weakContexts: ChapterContext[] = [];
+  for (const context of chapterContexts) {
+    const [draftVersions, reviewVersions] = await Promise.all([
+      getChapterArtifactVersions(book.id, context.chapter.chapterId, ArtifactType.CHAPTER_DRAFT, 1),
+      getChapterArtifactVersions(book.id, context.chapter.chapterId, ArtifactType.EDITORIAL_REVIEW, 1),
+    ]);
+    const latestDraft = draftVersions[0]
+      ? parseArtifactWithSchema(draftVersions[0].contentJson, ChapterDraftBundleSchema)
+      : null;
+    const latestReview = reviewVersions[0]
+      ? parseArtifactWithSchema(reviewVersions[0].contentJson, ChapterReviewBundleSchema)
+      : null;
+
+    const needsRepair = Boolean(
+      latestDraft &&
+        latestDraft.chapterText.trim().length > 0 &&
+        (
+          !latestDraft.quality ||
+          latestDraft.quality.signals.length === 0 ||
+          latestDraft.quality.needsRevision ||
+          latestReview?.verdict === "needs_revision"
+        ),
+    );
+
+    if (needsRepair) {
+      weakContexts.push(context);
+    }
+  }
+
+  const targetContexts = weakContexts.slice(0, Math.max(1, limit));
+  if (targetContexts.length === 0) {
+    return {
+      repairedChapterKeys: [],
+      inspectedChapterCount: chapterContexts.length,
+    };
+  }
+
+  await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
+    status: StageStatus.IN_PROGRESS,
+    metadataJson: {
+      automationStatus: "repairing_weak_chapters",
+      totalChapters: targetContexts.length,
+      completedChapters: 0,
+      currentChapterKey: targetContexts[0]?.chapter.chapterId ?? null,
+      currentAction: "Repairing weak chapter drafts",
+      lastRunAt: new Date().toISOString(),
+    },
+  });
+
+  const repairedChapterKeys: string[] = [];
+  for (const [index, context] of targetContexts.entries()) {
+    await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
+      status: StageStatus.IN_PROGRESS,
+      metadataJson: {
+        automationStatus: "repairing_weak_chapters",
+        totalChapters: targetContexts.length,
+        completedChapters: index,
+        currentChapterKey: context.chapter.chapterId,
+        currentAction: `Repairing ${context.chapter.chapterTitle}`,
+        lastRunAt: new Date().toISOString(),
+      },
+    });
+
+    await generateSingleChapterDraft(
+      book.id,
+      promise,
+      context,
+      baseStory,
+      personalStories,
+      bookSetup,
+      chapterTargets.get(context.chapter.chapterId) ?? null,
+    );
+    await commitChapterDraft(book.id, context.chapter.chapterId);
+    repairedChapterKeys.push(context.chapter.chapterId);
+  }
+
+  await commitAllChapterDraftsWorkflow(bookSlug);
+
+  return {
+    repairedChapterKeys,
+    inspectedChapterCount: chapterContexts.length,
+  };
 }
 
 export async function getChapterDraftWorkspace(bookSlug: string, selectedChapterKey?: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const stage = await getStageForBook(book.id, StageKey.CHAPTER_DRAFT);
-  const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
+  const metadata = parseMetadataRecord(stage?.metadataJson);
   let chapterContexts: ChapterContext[] = [];
   let baseStory: BaseStoryBundle | null = null;
   let personalStories: PersonalStoryEncyclopedia | null = null;
@@ -1388,15 +2603,15 @@ export async function getChapterDraftWorkspace(bookSlug: string, selectedChapter
       const [draftVersions, reviewVersions, research, externalStories] = await Promise.all([
         getChapterArtifactVersions(book.id, context.chapter.chapterId, ArtifactType.CHAPTER_DRAFT, 2),
         getChapterArtifactVersions(book.id, context.chapter.chapterId, ArtifactType.EDITORIAL_REVIEW, 2),
-        getLatestOrCommittedResearch(book.id, context.chapter.chapterId),
-        getLatestOrCommittedExternalStories(book.id, context.chapter.chapterId),
+        getCommittedResearchDossier(book.id, context.chapter.chapterId),
+        getCommittedExternalStoriesDossier(book.id, context.chapter.chapterId),
       ]);
 
       const latestDraft = draftVersions[0]
-        ? parseJson<ChapterDraftBundle | null>(draftVersions[0].contentJson, null)
+        ? parseArtifactWithSchema(draftVersions[0].contentJson, ChapterDraftBundleSchema)
         : null;
       const latestReview = reviewVersions[0]
-        ? parseJson<ChapterReviewBundle | null>(reviewVersions[0].contentJson, null)
+        ? parseArtifactWithSchema(reviewVersions[0].contentJson, ChapterReviewBundleSchema)
         : null;
       const personalMatches = findRelevantPersonalStories(
         personalStories,

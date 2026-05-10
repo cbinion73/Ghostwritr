@@ -1,5 +1,12 @@
 import { StageKey } from "@prisma/client";
 
+import {
+  BookOutlineSchema,
+  OutlineTocArtifactSchema,
+  ParagraphOutlineSchema,
+  parseArtifactWithSchema,
+} from "../artifact-schemas";
+import { asObjectRecord } from "../json-utils";
 import type { BookOutline } from "../outline-types";
 import type { ParagraphOutline } from "../paragraph-outline-types";
 import type {
@@ -12,23 +19,11 @@ import type {
   OutlineTocParagraph,
   OutlineTocSection,
 } from "../outline-toc-types";
-import { getOrCreateBookBySlug, getStageForBook, updateStageForBook } from "../repositories/books";
+import { getBookBySlugOrThrow, getOrCreateBookBySlug, getStageForBook, updateStageForBook } from "../repositories/books";
 import { getCommittedOutline, getCommittedOutlineExpansion } from "../repositories/outline-artifacts";
 
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value && typeof value === "object") {
-    return value as T;
-  }
-
-  return fallback;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
 function normalizePhaseApproval(value: unknown): OutlinePhaseApproval {
-  const record = asRecord(value);
+  const record = asObjectRecord(value);
   return {
     status: record.status === "approved" ? "approved" : "pending",
     approvedAt:
@@ -39,7 +34,7 @@ function normalizePhaseApproval(value: unknown): OutlinePhaseApproval {
 }
 
 function normalizeChatMessage(value: unknown): OutlineChatMessage | null {
-  const record = asRecord(value);
+  const record = asObjectRecord(value);
   const role = record.role === "assistant" ? "assistant" : record.role === "user" ? "user" : null;
   const content =
     typeof record.content === "string" && record.content.trim().length > 0
@@ -72,8 +67,8 @@ function normalizeChatArray(value: unknown): OutlineChatMessage[] {
 }
 
 export function normalizeOutlinePhaseApprovals(value: unknown): OutlinePhaseApprovals {
-  const record = asRecord(value);
-  const approvals = asRecord(record.outlinePhaseApprovals);
+  const record = asObjectRecord(value);
+  const approvals = asObjectRecord(record.outlinePhaseApprovals);
 
   return {
     sectionsChapters: normalizePhaseApproval(approvals.sectionsChapters),
@@ -83,8 +78,8 @@ export function normalizeOutlinePhaseApprovals(value: unknown): OutlinePhaseAppr
 }
 
 export function normalizeOutlinePhaseChats(value: unknown): OutlinePhaseChats {
-  const record = asRecord(value);
-  const chats = asRecord(record.outlinePhaseChats);
+  const record = asObjectRecord(value);
+  const chats = asObjectRecord(record.outlinePhaseChats);
 
   return {
     sectionsChapters: normalizeChatArray(chats.sectionsChapters),
@@ -462,26 +457,24 @@ export function assembleOutlineTocArtifact(
 export function getStoredOutlineTocArtifact(
   metadataJson: unknown,
 ): OutlineTocArtifact | null {
-  const metadata = asRecord(metadataJson);
+  const metadata = asObjectRecord(metadataJson);
   const raw = metadata.outlineTocArtifact;
 
-  return raw && typeof raw === "object"
-    ? (raw as OutlineTocArtifact)
-    : null;
+  return parseArtifactWithSchema(raw, OutlineTocArtifactSchema);
 }
 
 export async function generateOutlineTocArtifactWorkflow(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const [outlineVersion, paragraphVersion] = await Promise.all([
     getCommittedOutline(book.id),
     getCommittedOutlineExpansion(book.id),
   ]);
 
-  const outline = parseJson<BookOutline | null>(outlineVersion?.contentJson, null);
-  const paragraphOutline = parseJson<ParagraphOutline | null>(
+  const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
+  const paragraphOutline = parseArtifactWithSchema(
     paragraphVersion?.contentJson,
-    null,
+    ParagraphOutlineSchema,
   );
 
   if (!outline || !paragraphOutline) {

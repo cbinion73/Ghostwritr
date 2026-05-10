@@ -1,5 +1,5 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { ArtifactStatus, ActorType } from "@prisma/client";
+import { ArtifactStatus, ActorType, StageKey } from "@prisma/client";
 
 import { getModelForRole } from "../llm/routing";
 import { renumberBookOutline, type BookOutline, type OutlineChapter } from "../outline-types";
@@ -11,7 +11,8 @@ import {
   type ParagraphPlan,
 } from "../paragraph-outline-types";
 import { db } from "../db";
-import { getOrCreateBookBySlug } from "../repositories/books";
+import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
+import { getBookBySlugOrThrow, getOrCreateBookBySlug } from "../repositories/books";
 import {
   commitOutlineExpansionBundle,
   createOutlineExpansionVersion,
@@ -33,6 +34,23 @@ type ParagraphWorkflowState = {
   revisionTargetId?: string;
   revisionTargetType?: "chapter" | "paragraph";
 };
+
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (value && typeof value === "object") {
+    return value as T;
+  }
+
+  return fallback;
+}
+
+function isChapterParagraphPlan(value: unknown): value is ChapterParagraphPlan {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return typeof record.chapterId === "string" && Array.isArray(record.paragraphs);
+}
 
 const CHAPTER_PARAGRAPH_SYSTEM_PROMPT = `
 You are designing the paragraph outline for a single chapter in a nonfiction book.
@@ -399,11 +417,12 @@ async function maybeGenerateParagraphOutline(
 }
 
 async function loadContextNode(state: ParagraphWorkflowState) {
-  const book = await getOrCreateBookBySlug(state.bookSlug);
+  const book = await getBookBySlugOrThrow(state.bookSlug);
   const committedOutlineVersion = await getCommittedOutline(book.id);
-  const committedOutline = committedOutlineVersion?.contentJson
-    ? (committedOutlineVersion.contentJson as BookOutline)
-    : null;
+  const committedOutline = parseJson<BookOutline | null>(
+    committedOutlineVersion?.contentJson,
+    null,
+  );
 
   const latestExpansionVersion = (await getOutlineExpansionVersions(book.id, 1))[0];
 
@@ -411,7 +430,7 @@ async function loadContextNode(state: ParagraphWorkflowState) {
     bookId: book.id,
     committedOutline,
     paragraphOutline: committedOutline && latestExpansionVersion
-      ? (latestExpansionVersion.contentJson as ParagraphOutline)
+      ? parseJson<ParagraphOutline | undefined>(latestExpansionVersion.contentJson, undefined)
       : undefined,
   };
 }
@@ -469,14 +488,17 @@ export async function runParagraphOutlineWorkflow(
 export async function commitParagraphOutlineWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   await commitOutlineExpansionBundle(book.id);
+  await clearStageStaleDependency(bookSlug, StageKey.OUTLINE);
+  await invalidateDependentStagesForBook(bookSlug, StageKey.OUTLINE);
 }
 
 export async function getParagraphOutlineWorkspace(bookSlug: string) {
-  const book = await getOrCreateBookBySlug(bookSlug);
+  const book = await getBookBySlugOrThrow(bookSlug);
   const committedOutlineVersion = await getCommittedOutline(book.id);
-  const committedOutline = committedOutlineVersion?.contentJson
-    ? (committedOutlineVersion.contentJson as BookOutline)
-    : null;
+  const committedOutline = parseJson<BookOutline | null>(
+    committedOutlineVersion?.contentJson,
+    null,
+  );
 
   // Get all chapter paragraph plan artifacts (per-chapter artifacts)
   const allChapterArtifacts = await db.artifact.findMany({
@@ -499,7 +521,9 @@ export async function getParagraphOutlineWorkspace(bookSlug: string) {
     allChapterArtifacts.forEach((artifact) => {
       if (artifact.versions.length > 0) {
         const latestVersion = artifact.versions[0];
-        chapterPlans.push(latestVersion.contentJson as ChapterParagraphPlan);
+        if (isChapterParagraphPlan(latestVersion.contentJson)) {
+          chapterPlans.push(latestVersion.contentJson);
+        }
       }
     });
 
@@ -531,13 +555,13 @@ export async function getParagraphOutlineWorkspace(bookSlug: string) {
     committedOutline,
     latestParagraphOutline,
     committedParagraphOutline:
-      committedExpansionVersion?.contentJson as ParagraphOutline | null,
+      parseJson<ParagraphOutline | null>(committedExpansionVersion?.contentJson, null),
     paragraphVersions: paragraphVersions.map((version) => ({
       id: version.id,
       versionNumber: version.versionNumber,
       lifecycleState: version.lifecycleState,
       createdAt: version.createdAt,
-      paragraphOutline: version.contentJson as ParagraphOutline,
+      paragraphOutline: parseJson<ParagraphOutline | null>(version.contentJson, null),
       isCommitted: version.lifecycleState === ArtifactStatus.COMMITTED,
     })),
     readiness: committedOutline

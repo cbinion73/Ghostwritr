@@ -13,13 +13,14 @@ import {
   runSelectedResearchDossier,
   separateResearchBinderTab,
 } from "./actions";
-import { ResearchAutoRefresh } from "./auto-refresh";
 import { ResearchProgressBar } from "@/app/books/research-progress-bar";
 import { SubmitButton } from "@/app/components/submit-button";
 import { CollapsibleRightbar } from "@/app/components/collapsible-rightbar";
 
 import { STAGE_LINKS } from "@/lib/navigation";
-import { getResearchWorkspace } from "@/lib/workflows/research";
+import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
+
+export const dynamic = "force-dynamic";
 
 function tierClassName(tier: string) {
   return `tier-badge tier-${tier.toLowerCase()}`;
@@ -57,6 +58,11 @@ function progressPercent(completed: number, total: number) {
   return Math.max(0, Math.min(100, Math.round((completed / total) * 100)));
 }
 
+type ClaimListItem = {
+  id: string;
+  claimText: string;
+};
+
 export default async function ResearchStagePage({
   params,
   searchParams,
@@ -66,21 +72,21 @@ export default async function ResearchStagePage({
 }) {
   const { slug } = await params;
   const query = await searchParams;
+  const { getResearchWorkspace } = await import("@/lib/workflows/research");
   const workspace = await getResearchWorkspace(slug, query.tabId);
   const selectedTab = workspace.selectedTab;
-  const isAutoRefreshing =
-    workspace.progress.automationStatus === "queued" ||
-    workspace.progress.automationStatus === "running";
+  const hasGeneratedResearch = workspace.tabs.some((tab) => tab.summary.generatedCount > 0);
+  const canGenerateResearch = workspace.availableChapters.length > 0 && workspace.baseStoryReady;
+  const staleDependency = getStaleDependencyState(workspace.stage?.metadataJson);
 
   return (
     <div className="page-shell">
-      <ResearchAutoRefresh active={isAutoRefreshing} />
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
           <p className="muted">
-            Build a chapter-by-chapter research binder that is sourced, verifiable,
-            and easy to reshape as the book sharpens.
+            Read the Outline and Base Story, then build a chapter-by-chapter research binder
+            of sourced, verifiable facts, figures, and supporting material.
           </p>
         </div>
 
@@ -112,10 +118,23 @@ export default async function ResearchStagePage({
             <div className="label">Stage Workspace</div>
             <h2>Research Dossiers</h2>
             <div className="muted">
-              Each binder tab holds a chapter dossier. Add notes with the paperclip,
-              regroup chapters when needed, and run the verification pipeline one tab
-              at a time.
+              Each binder tab holds a chapter dossier grounded in the Outline and Base Story.
+              Add notes, regroup chapters when needed, and run the verification pipeline one dossier at a time.
             </div>
+            {staleDependency ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                <div>Stale: {staleDependency.reason}</div>
+                <div style={{ marginTop: 6 }}>
+                  Recommended recovery: {getStaleDependencyRecoveryHint(workspace.stage?.stageKey)}
+                </div>
+              </div>
+            ) : null}
+            {workspace.invalidArtifactWarnings.length > 0 ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                <div>Artifact warning: {workspace.invalidArtifactWarnings.length} saved research dossier{workspace.invalidArtifactWarnings.length === 1 ? "" : "s"} could not be parsed safely.</div>
+                <div style={{ marginTop: 6 }}>{workspace.invalidArtifactWarnings[0]}</div>
+              </div>
+            ) : null}
           </div>
 
           <div className="button-row">
@@ -128,7 +147,8 @@ export default async function ResearchStagePage({
             <form action={runFullResearchStage.bind(null, slug)}>
               <SubmitButton
                 className="btn"
-                label="Regenerate Full Research"
+                disabled={!canGenerateResearch}
+                label={hasGeneratedResearch ? "Regenerate Full Research" : "Generate Full Research"}
                 pendingLabel="Starting Research..."
               />
             </form>
@@ -218,11 +238,21 @@ export default async function ResearchStagePage({
                   Chapters completed: {workspace.progress.completedChapters}/
                   {workspace.progress.totalChapters}
                 </div>
+              {!canGenerateResearch ? (
                 <div className="metric">
-                  Stage state: {workspace.progress.automationStatus.replace(/_/g, " ")}
+                  Commit the paragraph-level Outline and the Base Story before generating Research.
                 </div>
-                {workspace.progress.currentChapterKey ? (
-                  <div className="metric">
+              ) : null}
+              <div className="metric">
+                Stage state: {workspace.progress.automationStatus.replace(/_/g, " ")}
+              </div>
+              {workspace.progress.automationStatus === "running" ? (
+                <div className="metric">
+                  Research is running. Refresh manually to see the latest progress.
+                </div>
+              ) : null}
+              {workspace.progress.currentChapterKey ? (
+                <div className="metric">
                     Working on: {findChapterLabel(
                       workspace.availableChapters,
                       workspace.progress.currentChapterKey,
@@ -340,7 +370,7 @@ export default async function ResearchStagePage({
                                 <summary>Statistics And Definitions</summary>
                                 <div className="dossier-packet-body">
                                   <ul className="clean-list">
-                                    {[...entry.dossier.statistics, ...entry.dossier.definitions]
+                                    {([...entry.dossier.statistics, ...entry.dossier.definitions] as ClaimListItem[])
                                       .slice(0, 6)
                                       .map((item) => (
                                         <li key={item.id}>{item.claimText}</li>
@@ -353,7 +383,7 @@ export default async function ResearchStagePage({
                                 <summary>Examples And Counterpoints</summary>
                                 <div className="dossier-packet-body">
                                   <ul className="clean-list">
-                                    {[...entry.dossier.examples, ...entry.dossier.counterpoints]
+                                    {([...entry.dossier.examples, ...entry.dossier.counterpoints] as ClaimListItem[])
                                       .slice(0, 6)
                                       .map((item) => (
                                         <li key={item.id}>{item.claimText}</li>

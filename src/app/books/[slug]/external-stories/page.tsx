@@ -11,11 +11,11 @@ import {
   runFullExternalStoriesStage,
   separateExternalStoryBinderTab,
 } from "./actions";
-import { ResearchAutoRefresh } from "../research/auto-refresh";
 import { SubmitButton } from "@/app/components/submit-button";
 import { CollapsibleRightbar } from "@/app/components/collapsible-rightbar";
 
 import { STAGE_LINKS } from "@/lib/navigation";
+import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { getExternalStoriesWorkspace } from "@/lib/workflows/external-stories";
 
 type ExternalStoriesWorkspace = Awaited<ReturnType<typeof getExternalStoriesWorkspace>>;
@@ -57,16 +57,19 @@ export default async function ExternalStoriesStagePage({
   const isAutoRefreshing =
     workspace.progress.automationStatus === "queued" ||
     workspace.progress.automationStatus === "running";
+  const hasGeneratedStoryVault = workspace.tabs.some((tab) => tab.summary.storyCount > 0);
+  const canGenerateExternalStories =
+    workspace.availableChapters.length > 0 && workspace.baseStoryReady;
+  const staleDependency = getStaleDependencyState(workspace.stage?.metadataJson);
 
   return (
     <div className="page-shell">
-      <ResearchAutoRefresh active={isAutoRefreshing} />
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
           <p className="muted">
-            Gather an abundant vault of true external stories so each chapter has more
-            emotional proof than it strictly needs.
+            Research case studies, stories, and examples so each chapter has real-world
+            depth and more proof than it strictly needs.
           </p>
         </div>
 
@@ -98,9 +101,23 @@ export default async function ExternalStoriesStagePage({
             <div className="label">Stage Workspace</div>
             <h2>External Stories</h2>
             <div className="muted">
-              Collect more true stories than the chapter requires so later drafting,
-              editing, and marketing all have options.
+              Build a chapter-by-chapter vault of case studies, stories, and examples so later
+              drafting, editing, and marketing all have options grounded in reality.
             </div>
+            {staleDependency ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                <div>Stale: {staleDependency.reason}</div>
+                <div style={{ marginTop: 6 }}>
+                  Recommended recovery: {getStaleDependencyRecoveryHint(workspace.stage?.stageKey)}
+                </div>
+              </div>
+            ) : null}
+            {workspace.invalidArtifactWarnings.length > 0 ? (
+              <div className="muted" style={{ marginTop: 10 }}>
+                <div>Artifact warning: {workspace.invalidArtifactWarnings.length} saved story vault{workspace.invalidArtifactWarnings.length === 1 ? "" : "s"} could not be parsed safely.</div>
+                <div style={{ marginTop: 6 }}>{workspace.invalidArtifactWarnings[0]}</div>
+              </div>
+            ) : null}
           </div>
 
           <div className="button-row">
@@ -113,7 +130,10 @@ export default async function ExternalStoriesStagePage({
             <form action={runFullExternalStoriesStage.bind(null, slug)}>
               <SubmitButton
                 className="btn"
-                label="Regenerate Story Vault"
+                disabled={!canGenerateExternalStories}
+                label={hasGeneratedStoryVault
+                  ? "Regenerate Story Vault"
+                  : "Generate External Stories"}
                 pendingLabel="Starting Story Run..."
               />
             </form>
@@ -164,9 +184,19 @@ export default async function ExternalStoriesStagePage({
                 <div className="metric">
                   Chapters completed: {workspace.progress.completedChapters}/{workspace.progress.totalChapters}
                 </div>
+                {!canGenerateExternalStories ? (
+                  <div className="metric">
+                    Commit the paragraph-level Outline and the Base Story before generating External Stories.
+                  </div>
+                ) : null}
                 <div className="metric">
                   Stage state: {workspace.progress.automationStatus.replace(/_/g, " ")}
                 </div>
+                {isAutoRefreshing ? (
+                  <div className="metric">
+                    Story generation is running. Refresh manually to see the latest progress.
+                  </div>
+                ) : null}
                 {workspace.progress.currentChapterKey ? (
                   <div className="metric">
                     Working on: {findChapterLabel(

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
-import { getModelForRole } from "@/lib/llm/routing";
+import { getModelForRole, resolveModelSpec } from "@/lib/llm/routing";
+import { parseModelSpec } from "@/lib/llm/providers";
+import { logLLMCall } from "@/lib/llm/call-log";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
 
 interface ChatMessage {
@@ -140,8 +142,14 @@ The "content" field should be the full artifact text (can be multi-paragraph pro
 
   const encoder = new TextEncoder();
 
+  const modelSpec = parseModelSpec(resolveModelSpec(persona.stageRole));
+  const startMs = Date.now();
+
   const readable = new ReadableStream({
     async start(controller) {
+      let promptTokens = 0;
+      let completionTokens = 0;
+
       try {
         const stream = await model.stream(langchainMessages);
         for await (const chunk of stream) {
@@ -159,6 +167,12 @@ The "content" field should be the full artifact text (can be multi-paragraph pro
               encoder.encode(`data: ${JSON.stringify({ text })}\n\n`),
             );
           }
+          // Capture token usage from the chunk metadata (last chunk usually has it)
+          const usage = (chunk as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata;
+          if (usage) {
+            if (usage.input_tokens) promptTokens = usage.input_tokens;
+            if (usage.output_tokens) completionTokens = usage.output_tokens;
+          }
         }
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (err) {
@@ -169,6 +183,18 @@ The "content" field should be the full artifact text (can be multi-paragraph pro
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } finally {
         controller.close();
+        // Log cost after stream closes (fire-and-forget)
+        if (promptTokens > 0 || completionTokens > 0) {
+          void logLLMCall({
+            bookId: book.id,
+            stageRole: persona.stageRole,
+            provider: modelSpec.provider,
+            model: modelSpec.model,
+            promptTokens,
+            completionTokens,
+            durationMs: Date.now() - startMs,
+          }).catch(() => {/* non-fatal */});
+        }
       }
     },
   });

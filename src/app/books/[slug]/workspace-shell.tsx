@@ -8,6 +8,7 @@ import type { StageGroup } from "@/lib/ui/stage-tokens";
 import { StageNav } from "./stage-nav";
 import { AgentChatPanel } from "./agent-chat-panel";
 import { ChapterDraftBmadPanel } from "./chapter-draft-bmad-panel";
+import { CostPaceBar } from "./cost-pace-bar";
 
 export type WorkspaceStage = {
   key: StageKey;
@@ -88,6 +89,7 @@ export function WorkspaceShell({
               }}
             />
           </div>
+          <CostPaceBar slug={slug} />
           {totalCommitted > 0 && (
             <a
               href={`/api/books/${slug}/workspace-export?format=markdown`}

@@ -108,14 +108,17 @@ export function AgentChatPanel({
     const placeholderIdx = snapshotMessages.length;
 
     try {
+      const webSearchStages = new Set(["RESEARCH", "EXTERNAL_STORIES"]);
       const apiUrl = stageKey === "RESEARCH"
         ? `/api/books/${slug}/scout-research`
-        : `/api/books/${slug}/agent-chat`;
+        : stageKey === "EXTERNAL_STORIES"
+          ? `/api/books/${slug}/chronicle-stories`
+          : `/api/books/${slug}/agent-chat`;
       const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          stageKey === "RESEARCH"
+          webSearchStages.has(stageKey)
             ? {
                 messages: snapshotMessages.map((m) => ({
                   role: m.role === "agent" ? "assistant" : "user",
@@ -228,16 +231,24 @@ export function AgentChatPanel({
     };
 
     try {
+      const webSearchStages = new Set(["RESEARCH", "EXTERNAL_STORIES"]);
       const autoApiUrl = stageKey === "RESEARCH"
         ? `/api/books/${slug}/scout-research`
-        : `/api/books/${slug}/agent-chat`;
+        : stageKey === "EXTERNAL_STORIES"
+          ? `/api/books/${slug}/chronicle-stories`
+          : `/api/books/${slug}/agent-chat`;
+      const autoPrompt = stageKey === "RESEARCH"
+        ? "Please draft the Research Pack artifact now. Research all chapters in the outline."
+        : stageKey === "EXTERNAL_STORIES"
+          ? "Please draft the External Story Pack artifact now. Find real-world case studies and anecdotes for all chapters in the outline."
+          : "Please draft the artifact for this stage now.";
       const res = await fetch(autoApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          stageKey === "RESEARCH"
-            ? { messages: [{ role: "user", content: "Please draft the Research Pack artifact now. Research all chapters in the outline." }] }
-            : { stageKey, messages: [{ role: "user", content: "Please draft the artifact for this stage now." }] }
+          webSearchStages.has(stageKey)
+            ? { messages: [{ role: "user", content: autoPrompt }] }
+            : { stageKey, messages: [{ role: "user", content: autoPrompt }] }
         ),
       });
 

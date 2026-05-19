@@ -9,7 +9,7 @@ import {
   type ChatMessage,
   extractChapterTopics,
   extractUserQueryFocus,
-  buildResearchQueries,
+  buildStoryQueries,
   formatSearchResults,
   loadPriorContext,
   buildStaticStream,
@@ -33,13 +33,13 @@ export async function POST(
     return NextResponse.json({ error: "Missing messages" }, { status: 400 });
   }
 
-  const stageKey = "RESEARCH" as const;
+  const stageKey = "EXTERNAL_STORIES" as const;
   const persona = getAgentForStage(stageKey);
   const model = await getModelForRole(persona.stageRole);
 
   if (!model) {
     return new Response(
-      buildStaticStream("I need ANTHROPIC_API_KEY configured to run research. Check your .env file."),
+      buildStaticStream("I need ANTHROPIC_API_KEY configured to source stories. Check your .env file."),
       { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } }
     );
   }
@@ -54,15 +54,15 @@ export async function POST(
 
   const topics = extractChapterTopics(outlineText, book.titleWorking ?? "book");
   const userFocus = extractUserQueryFocus(messages);
-  const queries = buildResearchQueries(topics, userFocus, bookSubject);
+  const queries = buildStoryQueries(topics, userFocus, bookSubject);
 
   let searchContext = "";
   try {
     const { results, attempts } = await searchWeb(queries, { perQueryLimit: 5, totalLimit: 15 });
-    searchContext = formatSearchResults(results, attempts, "WEB RESEARCH RESULTS");
+    searchContext = formatSearchResults(results, attempts, "WEB STORY SOURCES");
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Search failed";
-    searchContext = `\n\nWEB RESEARCH: Search error (${msg}). Use training knowledge and flag unverified claims.`;
+    searchContext = `\n\nWEB STORY SOURCES: Search error (${msg}). Draw on training knowledge and flag any stories you cannot independently verify.`;
   }
 
   const briefLines = [
@@ -75,7 +75,7 @@ export async function POST(
 
 Book context:
 - Title: ${book.titleWorking ?? "(untitled)"}${book.subtitle ? `\n- Subtitle: ${book.subtitle}` : ""}
-${briefLines ? briefLines + "\n" : ""}- You are speaking with the author about Stage: research${chapterContext ? `\n- Current chapter: ${chapterContext}` : ""}
+${briefLines ? briefLines + "\n" : ""}- You are speaking with the author about Stage: external stories${chapterContext ? `\n- Current chapter: ${chapterContext}` : ""}
 
 Always stay in character as ${persona.name}. Be concise. End your response with a question or a clear next step.
 
@@ -84,20 +84,21 @@ PROSE VOICE RULES:
 - Banned words: "delve", "dive into", "unpack", "explore", "it's important to note", "moreover", "furthermore", "in conclusion", "to summarize", "stands as a testament", "in the realm of", "at its core", "leverage", "utilize", "seamlessly", "robust", "foster", "underscore", "navigate", "game-changing", "groundbreaking".
 - Vary sentence length. Prefer active voice. Write like a smart human who has edited their own work.
 
-RESEARCH AGENT RULES:
-- Every statistic MUST come from the web research results below or verified training knowledge. Label which.
-- Format citations inline: (Source: [Title], [URL])
-- If you cannot verify a claim, say "Unverified — check before using" rather than stating it as fact.
-- When drafting the Research Pack artifact, organize by chapter with 3-5 verified findings per chapter and source citations.
+STORY CURATOR RULES:
+- Draw on the web story sources below. Name real people, companies, or events — no composites or generics.
+- For every illustrative story, pair it with a counter-example that tests the chapter argument.
+- Cite the source URL for any story drawn from the search results.
+- If a story cannot be verified, label it "Training knowledge — verify before publishing."
+- Stories earn their place. Each one must directly illustrate the chapter's core argument, not decorate it.
 
 ARTIFACT PRODUCTION:
 When asked to "draft the artifact" or "produce the artifact for this stage":
 
 <ARTIFACT>
-{"type":"RESEARCH","title":"Research Pack","content":"..."}
+{"type":"EXTERNAL_STORIES","title":"External Story Pack","content":"..."}
 </ARTIFACT>
 
-The "content" field: a comprehensive Research Pack organized by chapter, each with 3-5 key facts/statistics/findings and cited sources.${priorContext}${sourceDocContext}${searchContext}`;
+The "content" field: an External Story Pack organized by chapter. For each chapter: 2-3 real-world case studies or anecdotes (named people, companies, events) that illustrate the chapter argument, plus one counter-example that tests it. Include source citations where available.${priorContext}${sourceDocContext}${searchContext}`;
 
   const { HumanMessage, SystemMessage, AIMessage } = await import("@langchain/core/messages");
   const langchainMessages = [

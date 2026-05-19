@@ -1,0 +1,894 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { StageKey, StageStatus } from "@prisma/client";
+import { getAgentForStage } from "@/lib/ui/agent-personas";
+import { STAGE_STATE_DISPLAY } from "@/lib/ui/stage-tokens";
+
+type ChatMessage = {
+  role: "user" | "agent";
+  content: string;
+  streaming?: boolean;
+};
+
+type ArtifactDraft = {
+  type: string;
+  title: string;
+  content: string;
+};
+
+interface AgentChatPanelProps {
+  slug: string;
+  stageKey: StageKey;
+  stageLabel: string;
+  stageRoute: string;
+  status: StageStatus;
+  artifactCount: number;
+  bookTitle: string;
+  committedContent?: string | null;
+  onStageAdvance?: (key: StageKey) => void;
+}
+
+export function AgentChatPanel({
+  slug,
+  stageKey,
+  stageLabel,
+  stageRoute,
+  status,
+  artifactCount,
+  bookTitle,
+  committedContent,
+  onStageAdvance,
+}: AgentChatPanelProps) {
+  const router = useRouter();
+  const persona = getAgentForStage(stageKey);
+  const stateDisplay = STAGE_STATE_DISPLAY[status];
+
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [artifact, setArtifact] = useState<ArtifactDraft | null>(null);
+  const [artifactExpanded, setArtifactExpanded] = useState(false);
+  const [isAutoRunning, setIsAutoRunning] = useState(false);
+  const [autoRunFailed, setAutoRunFailed] = useState(false);
+  const autoRunFiredRef = useRef(false);
+  const threadRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Reset messages and show intro when stage changes
+  useEffect(() => {
+    const intro = persona.intro(bookTitle, status, artifactCount);
+    setMessages([{ role: "agent", content: intro }]);
+    setDraft("");
+    setArtifact(null);
+    setArtifactExpanded(false);
+    setIsAutoRunning(false);
+    setAutoRunFailed(false);
+    autoRunFiredRef.current = false;
+  }, [stageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-run: when stage is IN_PROGRESS with no prior artifact, draft autonomously
+  useEffect(() => {
+    if (
+      status === "IN_PROGRESS" &&
+      artifactCount === 0 &&
+      !isAutoRunning &&
+      !autoRunFailed &&
+      !autoRunFiredRef.current
+    ) {
+      autoRunFiredRef.current = true;
+      setIsAutoRunning(true);
+      void runAutonomously();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, artifactCount, stageKey]);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (threadRef.current) {
+      threadRef.current.scrollTop = threadRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const send = async (overrideText?: string) => {
+    const text = (overrideText ?? draft).trim();
+    if (!text || isSending) return;
+
+    const userMsg: ChatMessage = { role: "user", content: text };
+    const snapshotMessages = [...messages, userMsg];
+    setMessages([...snapshotMessages, { role: "agent", content: "", streaming: true }]);
+    setDraft("");
+    setIsSending(true);
+
+    // placeholder is at index snapshotMessages.length (after user msg)
+    const placeholderIdx = snapshotMessages.length;
+
+    try {
+      const res = await fetch(`/api/books/${slug}/agent-chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stageKey,
+          messages: snapshotMessages.map((m) => ({
+            role: m.role === "agent" ? "assistant" : "user",
+            content: m.content,
+          })),
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        throw new Error(`${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (raw === "[DONE]") break;
+          try {
+            const { text: t } = JSON.parse(raw) as { text: string };
+            accumulated += t;
+
+            // Check for ARTIFACT block
+            const artStart = accumulated.indexOf("<ARTIFACT>");
+            const artEnd = accumulated.indexOf("</ARTIFACT>");
+            if (artStart !== -1 && artEnd !== -1) {
+              const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
+              try {
+                const parsed = JSON.parse(jsonStr) as ArtifactDraft;
+                setArtifact(parsed);
+              } catch {
+                // invalid JSON in artifact, ignore
+              }
+            }
+
+            // Strip ARTIFACT block from displayed text
+            const displayText = accumulated
+              .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "")
+              .trim();
+
+            setMessages((prev) => {
+              const next = [...prev];
+              next[placeholderIdx] = { role: "agent", content: displayText, streaming: true };
+              return next;
+            });
+          } catch {
+            // non-JSON line, skip
+          }
+        }
+      }
+
+      const finalDisplay = accumulated
+        .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "")
+        .trim();
+
+      setMessages((prev) => {
+        const next = [...prev];
+        next[placeholderIdx] = { role: "agent", content: finalDisplay, streaming: false };
+        return next;
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Network error";
+      setMessages((prev) => {
+        const next = [...prev];
+        next[placeholderIdx] = {
+          role: "agent",
+          content: `Something went wrong (${errMsg}). Try again.`,
+          streaming: false,
+        };
+        return next;
+      });
+    } finally {
+      setIsSending(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  // ── Autonomous run: stream "draft artifact" silently, save as REVIEW_READY ──
+  const runAutonomously = async () => {
+    const systemMsg: ChatMessage = {
+      role: "agent",
+      content: `Working on **${stageLabel}**…`,
+      streaming: true,
+    };
+    setMessages((prev) => [...prev, systemMsg]);
+    const placeholderIdx = messages.length + 1; // after intro + this msg
+
+    try {
+      const res = await fetch(`/api/books/${slug}/agent-chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stageKey,
+          messages: [{ role: "user", content: "Please draft the artifact for this stage now." }],
+        }),
+      });
+
+      if (!res.ok || !res.body) throw new Error(`${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (raw === "[DONE]") break;
+          try {
+            const { text: t } = JSON.parse(raw) as { text: string };
+            accumulated += t;
+            const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
+            setMessages((prev) => {
+              const next = [...prev];
+              next[placeholderIdx] = { role: "agent", content: displayText || "Working…", streaming: true };
+              return next;
+            });
+          } catch { /* skip */ }
+        }
+      }
+
+      // Parse ARTIFACT block
+      const artStart = accumulated.indexOf("<ARTIFACT>");
+      const artEnd = accumulated.indexOf("</ARTIFACT>");
+      if (artStart !== -1 && artEnd !== -1) {
+        const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
+        try {
+          const parsed = JSON.parse(jsonStr) as ArtifactDraft;
+          // Save as REVIEW_READY for author approval
+          const saveRes = await fetch(`/api/books/${slug}/agent-chat/save-draft`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stageKey, artifact: parsed }),
+          });
+          if (saveRes.ok) {
+            const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
+            setMessages((prev) => {
+              const next = [...prev];
+              next[placeholderIdx] = {
+                role: "agent",
+                content: (displayText || "Draft complete.") + "\n\n**Ready for your review — approve to continue.**",
+                streaming: false,
+              };
+              return next;
+            });
+            router.refresh();
+            return;
+          }
+        } catch { /* fall through */ }
+      }
+
+      // No ARTIFACT block found — show raw response
+      const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
+      setMessages((prev) => {
+        const next = [...prev];
+        next[placeholderIdx] = { role: "agent", content: displayText || "Draft complete.", streaming: false };
+        return next;
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error";
+      setMessages((prev) => {
+        const next = [...prev];
+        next[placeholderIdx] = {
+          role: "agent",
+          content: `Auto-run failed: ${msg}\n\nYou can retry below or type a message to continue manually.`,
+          streaming: false,
+        };
+        return next;
+      });
+      setAutoRunFailed(true);
+    } finally {
+      setIsAutoRunning(false);
+    }
+  };
+
+  // ── Retry auto-run after failure ──────────────────────────────────────────
+  const handleRetryAutoRun = () => {
+    setAutoRunFailed(false);
+    autoRunFiredRef.current = false;
+    setMessages((prev) => [
+      ...prev,
+      { role: "agent", content: "Retrying…", streaming: true },
+    ]);
+    setIsAutoRunning(true);
+    void runAutonomously();
+  };
+
+  // ── Approve existing REVIEW_READY draft ────────────────────────────────────
+  const handleApprove = async () => {
+    try {
+      const res = await fetch(`/api/books/${slug}/agent-chat/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stageKey }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };
+      setMessages((prev) => [
+        ...prev,
+        { role: "agent", content: "Approved — moving to the next stage." },
+      ]);
+      router.refresh();
+      if (nextStageKey && onStageAdvance) {
+        setTimeout(() => onStageAdvance(nextStageKey), 400);
+      }
+    } catch (err) {
+      alert(`Approve failed: ${err instanceof Error ? err.message : "Error"}`);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void send();
+    }
+  };
+
+  const handleDraftArtifact = () => {
+    void send("Please draft the artifact for this stage now.");
+  };
+
+  const handleCommitArtifact = async () => {
+    if (!artifact) return;
+    try {
+      const res = await fetch(`/api/books/${slug}/agent-chat/commit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stageKey, artifact }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };
+      setArtifact(null);
+      setMessages((prev) => [
+        ...prev,
+        { role: "agent", content: "Committed — stage locked in." },
+      ]);
+      router.refresh();
+      if (nextStageKey && onStageAdvance) {
+        setTimeout(() => onStageAdvance(nextStageKey), 400);
+      }
+    } catch (err) {
+      alert(`Failed to commit: ${err instanceof Error ? err.message : "Error"}`);
+    }
+  };
+
+  return (
+    <div style={panelStyle}>
+      {/* Agent header */}
+      <div style={headerStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ ...avatarStyle, background: persona.color }}>
+            {persona.icon}
+          </div>
+          <div>
+            <div style={agentNameStyle}>{persona.name}</div>
+            <div style={agentTitleStyle}>{persona.title}</div>
+          </div>
+        </div>
+        <div style={headerRightStyle}>
+          <div style={stageBadgeStyle}>
+            <span style={{ color: stateDisplay.color }}>{stateDisplay.shape}</span>
+            <span style={stageBadgeLabelStyle}>{stageLabel} · {stateDisplay.label}</span>
+          </div>
+          <Link href={stageRoute} style={openLinkStyle}>
+            Open full view →
+          </Link>
+        </div>
+      </div>
+
+      {/* Approval gate — shown when agent has produced a draft awaiting review */}
+      {status === "READY_FOR_REVIEW" && committedContent && (
+        <div style={approvalGateStyle}>
+          <div style={approvalHeaderStyle}>
+            <span style={{ color: "#B8793A" }}>●</span>
+            <span style={{ flex: 1 }}>Draft ready for your review</span>
+            <button style={approveBtnStyle} onClick={() => void handleApprove()}>
+              Approve &amp; continue →
+            </button>
+            <button
+              style={requestChangesBtnStyle}
+              onClick={() => setArtifactExpanded((v) => !v)}
+            >
+              {artifactExpanded ? "Hide draft" : "Read draft"}
+            </button>
+          </div>
+          {artifactExpanded && (
+            <div style={committedContentStyle}>
+              <MarkdownText text={committedContent} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Committed artifact viewer — shown for COMMITTED stages */}
+      {status === "COMMITTED" && committedContent && (
+        <div style={committedBannerStyle}>
+          <button
+            style={committedBannerToggleStyle}
+            onClick={() => setArtifactExpanded((v) => !v)}
+          >
+            <span style={{ color: "#4a7c59", marginRight: "6px" }}>◆</span>
+            Committed artifact
+            <span style={{ marginLeft: "auto", opacity: 0.5 }}>{artifactExpanded ? "▲" : "▼"}</span>
+          </button>
+          {artifactExpanded && (
+            <div style={committedContentStyle}>
+              <MarkdownText text={committedContent} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Message thread */}
+      <div ref={threadRef} style={threadStyle}>
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            style={{
+              ...messageRowStyle,
+              justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+            }}
+          >
+            {msg.role === "agent" && (
+              <div style={{ ...smallAvatarStyle, background: persona.color }}>
+                {persona.name[0]}
+              </div>
+            )}
+            <div
+              style={{
+                ...bubbleStyle,
+                ...(msg.role === "user" ? userBubbleStyle : agentBubbleStyle),
+              }}
+            >
+              <MarkdownText text={msg.content} />
+              {msg.streaming && <span style={cursorStyle}>▍</span>}
+            </div>
+          </div>
+        ))}
+
+        {/* Artifact card — shown above composer, inside thread */}
+        {artifact && (
+          <ArtifactCard
+            artifact={artifact}
+            onCommit={() => void handleCommitArtifact()}
+            onDismiss={() => setArtifact(null)}
+          />
+        )}
+      </div>
+
+      {/* Composer */}
+      <div style={composerStyle}>
+        {autoRunFailed ? (
+          <button
+            style={retryAutoRunBtnStyle}
+            onClick={handleRetryAutoRun}
+            title="Retry the autonomous draft"
+          >
+            ↺ Retry auto-draft
+          </button>
+        ) : (
+          <button
+            style={draftArtifactBtnStyle}
+            onClick={handleDraftArtifact}
+            disabled={isSending}
+            title="Ask the agent to draft the artifact for this stage"
+          >
+            Draft artifact
+          </button>
+        )}
+        <textarea
+          ref={inputRef}
+          style={textareaStyle}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={`Message ${persona.name}… (Enter to send, Shift+Enter for new line)`}
+          rows={2}
+          disabled={isSending}
+        />
+        <button
+          style={{
+            ...sendBtnStyle,
+            opacity: draft.trim() && !isSending ? 1 : 0.4,
+          }}
+          disabled={!draft.trim() || isSending}
+          onClick={() => void send()}
+          aria-label="Send message"
+        >
+          {isSending ? "…" : "↑"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── ArtifactCard ─────────────────────────────────────────────────────────────
+
+function ArtifactCard({
+  artifact,
+  onCommit,
+  onDismiss,
+}: {
+  artifact: ArtifactDraft;
+  onCommit: () => void;
+  onDismiss: () => void;
+}) {
+  const preview =
+    artifact.content.length > 200
+      ? artifact.content.slice(0, 200) + "…"
+      : artifact.content;
+
+  return (
+    <div style={artifactCardStyle}>
+      <div style={artifactHeaderStyle}>
+        Artifact ready · {artifact.title}
+      </div>
+      <div style={artifactPreviewStyle}>{preview}</div>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <button style={commitBtnStyle} onClick={onCommit}>
+          Commit artifact →
+        </button>
+        <button style={dismissBtnStyle} onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Minimal markdown renderer: bold (**text**), italic (*text*), line breaks */
+function MarkdownText({ text }: { text: string }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  return (
+    <>
+      {lines.map((line, i) => {
+        // Bold: **text**
+        const parts = line.split(/(\*\*[^*]+\*\*)/g);
+        const rendered = parts.map((part, j) => {
+          if (part.startsWith("**") && part.endsWith("**")) {
+            return <strong key={j}>{part.slice(2, -2)}</strong>;
+          }
+          return part;
+        });
+        return (
+          <span key={i}>
+            {rendered}
+            {i < lines.length - 1 && <br />}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+// ── Styles ──────────────────────────────────────────────────────────────────
+
+const panelStyle: React.CSSProperties = {
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  background: "#fefbf5",
+  overflow: "hidden",
+};
+
+const headerStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "16px 24px",
+  borderBottom: "1px solid rgba(45,36,29,0.1)",
+  background: "rgba(254,251,245,0.95)",
+  flexShrink: 0,
+};
+
+const avatarStyle: React.CSSProperties = {
+  width: "40px",
+  height: "40px",
+  borderRadius: "10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "20px",
+  flexShrink: 0,
+};
+
+const agentNameStyle: React.CSSProperties = {
+  fontSize: "15px",
+  fontWeight: 700,
+  color: "#2d241d",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+};
+
+const agentTitleStyle: React.CSSProperties = {
+  fontSize: "11px",
+  color: "#8a7a6a",
+  letterSpacing: "0.04em",
+};
+
+const headerRightStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+  gap: "4px",
+};
+
+const stageBadgeStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "5px",
+  fontSize: "11px",
+  color: "#8a7a6a",
+};
+
+const stageBadgeLabelStyle: React.CSSProperties = {
+  fontSize: "11px",
+  color: "#8a7a6a",
+};
+
+const openLinkStyle: React.CSSProperties = {
+  fontSize: "11px",
+  color: "#B8793A",
+  textDecoration: "none",
+  fontWeight: 500,
+};
+
+const threadStyle: React.CSSProperties = {
+  flex: 1,
+  overflowY: "auto",
+  padding: "24px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "16px",
+};
+
+const messageRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  alignItems: "flex-start",
+};
+
+const smallAvatarStyle: React.CSSProperties = {
+  width: "26px",
+  height: "26px",
+  borderRadius: "6px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "11px",
+  fontWeight: 700,
+  color: "#fff",
+  flexShrink: 0,
+  marginTop: "2px",
+};
+
+const bubbleStyle: React.CSSProperties = {
+  maxWidth: "72%",
+  padding: "10px 14px",
+  borderRadius: "12px",
+  fontSize: "14px",
+  lineHeight: 1.55,
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+};
+
+const agentBubbleStyle: React.CSSProperties = {
+  background: "#fff",
+  border: "1px solid rgba(45,36,29,0.1)",
+  color: "#2d241d",
+  borderTopLeftRadius: "3px",
+};
+
+const userBubbleStyle: React.CSSProperties = {
+  background: "#2d241d",
+  color: "#fefbf5",
+  borderTopRightRadius: "3px",
+};
+
+const cursorStyle: React.CSSProperties = {
+  display: "inline-block",
+  animation: "blink 1s step-end infinite",
+  color: "#B8793A",
+  marginLeft: "2px",
+};
+
+const composerStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  alignItems: "flex-end",
+  padding: "16px 24px",
+  borderTop: "1px solid rgba(45,36,29,0.1)",
+  background: "rgba(254,251,245,0.95)",
+  flexShrink: 0,
+};
+
+const retryAutoRunBtnStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: "7px",
+  border: "1px solid rgba(192,57,43,0.4)",
+  background: "rgba(192,57,43,0.08)",
+  color: "#c0392b",
+  fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  flexShrink: 0,
+  alignSelf: "flex-end",
+  height: "38px",
+};
+
+const draftArtifactBtnStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: "7px",
+  border: "1px solid rgba(45,36,29,0.2)",
+  background: "transparent",
+  color: "#6f6256",
+  fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  flexShrink: 0,
+  alignSelf: "flex-end",
+  height: "38px",
+};
+
+const textareaStyle: React.CSSProperties = {
+  flex: 1,
+  padding: "10px 14px",
+  borderRadius: "8px",
+  border: "1px solid rgba(45,36,29,0.15)",
+  background: "#fff",
+  fontSize: "14px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  color: "#2d241d",
+  resize: "none",
+  lineHeight: 1.5,
+  outline: "none",
+};
+
+const sendBtnStyle: React.CSSProperties = {
+  width: "38px",
+  height: "38px",
+  borderRadius: "8px",
+  border: "none",
+  background: "#2d241d",
+  color: "#fefbf5",
+  fontSize: "18px",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+  transition: "opacity 120ms",
+};
+
+// Artifact card styles
+const artifactCardStyle: React.CSSProperties = {
+  background: "rgba(184,121,58,0.06)",
+  border: "1px solid rgba(184,121,58,0.3)",
+  borderRadius: "8px",
+  padding: "16px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "10px",
+};
+
+const artifactHeaderStyle: React.CSSProperties = {
+  fontSize: "13px",
+  fontWeight: 600,
+  color: "#B8793A",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+};
+
+const artifactPreviewStyle: React.CSSProperties = {
+  fontSize: "13px",
+  color: "#6f6256",
+  lineHeight: 1.5,
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+};
+
+const commitBtnStyle: React.CSSProperties = {
+  padding: "8px 14px",
+  borderRadius: "6px",
+  border: "none",
+  background: "#2d241d",
+  color: "#fefbf5",
+  fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer",
+};
+
+const dismissBtnStyle: React.CSSProperties = {
+  padding: "8px 14px",
+  borderRadius: "6px",
+  border: "1px solid rgba(45,36,29,0.2)",
+  background: "transparent",
+  color: "#6f6256",
+  fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer",
+};
+
+const approvalGateStyle: React.CSSProperties = {
+  flexShrink: 0,
+  borderBottom: "1px solid rgba(184,121,58,0.3)",
+  background: "rgba(184,121,58,0.06)",
+};
+
+const approvalHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  padding: "10px 20px",
+  fontSize: "12px",
+  color: "#6f6256",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+};
+
+const approveBtnStyle: React.CSSProperties = {
+  padding: "6px 12px",
+  borderRadius: "6px",
+  border: "none",
+  background: "#4a7c59",
+  color: "#fff",
+  fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  marginLeft: "auto",
+};
+
+const requestChangesBtnStyle: React.CSSProperties = {
+  padding: "6px 12px",
+  borderRadius: "6px",
+  border: "1px solid rgba(45,36,29,0.2)",
+  background: "transparent",
+  color: "#6f6256",
+  fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const committedBannerStyle: React.CSSProperties = {
+  flexShrink: 0,
+  borderBottom: "1px solid rgba(74,124,89,0.2)",
+  background: "rgba(74,124,89,0.04)",
+};
+
+const committedBannerToggleStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  width: "100%",
+  padding: "8px 24px",
+  background: "transparent",
+  border: "none",
+  cursor: "pointer",
+  fontSize: "12px",
+  color: "#6f6256",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  gap: "4px",
+};
+
+const committedContentStyle: React.CSSProperties = {
+  padding: "0 24px 14px",
+  fontSize: "13px",
+  color: "#4a3e33",
+  lineHeight: 1.6,
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  maxHeight: "260px",
+  overflowY: "auto",
+  whiteSpace: "pre-wrap",
+};

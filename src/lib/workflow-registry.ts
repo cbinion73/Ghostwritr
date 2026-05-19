@@ -30,6 +30,18 @@ const NONFICTION_WORKFLOW: WorkflowDefinition = {
       description: "Refine the book promise, audience, truth, market, and pitch.",
     },
     {
+      key: StageKey.AUDIENCE,
+      label: "Audience",
+      href: (slug) => `/books/${slug}/audience`,
+      description: "Target reader: role, pain, and motivations.",
+    },
+    {
+      key: StageKey.MARKET_ANALYSIS,
+      label: "Market Viability",
+      href: (slug) => `/books/${slug}/market-analysis`,
+      description: "11-dimension scoring, hard gate at 3.5/5.",
+    },
+    {
       key: StageKey.OUTLINE,
       label: "Outline",
       href: (slug) => `/books/${slug}/outline`,
@@ -85,10 +97,22 @@ const FICTION_WORKFLOW: WorkflowDefinition = {
       description: "Voice, targets, guardrails, and publishing intent.",
     },
     {
-      key: StageKey.STORY_SETUP,
-      label: "Story Setup",
-      href: (slug) => `/books/${slug}/story-setup`,
-      description: "Lock genre, tone, audience, POV, tense, and premise intent.",
+      key: StageKey.PROMISE,
+      label: "Promise",
+      href: (slug) => `/books/${slug}/promise`,
+      description: "The story premise and reader promise.",
+    },
+    {
+      key: StageKey.AUDIENCE,
+      label: "Audience",
+      href: (slug) => `/books/${slug}/audience`,
+      description: "Target reader: role, pain, and motivations.",
+    },
+    {
+      key: StageKey.MARKET_ANALYSIS,
+      label: "Market Viability",
+      href: (slug) => `/books/${slug}/market-analysis`,
+      description: "11-dimension scoring, hard gate at 3.5/5.",
     },
     {
       key: StageKey.STORY_CORE,
@@ -117,7 +141,7 @@ const FICTION_WORKFLOW: WorkflowDefinition = {
     {
       key: StageKey.FICTION_DRAFT,
       label: "Draft",
-      href: (slug) => `/books/${slug}/draft`,
+      href: (slug) => `/books/${slug}/fiction-draft`,
       description: "Draft chapter prose from the scene plan and story bible.",
     },
     {

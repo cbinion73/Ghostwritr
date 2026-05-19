@@ -37,10 +37,12 @@ import type {
   PersonaPack,
   PersonaPackDeepProfile,
   PromisePhaseApprovals,
+  PromiseArtifactMetadata,
   PositioningRecommendations,
   PromiseBrief,
   PromiseMessage,
   PromiseScorecard,
+  PromiseTokenUsage,
   TitleSubtitleFinalization,
   TransformationArtifact,
 } from "../promise-types";
@@ -62,6 +64,24 @@ const PromiseBriefSchema = z.object({
   stakes: z.string(),
   tone: z.array(z.string()).default([]),
   openQuestions: z.array(z.string()).default([]),
+  metadata: z.object({
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+    model: z.string().optional(),
+    grounding: z.object({
+      previousPhases: z.array(z.string()).optional(),
+      kbSources: z.array(z.string()).optional(),
+      audienceSignals: z.array(z.string()).optional(),
+    }).optional(),
+    tokenUsage: z.object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      cacheReadInputTokens: z.number().optional(),
+      cacheWriteInputTokens: z.number().optional(),
+      reasoningTokens: z.number().optional(),
+    }).optional(),
+  }).optional(),
 });
 
 const PromiseScorecardSchema = z.object({
@@ -250,6 +270,14 @@ const MarketReportSchema = z.object({
       kbSources: z.array(z.string()).optional(),
       audienceSignals: z.array(z.string()).optional(),
     }).optional(),
+    tokenUsage: z.object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      cacheReadInputTokens: z.number().optional(),
+      cacheWriteInputTokens: z.number().optional(),
+      reasoningTokens: z.number().optional(),
+    }).optional(),
   }).optional(),
 });
 
@@ -353,6 +381,14 @@ const PositioningRecommendationsSchema = z.object({
       kbSources: z.array(z.string()).optional(),
       audienceSignals: z.array(z.string()).optional(),
     }).optional(),
+    tokenUsage: z.object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      cacheReadInputTokens: z.number().optional(),
+      cacheWriteInputTokens: z.number().optional(),
+      reasoningTokens: z.number().optional(),
+    }).optional(),
   }).optional(),
 });
 
@@ -380,6 +416,14 @@ const TitleSubtitleFinalizationSchema = z.object({
       kbSources: z.array(z.string()).optional(),
       audienceSignals: z.array(z.string()).optional(),
     }).optional(),
+    tokenUsage: z.object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      cacheReadInputTokens: z.number().optional(),
+      cacheWriteInputTokens: z.number().optional(),
+      reasoningTokens: z.number().optional(),
+    }).optional(),
   }).optional(),
 });
 
@@ -405,6 +449,14 @@ const BookPromiseReportSchema = z.object({
       kbSources: z.array(z.string()).optional(),
       audienceSignals: z.array(z.string()).optional(),
     }).optional(),
+    tokenUsage: z.object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      cacheReadInputTokens: z.number().optional(),
+      cacheWriteInputTokens: z.number().optional(),
+      reasoningTokens: z.number().optional(),
+    }).optional(),
   }).optional(),
 });
 
@@ -417,7 +469,6 @@ const AudienceResearchPhase1Schema = z.object({
   ),
   identifiedUserTypes: z.array(
     z.object({
-      id: z.string().optional(),
       name: z.string(),
       description: z.string(),
       details: z.array(z.string()),
@@ -560,10 +611,19 @@ const CoreTruthsArtifactSchema = z.object({
   metadata: z.object({
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
+    model: z.string().optional(),
     grounding: z.object({
       previousPhases: z.array(z.string()).optional(),
       kbSources: z.array(z.string()).optional(),
       audienceSignals: z.array(z.string()).optional(),
+    }).optional(),
+    tokenUsage: z.object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      cacheReadInputTokens: z.number().optional(),
+      cacheWriteInputTokens: z.number().optional(),
+      reasoningTokens: z.number().optional(),
     }).optional(),
   }).optional(),
   legacyTruths: z.array(
@@ -677,10 +737,19 @@ const TransformationArtifactSchema = z.object({
   metadata: z.object({
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
+    model: z.string().optional(),
     grounding: z.object({
       previousPhases: z.array(z.string()).optional(),
       kbSources: z.array(z.string()).optional(),
       audienceSignals: z.array(z.string()).optional(),
+    }).optional(),
+    tokenUsage: z.object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      cacheReadInputTokens: z.number().optional(),
+      cacheWriteInputTokens: z.number().optional(),
+      reasoningTokens: z.number().optional(),
     }).optional(),
   }).optional(),
 });
@@ -1141,7 +1210,10 @@ Rules for identified user types:
 - Include 3-4 bullet-point details about their situation, pain, or motivation
 - Make them distinct from each other
 
-Return JSON matching AudienceResearchPhase1 type with researchQuestions as array of {question, answer} objects.
+Return JSON only. Do not use markdown fences. Do not add commentary before or after the JSON.
+Return an object with exactly these top-level keys:
+- researchQuestions: array of {question, answer}
+- identifiedUserTypes: array of {name, description, details}
 `;
 
 const AUDIENCE_RESEARCH_PHASE2_SYSTEM_PROMPT = `You are creating detailed reader personas for a nonfiction book.
@@ -1544,6 +1616,46 @@ function coerceStringArray(value: unknown): string[] {
   return [];
 }
 
+function normalizeAudienceResearchQuestion(value: unknown): { question: string; answer: string } {
+  const raw = asRecord(value);
+
+  return {
+    question: coerceString(raw.question, "Who specifically needs this book?"),
+    answer: coerceString(raw.answer, "This book serves readers whose current situation maps to the core promise."),
+  };
+}
+
+function normalizeAudienceResearchUserType(
+  value: unknown,
+  index: number,
+): AudienceResearchPhase1["identifiedUserTypes"][number] {
+  const raw = asRecord(value);
+  const fallbackName = `Audience Segment ${index + 1}`;
+
+  return {
+    name: coerceString(raw.name, fallbackName),
+    description: coerceString(
+      raw.description,
+      "A reader segment whose role and pain align with the promise of the book.",
+    ),
+    details: coerceStringArray(raw.details ?? raw.bullets ?? raw.situation ?? raw.painPoints).slice(0, 5),
+  };
+}
+
+function normalizeAudienceResearchPhase1(value: unknown): AudienceResearchPhase1 {
+  const raw = asRecord(value);
+  const normalized = {
+    researchQuestions: Array.isArray(raw.researchQuestions)
+      ? raw.researchQuestions.map((entry) => normalizeAudienceResearchQuestion(entry))
+      : [],
+    identifiedUserTypes: Array.isArray(raw.identifiedUserTypes)
+      ? raw.identifiedUserTypes.map((entry, index) => normalizeAudienceResearchUserType(entry, index))
+      : [],
+  };
+
+  return AudienceResearchPhase1Schema.parse(normalized);
+}
+
 function toPersonaId(value: unknown, fallbackName: string, index: number): string {
   const source = coerceString(value, fallbackName)
     .toLowerCase()
@@ -1832,6 +1944,66 @@ function getResponseMetadata(response: unknown): Record<string, unknown> {
 function getUsageMetadata(response: unknown): Record<string, unknown> {
   const raw = asRecord(response);
   return asRecord(raw.usage_metadata);
+}
+
+function asOptionalFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeTokenUsageMetadata(raw: unknown): PromiseTokenUsage | undefined {
+  const record = asRecord(raw);
+  const tokenUsage: PromiseTokenUsage = {
+    inputTokens: asOptionalFiniteNumber(
+      record.input_tokens ?? record.inputTokens ?? record.promptTokenCount,
+    ),
+    outputTokens: asOptionalFiniteNumber(
+      record.output_tokens ?? record.outputTokens ?? record.candidatesTokenCount,
+    ),
+    totalTokens: asOptionalFiniteNumber(
+      record.total_tokens ?? record.totalTokens ?? record.totalTokenCount,
+    ),
+    cacheReadInputTokens: asOptionalFiniteNumber(
+      record.cache_read_input_tokens ?? record.cacheReadInputTokens,
+    ),
+    cacheWriteInputTokens: asOptionalFiniteNumber(
+      record.cache_creation_input_tokens ?? record.cacheWriteInputTokens,
+    ),
+    reasoningTokens: asOptionalFiniteNumber(
+      record.reasoning_tokens ?? record.reasoningTokens ?? record.thoughtsTokenCount,
+    ),
+  };
+
+  if (Object.values(tokenUsage).every((value) => value == null)) {
+    return undefined;
+  }
+
+  return tokenUsage;
+}
+
+function mergeArtifactMetadata(
+  metadata: PromiseArtifactMetadata | undefined,
+  updates: PromiseArtifactMetadata,
+): PromiseArtifactMetadata {
+  return {
+    ...(metadata ?? {}),
+    ...updates,
+    grounding: {
+      ...(metadata?.grounding ?? {}),
+      ...(updates.grounding ?? {}),
+    },
+    tokenUsage: updates.tokenUsage ?? metadata?.tokenUsage,
+  };
 }
 
 function getStopReason(response: unknown): string | undefined {
@@ -3174,6 +3346,7 @@ export async function maybeGenerateMarketReport(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           model: "fallback",
+          tokenUsage: undefined,
           grounding: {
             previousPhases: groundingContext.previousPhases,
             audienceSignals: groundingContext.audienceSignals,
@@ -3258,7 +3431,8 @@ ${JSON.stringify(groundingContext.promptPayload, null, 2)}`;
             ? normalized.metadata.createdAt
             : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        model: getMarketAnalysisGoogleModelId(),
+        model: resolveModelSpec("market-analysis:research"),
+        tokenUsage: normalizeTokenUsageMetadata(usageMetadata),
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -3318,6 +3492,7 @@ export async function maybeGenerateRecommendations(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           model: "fallback",
+          tokenUsage: undefined,
           grounding: {
             previousPhases: groundingContext.previousPhases,
             audienceSignals: groundingContext.audienceSignals,
@@ -3406,7 +3581,8 @@ ${JSON.stringify(groundingContext.promptPayload, null, 2)}`;
             ? normalized.metadata.createdAt
             : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        model: getMarketAnalysisGoogleModelId(),
+        model: resolveModelSpec("market-analysis:research"),
+        tokenUsage: normalizeTokenUsageMetadata(usageMetadata),
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -3524,6 +3700,7 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
     );
 
     const rawText = extractTextFromResponse(rawResponse).trim();
+    const usageMetadata = getUsageMetadata(rawResponse);
     if (!rawText) {
       throw new Error("Title and subtitle generation returned empty content");
     }
@@ -3537,7 +3714,8 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
       metadata: {
         createdAt: normalized.metadata?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        model: "claude-title-finalization",
+        model: resolveModelSpec("promise:author"),
+        tokenUsage: normalizeTokenUsageMetadata(usageMetadata),
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -3565,6 +3743,7 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
           ...(fallback.metadata ?? {}),
           updatedAt: new Date().toISOString(),
           model: "fallback-timeout",
+          tokenUsage: fallback.metadata?.tokenUsage,
           grounding: {
             previousPhases: groundingContext?.previousPhases ?? [],
             audienceSignals: groundingContext?.audienceSignals ?? [],
@@ -3675,7 +3854,7 @@ export async function maybeGenerateBookPromiseReport(
 Book Voice Context:
 ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
 
-    const rawText = await generateBookPitchMarkdownInSections({
+    const { markdown: rawText, tokenUsage } = await generateBookPitchMarkdownInSections({
       model,
       systemPrompt,
       promptPayload: groundingContext.promptPayload as Record<string, unknown>,
@@ -3716,7 +3895,8 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
       metadata: {
         createdAt: composed.metadata?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        model: "claude-sonnet-4-6",
+        model: resolveModelSpec("promise:author"),
+        tokenUsage,
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -3737,6 +3917,7 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
           ...(fallback.metadata ?? {}),
           updatedAt: new Date().toISOString(),
           model: "fallback-timeout",
+          tokenUsage: fallback.metadata?.tokenUsage,
           grounding: {
             previousPhases: groundingContext?.previousPhases ?? [],
             audienceSignals: groundingContext?.audienceSignals ?? [],
@@ -3811,15 +3992,22 @@ export async function maybeGenerateAudienceResearchPhase1(
 
     const systemPrompt = `${AUDIENCE_RESEARCH_PHASE1_SYSTEM_PROMPT}\n\nBook Voice Context:\n${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
     console.log(`[maybeGenerateAudienceResearchPhase1] System prompt prepared`);
-    const structuredModel = model.withStructuredOutput(AudienceResearchPhase1Schema);
-    console.log(`[maybeGenerateAudienceResearchPhase1] Structured model created`);
-
-    const result = await structuredModel.invoke([
+    const rawResponse = await model.invoke([
       new SystemMessage(systemPrompt),
       new HumanMessage(JSON.stringify(promise)),
     ]);
-    console.log(`[maybeGenerateAudienceResearchPhase1] Result obtained:`, result);
-    return result;
+    console.log(`[maybeGenerateAudienceResearchPhase1] Raw response obtained`);
+
+    const rawText = extractTextFromResponse(rawResponse).trim();
+    console.log(`[maybeGenerateAudienceResearchPhase1] Raw text length:`, rawText.length);
+
+    const jsonText = extractJsonText(rawText);
+    console.log(`[maybeGenerateAudienceResearchPhase1] Extracted JSON length:`, jsonText.length);
+
+    const parsed = JSON.parse(jsonText) as unknown;
+    const normalized = normalizeAudienceResearchPhase1(parsed);
+    console.log(`[maybeGenerateAudienceResearchPhase1] Result normalized`);
+    return normalized;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[maybeGenerateAudienceResearchPhase1] Error:`, errorMsg);
@@ -5523,6 +5711,9 @@ function normalizeMarketReport(
       createdAt: coerceString(metadata.createdAt, fallback.metadata?.createdAt ?? new Date().toISOString()),
       updatedAt: coerceString(metadata.updatedAt, fallback.metadata?.updatedAt ?? new Date().toISOString()),
       model: coerceString(metadata.model, fallback.metadata?.model ?? "legacy"),
+      tokenUsage:
+        normalizeTokenUsageMetadata(metadata.tokenUsage) ??
+        fallback.metadata?.tokenUsage,
       grounding: {
         previousPhases:
           coerceStringArray(asRecord(metadata.grounding).previousPhases).length > 0
@@ -5923,6 +6114,9 @@ function normalizeRecommendationsArtifact(
       createdAt: coerceString(metadata.createdAt, fallback.metadata?.createdAt ?? new Date().toISOString()),
       updatedAt: coerceString(metadata.updatedAt, fallback.metadata?.updatedAt ?? new Date().toISOString()),
       model: coerceString(metadata.model, fallback.metadata?.model ?? "legacy"),
+      tokenUsage:
+        normalizeTokenUsageMetadata(metadata.tokenUsage) ??
+        fallback.metadata?.tokenUsage,
       grounding: {
         previousPhases:
           coerceStringArray(asRecord(metadata.grounding).previousPhases).length > 0
@@ -6321,8 +6515,9 @@ async function generateBookPitchMarkdownInSections(params: {
   model: NonNullable<Awaited<ReturnType<typeof getBookPitchModel>>>;
   systemPrompt: string;
   promptPayload: Record<string, unknown>;
-}): Promise<string> {
+}): Promise<{ markdown: string; tokenUsage?: PromiseTokenUsage }> {
   const sections: string[] = [];
+  const usageItems: PromiseTokenUsage[] = [];
 
   for (const plan of BOOK_PITCH_SECTION_PLANS) {
     const response = await withTimeout(
@@ -6354,14 +6549,37 @@ Additional guidance:
     );
 
     const text = extractTextFromResponse(response).trim();
+    const tokenUsage = normalizeTokenUsageMetadata(getUsageMetadata(response));
     if (!text) {
       throw new Error(`Book pitch ${plan.key} generation returned empty content`);
     }
 
+    if (tokenUsage) {
+      usageItems.push(tokenUsage);
+    }
     sections.push(text);
   }
 
-  return sections.join("\n\n");
+  const combinedUsage = usageItems.length
+    ? usageItems.reduce<PromiseTokenUsage>(
+        (accumulator, usage) => ({
+          inputTokens: (accumulator.inputTokens ?? 0) + (usage.inputTokens ?? 0),
+          outputTokens: (accumulator.outputTokens ?? 0) + (usage.outputTokens ?? 0),
+          totalTokens: (accumulator.totalTokens ?? 0) + (usage.totalTokens ?? 0),
+          cacheReadInputTokens:
+            (accumulator.cacheReadInputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0),
+          cacheWriteInputTokens:
+            (accumulator.cacheWriteInputTokens ?? 0) + (usage.cacheWriteInputTokens ?? 0),
+          reasoningTokens: (accumulator.reasoningTokens ?? 0) + (usage.reasoningTokens ?? 0),
+        }),
+        {},
+      )
+    : undefined;
+
+  return {
+    markdown: sections.join("\n\n"),
+    tokenUsage: combinedUsage,
+  };
 }
 
 function buildTitleSubtitleGroundingContext(
@@ -7618,6 +7836,9 @@ function normalizeBookPromiseReportArtifact(
         fallback.metadata?.updatedAt ?? new Date().toISOString(),
       ),
       model: coerceString(metadata.model, fallback.metadata?.model ?? "legacy"),
+      tokenUsage:
+        normalizeTokenUsageMetadata(metadata.tokenUsage) ??
+        fallback.metadata?.tokenUsage,
       grounding: {
         previousPhases:
           coerceStringArray(asRecord(metadata.grounding).previousPhases).length > 0
@@ -7831,6 +8052,7 @@ export function composeBookPromiseReportFromMarkdown(
         new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       model: existingReport?.metadata?.model || "manual-edit",
+      tokenUsage: existingReport?.metadata?.tokenUsage,
       grounding: {
         previousPhases: groundingContext.previousPhases,
         audienceSignals: groundingContext.audienceSignals,
@@ -8072,6 +8294,7 @@ export async function maybeGenerateCoreTruths(
         metadata: {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          model: "fallback",
           grounding: {
             previousPhases: groundingContext.previousPhases,
             audienceSignals: groundingContext.audienceSignals,
@@ -8108,9 +8331,10 @@ export async function maybeGenerateCoreTruths(
       "Truth generation timed out after 90 seconds",
     );
     const stopReason = getStopReason(rawResponse);
+    const usageMetadata = getUsageMetadata(rawResponse);
     console.log(`[maybeGenerateCoreTruths] Stop reason: ${stopReason ?? "unknown"}`);
     console.log("[maybeGenerateCoreTruths] Response metadata:", getResponseMetadata(rawResponse));
-    console.log("[maybeGenerateCoreTruths] Usage metadata:", getUsageMetadata(rawResponse));
+    console.log("[maybeGenerateCoreTruths] Usage metadata:", usageMetadata);
 
     const rawLLMText = extractTextFromResponse(rawResponse);
     console.log(`[maybeGenerateCoreTruths] Raw text length: ${rawLLMText.length}`);
@@ -8128,6 +8352,8 @@ export async function maybeGenerateCoreTruths(
             ? normalized.metadata.createdAt
             : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        model: resolveModelSpec("promise:author"),
+        tokenUsage: normalizeTokenUsageMetadata(usageMetadata),
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -8163,7 +8389,14 @@ export async function maybeGenerateTransformationArc(
 
     if (!model) {
       console.log(`[maybeGenerateTransformationArc] No model, using fallback`);
-      return createFallbackTransformationArtifact(promise, personaContexts);
+      return {
+        ...createFallbackTransformationArtifact(promise, personaContexts),
+        metadata: {
+          ...(createFallbackTransformationArtifact(promise, personaContexts).metadata ?? {}),
+          updatedAt: new Date().toISOString(),
+          model: "fallback",
+        },
+      };
     }
 
     // Get knowledge base context
@@ -8188,9 +8421,10 @@ export async function maybeGenerateTransformationArc(
     ]);
 
     const stopReason = getStopReason(rawResponse);
+    const usageMetadata = getUsageMetadata(rawResponse);
     console.log(`[maybeGenerateTransformationArc] Stop reason: ${stopReason ?? "unknown"}`);
     console.log("[maybeGenerateTransformationArc] Response metadata:", getResponseMetadata(rawResponse));
-    console.log("[maybeGenerateTransformationArc] Usage metadata:", getUsageMetadata(rawResponse));
+    console.log("[maybeGenerateTransformationArc] Usage metadata:", usageMetadata);
 
     const rawText = extractTextFromResponse(rawResponse);
     console.log(`[maybeGenerateTransformationArc] Raw text length: ${rawText.length}`);
@@ -8198,9 +8432,19 @@ export async function maybeGenerateTransformationArc(
     console.log(`[maybeGenerateTransformationArc] Extracted JSON length: ${jsonText.length}`);
 
     const parsed = JSON.parse(jsonText);
-    const result = TransformationArtifactSchema.parse(
-      normalizeTransformationArtifact(parsed, promise, personaContexts),
-    );
+    const normalized = normalizeTransformationArtifact(parsed, promise, personaContexts);
+    const result = TransformationArtifactSchema.parse({
+      ...normalized,
+      metadata: mergeArtifactMetadata(normalized.metadata, {
+        createdAt:
+          typeof normalized.metadata?.createdAt === "string"
+            ? normalized.metadata.createdAt
+            : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        model: resolveModelSpec("promise:author"),
+        tokenUsage: normalizeTokenUsageMetadata(usageMetadata),
+      }),
+    });
     console.log(`[maybeGenerateTransformationArc] Result obtained`);
     return result;
   } catch (error) {

@@ -1,25 +1,25 @@
 {
-  "generatedAt": "2026-05-08T16:47:03.910Z",
+  "generatedAt": "2026-05-10T04:01:58.336Z",
   "results": [
     {
       "sourceSlug": "nonfiction-smoke",
       "archiveFileName": "Systems-of-Influence-archive.zip",
-      "archiveByteLength": 42097,
+      "archiveByteLength": 46816,
       "importedSlug": "nonfiction-smoke-imported",
       "workflowType": "NONFICTION",
       "stageCount": 9,
       "artifactCount": 17,
-      "roundtripArchiveBytes": 42668
+      "roundtripArchiveBytes": 46845
     },
     {
       "sourceSlug": "fiction-smoke",
       "archiveFileName": "Fiction-Smoke-archive.zip",
-      "archiveByteLength": 1282362,
+      "archiveByteLength": 1790244,
       "importedSlug": "fiction-smoke-imported",
       "workflowType": "FICTION",
       "stageCount": 8,
       "artifactCount": 13,
-      "roundtripArchiveBytes": 1284274
+      "roundtripArchiveBytes": 1790100
     }
   ]
 }

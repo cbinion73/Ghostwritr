@@ -30,6 +30,7 @@ import {
   composeBookPromiseReportFromMarkdown,
   generateComprehensivePromiseStatement,
 } from "@/lib/workflows/promise";
+import { resolveModelSpec } from "@/lib/llm/routing";
 import { markWorkflowRunning, markWorkflowComplete } from "@/lib/workflow-status";
 import {
   createValidationScores,
@@ -329,6 +330,11 @@ export async function saveFinalPromiseStatement(slug: string, formData: FormData
   const nextPromiseBrief = {
     ...workspace.promiseBrief,
     promiseStatement,
+    metadata: {
+      ...(workspace.promiseBrief.metadata ?? {}),
+      updatedAt: new Date().toISOString(),
+      model: "manual-edit",
+    },
   };
 
   await createPromiseArtifactVersion({
@@ -367,6 +373,11 @@ export async function savePromiseStatement(slug: string, statement: string) {
   const nextPromiseBrief = {
     ...workspace.promiseBrief,
     promiseStatement: statement,
+    metadata: {
+      ...(workspace.promiseBrief.metadata ?? {}),
+      updatedAt: new Date().toISOString(),
+      model: "manual-edit",
+    },
   };
 
   await createPromiseArtifactVersion({
@@ -852,6 +863,7 @@ export async function generateAudienceResearchPhase1Action(
         metadata: {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          model: resolveModelSpec("audience:structured"),
         },
       } as AudienceResearchArtifact,
     });

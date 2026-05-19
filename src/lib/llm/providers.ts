@@ -37,6 +37,11 @@ export type ModelSpec = {
   model: string;
 };
 
+function openAISupportsCustomTemperature(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return !normalized.startsWith("gpt-5");
+}
+
 export function parseModelSpec(spec: string): ModelSpec {
   const [providerRaw, ...rest] = spec.split(":");
   const provider = providerRaw?.trim().toLowerCase() as ProviderName;
@@ -120,10 +125,12 @@ export async function getModel(
     // Preserve existing OpenAI knob shape so we can keep reasoning effort.
     const init: Record<string, unknown> = {
       model,
-      temperature: temperature ?? 0.2,
       timeout,
       maxRetries,
     };
+    if (openAISupportsCustomTemperature(model)) {
+      init.temperature = temperature ?? 0.2;
+    }
     if (options.reasoningEffort) {
       init.reasoning = { effort: options.reasoningEffort };
     }

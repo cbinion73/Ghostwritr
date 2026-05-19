@@ -65,12 +65,6 @@ export function VoiceBlendingSelector({
         const personas = await getAvailablePersonas();
         setAvailablePersonas(personas);
 
-        // Only load AI suggestions if no blend is locked in yet
-        if (!isBlendLocked && workingTitle && category && description) {
-          const suggestions = await suggestWriterPersonas(slug, workingTitle, category, description);
-          setSuggestions(suggestions);
-        }
-
         // If there's an initial blend, populate suggestions with it
         if (initialBlend && initialBlend.length > 0) {
           const initialSuggestions: SuggestedPersona[] = initialBlend.map((blend) => ({
@@ -277,7 +271,7 @@ export function VoiceBlendingSelector({
               </p>
             )}
           </div>
-          {isBlendLocked && (
+          {(isBlendLocked || suggestions.length > 0) && (
             <button
               onClick={requestNewSuggestions}
               disabled={isLoading}
@@ -300,8 +294,25 @@ export function VoiceBlendingSelector({
 
       {error && <div style={styles.errorBox}>{error}</div>}
 
-      {/* Analysis is happening silently */}
-      {isLoading && !isBlendLocked && <p style={styles.loading}>Analyzing your book and finding the best voices...</p>}
+      {!isBlendLocked && suggestions.length === 0 && !isLoading && (
+        <div style={styles.emptyState}>
+          <p style={styles.emptyStateCopy}>
+            Start with AI-recommended writer personas when you are ready, or skip this for now and come back later.
+          </p>
+          <button
+            onClick={requestNewSuggestions}
+            style={{
+              ...styles.button,
+              ...styles.buttonPrimary,
+              alignSelf: "flex-start",
+            }}
+          >
+            Analyze Voice Options
+          </button>
+        </div>
+      )}
+
+      {isLoading && <p style={styles.loading}>Analyzing your book and finding the best voices...</p>}
 
       {/* Fine-tune Voice Blend Section */}
       {suggestions.length > 0 && (
@@ -517,6 +528,21 @@ const styles = {
     color: "#6f6256",
     lineHeight: 1.4,
   },
+  emptyState: {
+    display: "flex" as const,
+    flexDirection: "column" as const,
+    gap: "12px",
+    padding: "16px",
+    backgroundColor: "rgba(15, 76, 129, 0.05)",
+    border: "1px solid rgba(15, 76, 129, 0.15)",
+    borderRadius: "8px",
+  },
+  emptyStateCopy: {
+    margin: 0,
+    fontSize: "13px",
+    lineHeight: 1.5,
+    color: "#2d241d",
+  },
   section: {
     display: "flex" as const,
     flexDirection: "column" as const,
@@ -612,12 +638,6 @@ const styles = {
   buttonRemove: {
     padding: "4px 8px",
     fontSize: "12px",
-  },
-  emptyState: {
-    fontSize: "13px",
-    color: "#6f6256",
-    fontStyle: "italic",
-    margin: 0,
   },
   blendList: {
     display: "flex" as const,

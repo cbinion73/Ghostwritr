@@ -3,6 +3,29 @@ export type PromiseMessage = {
   content: string;
 };
 
+export type PromiseTokenUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
+  reasoningTokens?: number;
+};
+
+export type WorkflowGroundingMetadata = {
+  previousPhases?: string[];
+  kbSources?: string[];
+  audienceSignals?: string[];
+};
+
+export type PromiseArtifactMetadata = {
+  createdAt?: string;
+  updatedAt?: string;
+  model?: string;
+  grounding?: WorkflowGroundingMetadata;
+  tokenUsage?: PromiseTokenUsage;
+};
+
 export type PromiseBrief = {
   workingTitle: string;
   audiencePrimary: string;
@@ -19,6 +42,7 @@ export type PromiseBrief = {
   stakes: string;
   tone: string[];
   openQuestions: string[];
+  metadata?: PromiseArtifactMetadata;
 };
 
 export type PromiseScorecard = {
@@ -184,12 +208,7 @@ export type MarketReport = {
     conditions: string[];
     nextSteps: string[];
   };
-  metadata?: {
-    createdAt?: string;
-    updatedAt?: string;
-    model?: string;
-    grounding?: WorkflowGroundingMetadata;
-  };
+  metadata?: PromiseArtifactMetadata;
 };
 
 export type PositioningRecommendations = {
@@ -279,12 +298,7 @@ export type PositioningRecommendations = {
     goNoGoGates: string[];
     contingencyPlanning: string[];
   };
-  metadata?: {
-    createdAt?: string;
-    updatedAt?: string;
-    model?: string;
-    grounding?: WorkflowGroundingMetadata;
-  };
+  metadata?: PromiseArtifactMetadata;
 };
 
 export type TitleSubtitleFinalization = {
@@ -300,12 +314,7 @@ export type TitleSubtitleFinalization = {
     subtitle: string;
     whyItCouldWork: string;
   }>;
-  metadata?: {
-    createdAt?: string;
-    updatedAt?: string;
-    model?: string;
-    grounding?: WorkflowGroundingMetadata;
-  };
+  metadata?: PromiseArtifactMetadata;
 };
 
 export type PromiseTabName =
@@ -338,12 +347,6 @@ export type PromiseArtifactAvailability = {
   market: boolean;
   recommendations: boolean;
   bookPromiseReport: boolean;
-};
-
-export type WorkflowGroundingMetadata = {
-  previousPhases?: string[];
-  kbSources?: string[];
-  audienceSignals?: string[];
 };
 
 // ============================================
@@ -444,9 +447,7 @@ export type AudienceResearchArtifact = {
   phase1: AudienceResearchPhase1;
   phase2?: PersonaPackDeepProfile;
   phase3?: PersonaComparisonAnalysis;
-  metadata?: {
-    createdAt?: string;
-    updatedAt?: string;
+  metadata?: PromiseArtifactMetadata & {
     authorNotes?: string;
   };
 };
@@ -506,11 +507,7 @@ export type CoreTruthsArtifact = {
     whatStaysSame: string;
   };
   completeTruth: string;
-  metadata?: {
-    createdAt?: string;
-    updatedAt?: string;
-    grounding?: WorkflowGroundingMetadata;
-  };
+  metadata?: PromiseArtifactMetadata;
   legacyTruths?: CoreTruth[];
 };
 
@@ -607,11 +604,7 @@ export type TransformationArc = {
 
 export type TransformationArtifact = {
   arc: TransformationArc;
-  metadata?: {
-    createdAt?: string;
-    updatedAt?: string;
-    grounding?: WorkflowGroundingMetadata;
-  };
+  metadata?: PromiseArtifactMetadata;
 };
 
 // ============================================
@@ -631,10 +624,5 @@ export type BookPromiseReport = {
   rationale: string;
   nextSteps: string[];
   documentMarkdown: string;
-  metadata?: {
-    createdAt?: string;
-    updatedAt?: string;
-    model?: string;
-    grounding?: WorkflowGroundingMetadata;
-  };
+  metadata?: PromiseArtifactMetadata;
 };

@@ -12,7 +12,7 @@ import type { StageKey, StageStatus } from "@prisma/client";
  * Routes are the EXISTING per-stage pages in src/app/books/[slug]/*.
  */
 
-export type StageGroup = "setup" | "material" | "production";
+export type StageGroup = "setup" | "material" | "production" | "story-architecture";
 
 export type StageToken = {
   key: StageKey;
@@ -114,9 +114,23 @@ export const STAGE_TOKENS: readonly StageToken[] = [
   },
 ];
 
+export const FICTION_STAGE_TOKENS: readonly StageToken[] = [
+  { key: "BOOK_SETUP", number: 1, label: "Book Setup", route: (slug) => `/books/${slug}/setup`, group: "setup", description: "Voice, targets, guardrails, and publishing intent." },
+  { key: "PROMISE", number: 2, label: "Promise", route: (slug) => `/books/${slug}/promise`, group: "setup", description: "The story premise and reader promise." },
+  { key: "AUDIENCE", number: 3, label: "Audience", route: (slug) => `/books/${slug}/audience`, group: "setup", description: "Target reader: role, pain, and motivations." },
+  { key: "MARKET_ANALYSIS", number: 4, label: "Market Viability", route: (slug) => `/books/${slug}/market-analysis`, group: "setup", description: "11-dimension scoring, hard gate at 3.5/5." },
+  { key: "STORY_CORE", number: 5, label: "Story Core", route: (slug) => `/books/${slug}/story-core`, group: "story-architecture", description: "Theme, conflict, protagonist pressure, and story engine." },
+  { key: "WORLD_CAST", number: 6, label: "World & Cast", route: (slug) => `/books/${slug}/world-cast`, group: "story-architecture", description: "Story world, rules, cast, and relational tension." },
+  { key: "PLOT_BLUEPRINT", number: 7, label: "Plot Blueprint", route: (slug) => `/books/${slug}/plot-blueprint`, group: "story-architecture", description: "Acts, turning points, and chapter beats." },
+  { key: "SCENE_PLAN", number: 8, label: "Scene Plan", route: (slug) => `/books/${slug}/scene-plan`, group: "story-architecture", description: "Chapter-level and scene-level progression." },
+  { key: "FICTION_DRAFT", number: 9, label: "Draft", route: (slug) => `/books/${slug}/fiction-draft`, group: "production", description: "Draft chapter prose from the scene plan." },
+  { key: "EDITING", number: 10, label: "Editing & Typeset", route: (slug) => `/books/${slug}/editing`, group: "production", description: "Editorial pass and final manuscript output." },
+];
+
 export const GROUP_COLORS: Record<StageGroup, { gutter: string; label: string }> = {
   setup: { gutter: "#64748B", label: "Setup" },
   material: { gutter: "#B8793A", label: "Material" },
+  "story-architecture": { gutter: "#7C3AED", label: "Story Architecture" },
   production: { gutter: "#3730A3", label: "Production" },
 };
 

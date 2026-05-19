@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BookWorkflowType } from "@prisma/client";
 
-import { cloneBookAction, createBookAction, createBookWithWizardAction, deleteBookAction } from "./actions";
+import { cloneBookAction, createBookAction, createBookAndBrainstormAction, createBookWithWizardAction, deleteBookAction } from "./actions";
 
 import { listBooks } from "@/lib/repositories/books";
 import { getCurrentEditingArtifactVersionIdsForBooks } from "@/lib/repositories/editing-artifacts";
@@ -147,6 +147,25 @@ export default async function HomePage() {
                   </select>
                   <button className="btn" type="submit">
                     Start Workflow ✨
+                  </button>
+                </form>
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(45, 36, 29, 0.1)", paddingTop: 16, marginTop: 16 }}>
+                <div className="label" style={{ marginBottom: 8 }}>Start with Brainstorm</div>
+                <form action={createBookAndBrainstormAction} className="stack">
+                  <input
+                    className="editor-input"
+                    name="titleWorking"
+                    placeholder="Working title (optional — name it later)"
+                    type="text"
+                  />
+                  <select className="editor-input" name="workflowType" defaultValue={BookWorkflowType.NONFICTION}>
+                    <option value={BookWorkflowType.NONFICTION}>Nonfiction workflow</option>
+                    <option value={BookWorkflowType.FICTION}>Fiction workflow</option>
+                  </select>
+                  <button className="btn" type="submit">
+                    Start Brainstorming ✦
                   </button>
                 </form>
               </div>

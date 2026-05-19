@@ -2,11 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "next-dev",
+      "name": "ghostwritr",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3006,
-      "autoPort": true
+      "cwd": "/Users/chris/Desktop/CODE/GHOSTWRITR"
     }
   ]
 }

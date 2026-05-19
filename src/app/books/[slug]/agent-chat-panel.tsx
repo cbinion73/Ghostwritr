@@ -69,9 +69,11 @@ export function AgentChatPanel({
     autoRunFiredRef.current = false;
   }, [stageKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-run: when stage is IN_PROGRESS with no prior artifact, draft autonomously
+  // Auto-run: when stage is IN_PROGRESS with no prior artifact, draft autonomously.
+  // BOOK_SETUP is conversational — Blueprint greets the author and asks questions first.
   useEffect(() => {
     if (
+      stageKey !== "BOOK_SETUP" &&
       status === "IN_PROGRESS" &&
       artifactCount === 0 &&
       !isAutoRunning &&
@@ -106,16 +108,28 @@ export function AgentChatPanel({
     const placeholderIdx = snapshotMessages.length;
 
     try {
-      const res = await fetch(`/api/books/${slug}/agent-chat`, {
+      const apiUrl = stageKey === "RESEARCH"
+        ? `/api/books/${slug}/scout-research`
+        : `/api/books/${slug}/agent-chat`;
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          stageKey,
-          messages: snapshotMessages.map((m) => ({
-            role: m.role === "agent" ? "assistant" : "user",
-            content: m.content,
-          })),
-        }),
+        body: JSON.stringify(
+          stageKey === "RESEARCH"
+            ? {
+                messages: snapshotMessages.map((m) => ({
+                  role: m.role === "agent" ? "assistant" : "user",
+                  content: m.content,
+                })),
+              }
+            : {
+                stageKey,
+                messages: snapshotMessages.map((m) => ({
+                  role: m.role === "agent" ? "assistant" : "user",
+                  content: m.content,
+                })),
+              }
+        ),
       });
 
       if (!res.ok || !res.body) {
@@ -195,22 +209,36 @@ export function AgentChatPanel({
 
   // ── Autonomous run: stream "draft artifact" silently, save as REVIEW_READY ──
   const runAutonomously = async () => {
-    const systemMsg: ChatMessage = {
-      role: "agent",
-      content: `Working on **${stageLabel}**…`,
-      streaming: true,
+    // Use a unique symbol so we can find and replace this specific streaming message
+    // without relying on a stale captured index (which causes undefined holes when
+    // the stage advances and messages is reset mid-stream).
+    const streamingId = Symbol("streaming");
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "agent", content: `Working on **${stageLabel}**…`, streaming: true, _id: streamingId } as ChatMessage & { _id: symbol },
+    ]);
+
+    const replaceStreaming = (update: ChatMessage) => {
+      setMessages((prev) =>
+        prev
+          .filter((m): m is ChatMessage => m !== undefined)
+          .map((m) => ((m as ChatMessage & { _id?: symbol })._id === streamingId ? update : m))
+      );
     };
-    setMessages((prev) => [...prev, systemMsg]);
-    const placeholderIdx = messages.length + 1; // after intro + this msg
 
     try {
-      const res = await fetch(`/api/books/${slug}/agent-chat`, {
+      const autoApiUrl = stageKey === "RESEARCH"
+        ? `/api/books/${slug}/scout-research`
+        : `/api/books/${slug}/agent-chat`;
+      const res = await fetch(autoApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          stageKey,
-          messages: [{ role: "user", content: "Please draft the artifact for this stage now." }],
-        }),
+        body: JSON.stringify(
+          stageKey === "RESEARCH"
+            ? { messages: [{ role: "user", content: "Please draft the Research Pack artifact now. Research all chapters in the outline." }] }
+            : { stageKey, messages: [{ role: "user", content: "Please draft the artifact for this stage now." }] }
+        ),
       });
 
       if (!res.ok || !res.body) throw new Error(`${res.status}`);
@@ -231,11 +259,7 @@ export function AgentChatPanel({
             const { text: t } = JSON.parse(raw) as { text: string };
             accumulated += t;
             const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-            setMessages((prev) => {
-              const next = [...prev];
-              next[placeholderIdx] = { role: "agent", content: displayText || "Working…", streaming: true };
-              return next;
-            });
+            replaceStreaming({ role: "agent", content: displayText || "Working…", streaming: true });
           } catch { /* skip */ }
         }
       }
@@ -247,7 +271,6 @@ export function AgentChatPanel({
         const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
         try {
           const parsed = JSON.parse(jsonStr) as ArtifactDraft;
-          // Save as REVIEW_READY for author approval
           const saveRes = await fetch(`/api/books/${slug}/agent-chat/save-draft`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -255,14 +278,10 @@ export function AgentChatPanel({
           });
           if (saveRes.ok) {
             const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-            setMessages((prev) => {
-              const next = [...prev];
-              next[placeholderIdx] = {
-                role: "agent",
-                content: (displayText || "Draft complete.") + "\n\n**Ready for your review — approve to continue.**",
-                streaming: false,
-              };
-              return next;
+            replaceStreaming({
+              role: "agent",
+              content: (displayText || "Draft complete.") + "\n\n**Ready for your review — approve to continue.**",
+              streaming: false,
             });
             router.refresh();
             return;
@@ -272,21 +291,13 @@ export function AgentChatPanel({
 
       // No ARTIFACT block found — show raw response
       const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-      setMessages((prev) => {
-        const next = [...prev];
-        next[placeholderIdx] = { role: "agent", content: displayText || "Draft complete.", streaming: false };
-        return next;
-      });
+      replaceStreaming({ role: "agent", content: displayText || "Draft complete.", streaming: false });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error";
-      setMessages((prev) => {
-        const next = [...prev];
-        next[placeholderIdx] = {
-          role: "agent",
-          content: `Auto-run failed: ${msg}\n\nYou can retry below or type a message to continue manually.`,
-          streaming: false,
-        };
-        return next;
+      replaceStreaming({
+        role: "agent",
+        content: `Auto-run failed: ${msg}\n\nYou can retry below or type a message to continue manually.`,
+        streaming: false,
       });
       setAutoRunFailed(true);
     } finally {
@@ -433,7 +444,7 @@ export function AgentChatPanel({
 
       {/* Message thread */}
       <div ref={threadRef} style={threadStyle}>
-        {messages.map((msg, i) => (
+        {messages.filter((m): m is ChatMessage => m !== undefined).map((msg, i) => (
           <div
             key={i}
             style={{
@@ -525,18 +536,15 @@ function ArtifactCard({
   onCommit: () => void;
   onDismiss: () => void;
 }) {
-  const preview =
-    artifact.content.length > 200
-      ? artifact.content.slice(0, 200) + "…"
-      : artifact.content;
-
   return (
     <div style={artifactCardStyle}>
       <div style={artifactHeaderStyle}>
         Artifact ready · {artifact.title}
       </div>
-      <div style={artifactPreviewStyle}>{preview}</div>
-      <div style={{ display: "flex", gap: "8px" }}>
+      <div style={artifactPreviewStyle}>
+        <MarkdownText text={artifact.content} />
+      </div>
+      <div style={{ display: "flex", gap: "8px", paddingTop: 4 }}>
         <button style={commitBtnStyle} onClick={onCommit}>
           Commit artifact →
         </button>
@@ -549,29 +557,52 @@ function ArtifactCard({
 }
 
 /** Minimal markdown renderer: bold (**text**), italic (*text*), line breaks */
+function inlineMarkdown(line: string): React.ReactNode[] {
+  // Handle **bold** and *italic* inline
+  const parts = line.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return parts.map((part, j) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={j}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("*") && part.endsWith("*")) return <em key={j}>{part.slice(1, -1)}</em>;
+    return part;
+  });
+}
+
 function MarkdownText({ text }: { text: string }) {
   if (!text) return null;
   const lines = text.split("\n");
-  return (
-    <>
-      {lines.map((line, i) => {
-        // Bold: **text**
-        const parts = line.split(/(\*\*[^*]+\*\*)/g);
-        const rendered = parts.map((part, j) => {
-          if (part.startsWith("**") && part.endsWith("**")) {
-            return <strong key={j}>{part.slice(2, -2)}</strong>;
-          }
-          return part;
-        });
-        return (
-          <span key={i}>
-            {rendered}
-            {i < lines.length - 1 && <br />}
-          </span>
-        );
-      })}
-    </>
-  );
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (/^#{1,3} /.test(line)) {
+      const level = (line.match(/^(#+)/)?.[1].length ?? 1);
+      const content = line.replace(/^#+\s+/, "");
+      const sizes = ["18px", "15px", "13px"];
+      elements.push(
+        <div key={i} style={{ fontSize: sizes[level - 1] ?? "13px", fontWeight: 700, marginTop: level === 1 ? 16 : 12, marginBottom: 4, color: "#2a1f14" }}>
+          {inlineMarkdown(content)}
+        </div>
+      );
+    } else if (/^---+$/.test(line.trim())) {
+      elements.push(<hr key={i} style={{ border: "none", borderTop: "1px solid rgba(45,36,29,0.12)", margin: "10px 0" }} />);
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} style={{ height: 8 }} />);
+    } else if (/^- /.test(line)) {
+      elements.push(
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 2 }}>
+          <span style={{ color: "#B8793A", flexShrink: 0 }}>•</span>
+          <span>{inlineMarkdown(line.slice(2))}</span>
+        </div>
+      );
+    } else {
+      elements.push(<p key={i} style={{ margin: "2px 0 6px" }}>{inlineMarkdown(line)}</p>);
+    }
+    i++;
+  }
+
+  return <>{elements}</>;
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -794,9 +825,14 @@ const artifactHeaderStyle: React.CSSProperties = {
 
 const artifactPreviewStyle: React.CSSProperties = {
   fontSize: "13px",
-  color: "#6f6256",
-  lineHeight: 1.5,
+  color: "#4a3e33",
+  lineHeight: 1.7,
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  maxHeight: "320px",
+  overflowY: "auto",
+  borderTop: "1px solid rgba(184,121,58,0.15)",
+  borderBottom: "1px solid rgba(184,121,58,0.15)",
+  padding: "12px 0",
 };
 
 const commitBtnStyle: React.CSSProperties = {
@@ -883,12 +919,11 @@ const committedBannerToggleStyle: React.CSSProperties = {
 };
 
 const committedContentStyle: React.CSSProperties = {
-  padding: "0 24px 14px",
+  padding: "12px 24px 16px",
   fontSize: "13px",
   color: "#4a3e33",
-  lineHeight: 1.6,
+  lineHeight: 1.7,
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-  maxHeight: "260px",
+  maxHeight: "320px",
   overflowY: "auto",
-  whiteSpace: "pre-wrap",
 };

@@ -52,6 +52,16 @@ export async function createBookWithWizardAction(formData: FormData) {
   redirect(initialStage);
 }
 
+export async function createBookAndBrainstormAction(formData: FormData) {
+  const titleWorking = String(formData.get("titleWorking") ?? "").trim() || "Untitled Book";
+  const workflowType = parseWorkflowType(formData.get("workflowType"));
+
+  const book = await createBookFromTitle({ titleWorking, workflowType });
+
+  revalidatePath("/");
+  redirect(`/books/${book.slug}`);
+}
+
 export async function deleteBookAction(formData: FormData) {
   const slug = String(formData.get("slug") ?? "").trim();
   if (!slug) {

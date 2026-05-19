@@ -10,6 +10,7 @@ import {
   extractChapterTopics,
   extractUserQueryFocus,
   buildStoryQueries,
+  fetchTopPageTexts,
   formatSearchResults,
   loadPriorContext,
   buildStaticStream,
@@ -59,7 +60,8 @@ export async function POST(
   let searchContext = "";
   try {
     const { results, attempts } = await searchWeb(queries, { perQueryLimit: 5, totalLimit: 15 });
-    searchContext = formatSearchResults(results, attempts, "WEB STORY SOURCES");
+    const pageTexts = await fetchTopPageTexts(results, 3, 3000);
+    searchContext = formatSearchResults(results, attempts, "WEB STORY SOURCES", pageTexts);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Search failed";
     searchContext = `\n\nWEB STORY SOURCES: Search error (${msg}). Draw on training knowledge and flag any stories you cannot independently verify.`;

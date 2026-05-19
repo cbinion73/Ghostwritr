@@ -4,7 +4,7 @@
 
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
-import { searchWeb, summarizeSearchAttempts } from "@/lib/web-access";
+import { searchWeb, fetchWebPage, summarizeSearchAttempts } from "@/lib/web-access";
 import type { BookWorkflowType, StageKey } from "@prisma/client";
 
 export interface ChatMessage {
@@ -112,12 +112,42 @@ export function buildStoryQueries(
   return queries.slice(0, 4);
 }
 
+// ── Page fetcher: grab full text from top N unique URLs ───────────────────────
+
+export async function fetchTopPageTexts(
+  results: Array<{ url: string; title: string }>,
+  maxPages = 3,
+  maxCharsPerPage = 3000
+): Promise<Array<{ url: string; title: string; text: string }>> {
+  const seen = new Set<string>();
+  const targets = results.filter((r) => {
+    if (seen.has(r.url)) return false;
+    seen.add(r.url);
+    return true;
+  }).slice(0, maxPages);
+
+  const fetched = await Promise.allSettled(
+    targets.map((t) =>
+      fetchWebPage(t.url, { purpose: "Research", minTextLength: 200 }).then((page) => ({
+        url: t.url,
+        title: page.title || t.title,
+        text: page.text.slice(0, maxCharsPerPage),
+      }))
+    )
+  );
+
+  return fetched
+    .filter((r): r is PromiseFulfilledResult<{ url: string; title: string; text: string }> => r.status === "fulfilled")
+    .map((r) => r.value);
+}
+
 // ── Search result formatter ───────────────────────────────────────────────────
 
 export function formatSearchResults(
   results: Array<{ title: string; url: string; snippet?: string | null; query: string }>,
   attemptsObj: Awaited<ReturnType<typeof searchWeb>>["attempts"],
-  label: string
+  label: string,
+  pageTexts: Array<{ url: string; title: string; text: string }> = []
 ): string {
   const attemptSummary = summarizeSearchAttempts(attemptsObj);
   if (results.length === 0) {
@@ -140,7 +170,16 @@ export function formatSearchResults(
     sections.push(`Search: "${query}"\n${lines.join("\n")}`);
   }
 
-  return `\n\n${label} — cite these with their URL when used:\n\n${sections.join("\n\n")}\n\nSearch summary: ${attemptSummary}`;
+  let output = `\n\n${label} — cite these with their URL when used:\n\n${sections.join("\n\n")}\n\nSearch summary: ${attemptSummary}`;
+
+  if (pageTexts.length > 0) {
+    const pageSections = pageTexts.map(
+      (p) => `--- ${p.title}\nURL: ${p.url}\n\n${p.text}`
+    );
+    output += `\n\nFULL PAGE CONTENT (use these for specific facts, quotes, and statistics):\n\n${pageSections.join("\n\n---\n\n")}`;
+  }
+
+  return output;
 }
 
 // ── Prior stage context loader ────────────────────────────────────────────────

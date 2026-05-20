@@ -8,6 +8,7 @@ import type { StageGroup } from "@/lib/ui/stage-tokens";
 import { StageNav } from "./stage-nav";
 import { AgentChatPanel } from "./agent-chat-panel";
 import { ChapterDraftBmadPanel } from "./chapter-draft-bmad-panel";
+import { ScoutResearchPanel } from "./scout-research-panel";
 import { CostPaceBar } from "./cost-pace-bar";
 
 export type WorkspaceStage = {
@@ -128,6 +129,14 @@ export function WorkspaceShell({
                 ? (stages.find((s) => s.key === "SCENE_PLAN")?.committedContent ?? null)
                 : (stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null)
             }
+            bookTitle={bookTitle}
+            onStageAdvance={advanceTo}
+          />
+        ) : selectedStage?.key === "RESEARCH" ? (
+          <ScoutResearchPanel
+            slug={slug}
+            status={selectedStage.status}
+            outlineContent={stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null}
             bookTitle={bookTitle}
             onStageAdvance={advanceTo}
           />

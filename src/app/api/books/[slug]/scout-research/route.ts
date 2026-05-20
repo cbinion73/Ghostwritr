@@ -28,8 +28,14 @@ export async function POST(
   });
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = (await req.json()) as { messages: ChatMessage[]; chapterContext?: string };
-  const { messages, chapterContext } = body;
+  const body = (await req.json()) as {
+    messages: ChatMessage[];
+    chapterContext?: string;
+    // Single-chapter auto-loop mode: focus all searches on one chapter
+    chapterKey?: string;
+    chapterTitle?: string;
+  };
+  const { messages, chapterContext, chapterTitle } = body;
   if (!Array.isArray(messages)) {
     return NextResponse.json({ error: "Missing messages" }, { status: 400 });
   }
@@ -53,8 +59,12 @@ export async function POST(
     ? (book.metadataJson as Record<string, string>) : {};
   const bookSubject = [meta.premise, book.titleWorking].filter(Boolean).join(" ").slice(0, 80);
 
-  const topics = extractChapterTopics(outlineText, book.titleWorking ?? "book");
-  const userFocus = extractUserQueryFocus(messages);
+  // Single-chapter mode: use provided chapterTitle as the sole topic
+  // Multi-chapter / conversational mode: extract topics from outline
+  const topics = chapterTitle
+    ? [chapterTitle]
+    : extractChapterTopics(outlineText, book.titleWorking ?? "book");
+  const userFocus = chapterTitle ? null : extractUserQueryFocus(messages);
   const queries = buildClaimBasedQueries(topics, userFocus, bookSubject);
 
   let searchContext = "";
@@ -73,27 +83,30 @@ export async function POST(
     meta.promise ? `- Core Promise: ${meta.promise}` : "",
   ].filter(Boolean).join("\n");
 
+  const chapterFocusLine = chapterTitle
+    ? `\n- CURRENT CHAPTER TO RESEARCH: "${chapterTitle}" — produce the complete 10-section dossier for THIS chapter only.`
+    : chapterContext ? `\n- Current chapter focus: ${chapterContext}` : "";
+
   const systemContent = `${persona.systemPrompt}
 
 Book context:
 - Title: ${book.titleWorking ?? "(untitled)"}${book.subtitle ? `\n- Subtitle: ${book.subtitle}` : ""}
-${briefLines ? briefLines + "\n" : ""}- Stage: research${chapterContext ? `\n- Current chapter focus: ${chapterContext}` : ""}
+${briefLines ? briefLines + "\n" : ""}- Stage: research${chapterFocusLine}
 
-CONVERSATION MODE:
-Work chapter by chapter. When the author asks you to research a chapter, produce the full 10-section Chapter Research Dossier for that chapter inline in the chat. When the author says "compile the dossier" or "save the dossier" or "produce the artifact", wrap ALL chapter dossiers you have produced into a single ARTIFACT block.
+${chapterTitle ? `AUTO-LOOP MODE: You are being called automatically to research one chapter at a time. Produce the complete 10-section Chapter Research Dossier for "${chapterTitle}" and wrap it in an ARTIFACT block immediately. Do not ask for confirmation or suggest next steps — just produce the dossier.` : `CONVERSATION MODE: Work chapter by chapter. When the author asks you to research a chapter, produce the full 10-section dossier for that chapter. When asked to compile, wrap all dossiers into a single ARTIFACT block.`}
 
 CITATION FORMAT:
 - Cite inline as: (Source: [Title], [URL], Tier [N])
-- If a claim comes from training knowledge and not the web results, label it: (Training knowledge — verify before publishing)
-- Mark unverifiable claims: "Unverified — check before using"
-- Use Tier 1 and Tier 2 sources for core claims. Tier 3 for color only.
+- Training knowledge claims: label as (Training knowledge — verify before publishing)
+- Unverifiable claims: "Unverified — check before using"
+- Prefer Tier 1 and Tier 2 sources for core claims.
 
-ARTIFACT PRODUCTION — when compiling the full dossier:
+ARTIFACT PRODUCTION:
 <ARTIFACT>
-{"type":"RESEARCH","title":"Research Dossier — ${book.titleWorking ?? "Book"}","content":"[all chapter dossiers in 10-section format, one after another]"}
+{"type":"RESEARCH","title":"${chapterTitle ? `Research Dossier: ${chapterTitle}` : `Research Dossier — ${book.titleWorking ?? "Book"}`}","content":"[dossier in 10-section format]"}
 </ARTIFACT>
 
-The web research results below are pre-labelled with source tiers. Prefer Tier 1 and Tier 2 sources for core claims.${priorContext}${sourceDocContext}${searchContext}`;
+The web research results below are pre-labelled with source tiers.${priorContext}${sourceDocContext}${searchContext}`;
 
   const { HumanMessage, SystemMessage, AIMessage } = await import("@langchain/core/messages");
   const langchainMessages = [

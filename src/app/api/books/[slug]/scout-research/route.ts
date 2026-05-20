@@ -9,7 +9,7 @@ import {
   type ChatMessage,
   extractChapterTopics,
   extractUserQueryFocus,
-  buildResearchQueries,
+  buildClaimBasedQueries,
   fetchTopPageTexts,
   formatSearchResults,
   loadPriorContext,
@@ -55,12 +55,12 @@ export async function POST(
 
   const topics = extractChapterTopics(outlineText, book.titleWorking ?? "book");
   const userFocus = extractUserQueryFocus(messages);
-  const queries = buildResearchQueries(topics, userFocus, bookSubject);
+  const queries = buildClaimBasedQueries(topics, userFocus, bookSubject);
 
   let searchContext = "";
   try {
-    const { results, attempts } = await searchWeb(queries, { perQueryLimit: 5, totalLimit: 15 });
-    const pageTexts = await fetchTopPageTexts(results, 3, 3000);
+    const { results, attempts } = await searchWeb(queries, { perQueryLimit: 5, totalLimit: 20 });
+    const pageTexts = await fetchTopPageTexts(results, 6, 4000);
     searchContext = formatSearchResults(results, attempts, "WEB RESEARCH RESULTS", pageTexts);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Search failed";
@@ -77,29 +77,23 @@ export async function POST(
 
 Book context:
 - Title: ${book.titleWorking ?? "(untitled)"}${book.subtitle ? `\n- Subtitle: ${book.subtitle}` : ""}
-${briefLines ? briefLines + "\n" : ""}- You are speaking with the author about Stage: research${chapterContext ? `\n- Current chapter: ${chapterContext}` : ""}
+${briefLines ? briefLines + "\n" : ""}- Stage: research${chapterContext ? `\n- Current chapter focus: ${chapterContext}` : ""}
 
-Always stay in character as ${persona.name}. Be concise. End your response with a question or a clear next step.
+CONVERSATION MODE:
+Work chapter by chapter. When the author asks you to research a chapter, produce the full 10-section Chapter Research Dossier for that chapter inline in the chat. When the author says "compile the dossier" or "save the dossier" or "produce the artifact", wrap ALL chapter dossiers you have produced into a single ARTIFACT block.
 
-PROSE VOICE RULES:
-- No em-dashes (—). Use a comma, colon, semicolon, or period instead.
-- Banned words: "delve", "dive into", "unpack", "explore", "it's important to note", "moreover", "furthermore", "in conclusion", "to summarize", "stands as a testament", "in the realm of", "at its core", "leverage", "utilize", "seamlessly", "robust", "foster", "underscore", "navigate", "game-changing", "groundbreaking".
-- Vary sentence length. Prefer active voice. Write like a smart human who has edited their own work.
+CITATION FORMAT:
+- Cite inline as: (Source: [Title], [URL], Tier [N])
+- If a claim comes from training knowledge and not the web results, label it: (Training knowledge — verify before publishing)
+- Mark unverifiable claims: "Unverified — check before using"
+- Use Tier 1 and Tier 2 sources for core claims. Tier 3 for color only.
 
-RESEARCH AGENT RULES:
-- Every statistic MUST come from the web research results below or verified training knowledge. Label which.
-- Format citations inline: (Source: [Title], [URL])
-- If you cannot verify a claim, say "Unverified — check before using" rather than stating it as fact.
-- When drafting the Research Pack artifact, organize by chapter with 3-5 verified findings per chapter and source citations.
-
-ARTIFACT PRODUCTION:
-When asked to "draft the artifact" or "produce the artifact for this stage":
-
+ARTIFACT PRODUCTION — when compiling the full dossier:
 <ARTIFACT>
-{"type":"RESEARCH","title":"Research Pack","content":"..."}
+{"type":"RESEARCH","title":"Research Dossier — ${book.titleWorking ?? "Book"}","content":"[all chapter dossiers in 10-section format, one after another]"}
 </ARTIFACT>
 
-The "content" field: a comprehensive Research Pack organized by chapter, each with 3-5 key facts/statistics/findings and cited sources.${priorContext}${sourceDocContext}${searchContext}`;
+The web research results below are pre-labelled with source tiers. Prefer Tier 1 and Tier 2 sources for core claims.${priorContext}${sourceDocContext}${searchContext}`;
 
   const { HumanMessage, SystemMessage, AIMessage } = await import("@langchain/core/messages");
   const langchainMessages = [
@@ -117,8 +111,9 @@ The "content" field: a comprehensive Research Pack organized by chapter, each wi
       let completionTokens = 0;
 
       if (queries.length > 0) {
+        const queryList = queries.map((q) => `"${q}"`).join(", ");
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ text: `*Searched: ${queries.map((q) => `"${q}"`).join(", ")}*\n\n` })}\n\n`)
+          encoder.encode(`data: ${JSON.stringify({ text: `*Running ${queries.length} targeted queries across evidence, data, frameworks, and counterpoints: ${queryList}*\n\n` })}\n\n`)
         );
       }
 

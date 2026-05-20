@@ -74,6 +74,7 @@ export function AgentChatPanel({
   useEffect(() => {
     if (
       stageKey !== "BOOK_SETUP" &&
+      stageKey !== "RESEARCH" &&
       status === "IN_PROGRESS" &&
       artifactCount === 0 &&
       !isAutoRunning &&
@@ -486,6 +487,7 @@ export function AgentChatPanel({
             artifact={artifact}
             onCommit={() => void handleCommitArtifact()}
             onDismiss={() => setArtifact(null)}
+            tall={stageKey === "RESEARCH"}
           />
         )}
       </div>
@@ -542,17 +544,19 @@ function ArtifactCard({
   artifact,
   onCommit,
   onDismiss,
+  tall,
 }: {
   artifact: ArtifactDraft;
   onCommit: () => void;
   onDismiss: () => void;
+  tall?: boolean;
 }) {
   return (
     <div style={artifactCardStyle}>
       <div style={artifactHeaderStyle}>
         Artifact ready · {artifact.title}
       </div>
-      <div style={artifactPreviewStyle}>
+      <div style={{ ...artifactPreviewStyle, maxHeight: tall ? "600px" : "320px" }}>
         <MarkdownText text={artifact.content} />
       </div>
       <div style={{ display: "flex", gap: "8px", paddingTop: 4 }}>

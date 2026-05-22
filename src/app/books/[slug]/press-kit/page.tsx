@@ -1,6 +1,12 @@
-import { redirect } from "next/navigation";
+import { getPostProductionWorkspace } from "@/lib/workflows/post-production";
+import { PostProductionPageShell } from "../_post-production/page-shell";
 
-export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = await params;
-  redirect(`/books/${slug}`);
+  const workspace = await getPostProductionWorkspace(slug, "PRESS_KIT");
+  return <PostProductionPageShell workspace={workspace} />;
 }

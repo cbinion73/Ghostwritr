@@ -112,7 +112,7 @@ export async function getModel(
     return new ChatAnthropic({
       model,
       temperature: temperature ?? 0.4,
-      maxTokens: options.maxOutputTokens ?? 4096,
+      maxTokens: options.maxOutputTokens ?? 8192,
       maxRetries,
       // Anthropic SDK uses seconds for some fields and ms for others; LC normalizes.
       // timeout is on the underlying HTTP client.
@@ -151,7 +151,7 @@ export async function getModel(
     return new ChatGoogleGenerativeAI({
       model,
       temperature: temperature ?? 0.4,
-      maxOutputTokens: options.maxOutputTokens ?? 4096,
+      maxOutputTokens: options.maxOutputTokens ?? 8192,
       maxRetries,
     }) as unknown as BaseChatModel;
   }

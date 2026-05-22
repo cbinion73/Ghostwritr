@@ -35,8 +35,16 @@ enum StageKey {
   RESEARCH
   EXTERNAL_STORIES
   PERSONAL_STORIES
+  MANIFEST
   CHAPTER_DRAFT
   EDITING
+  TYPESET
+  LAUNCH_LISTING
+  PRESS_KIT
+  SOCIAL_CAMPAIGN
+  AUDIO_PREP
+  COURSE_DESIGN
+  SPEAKING_KIT
 }
 
 enum StageStatus {
@@ -74,6 +82,7 @@ enum ArtifactType {
   EXTERNAL_STORY_PACK
   PERSONAL_STORY_CHAT
   PERSONAL_STORY_ENCYCLOPEDIA
+  CHAPTER_MANIFEST
   CHAPTER_DRAFT
   EDITORIAL_REVIEW
   AI_VOICE_REVIEW
@@ -82,6 +91,13 @@ enum ArtifactType {
   MANUSCRIPT_ASSEMBLY
   LENGTH_ADJUSTMENT
   PUBLISHING_PACKAGE
+  TYPESET_PACKAGE
+  LAUNCH_LISTING_PACKAGE
+  PRESS_KIT_PACKAGE
+  SOCIAL_CAMPAIGN_PACKAGE
+  AUDIO_PREP_PACKAGE
+  COURSE_DESIGN_PACKAGE
+  SPEAKING_KIT_PACKAGE
   MARKETING_HANDOFF_PACKAGE
   PROVENANCE_REPORT
 }
@@ -747,6 +763,24 @@ model ExternalStoryVerification {
   @@index([sourceRecordId])
   @@index([externalStoryId])
   @@index([status, verifierType])
+}
+
+model LLMCallLog {
+  id               String   @id @default(uuid()) @db.Uuid
+  bookId           String   @db.Uuid
+  workflowRunId    String?  @db.Uuid
+  stageRole        String
+  provider         String
+  model            String
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  costUsd          Decimal  @db.Decimal(10, 6)
+  durationMs       Int
+  createdAt        DateTime @default(now())
+
+  @@index([bookId, createdAt])
+  @@index([bookId, stageRole])
 }
 
 /// Author Profile - Persistent author information across books

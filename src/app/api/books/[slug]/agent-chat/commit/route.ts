@@ -3,6 +3,7 @@ import type { StageKey } from "@prisma/client";
 import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { notifyStageCommitted, triggerPreLaunch, syncBookToJarvis, notifyPostProductionCommitted } from "@/lib/jarvis/client";
 
 interface ArtifactDraft {
   type: string;
@@ -17,23 +18,34 @@ interface CommitBody {
 
 // Map stage key to a reasonable ArtifactType, falling back to BOOK_SETUP_PROFILE
 const STAGE_ARTIFACT_TYPE: Partial<Record<StageKey, ArtifactType>> = {
-  BOOK_SETUP: ArtifactType.BOOK_SETUP_PROFILE,
-  PROMISE: ArtifactType.PROMISE_BRIEF,
-  AUDIENCE: ArtifactType.AUDIENCE_RESEARCH,
-  MARKET_ANALYSIS: ArtifactType.MARKET_REPORT,
-  STORY_SETUP: ArtifactType.STORY_SETUP_PROFILE,
-  STORY_CORE: ArtifactType.STORY_CORE_BIBLE,
-  WORLD_CAST: ArtifactType.WORLD_CAST_BIBLE,
-  PLOT_BLUEPRINT: ArtifactType.FICTION_PLOT_BLUEPRINT,
-  SCENE_PLAN: ArtifactType.FICTION_SCENE_PLAN,
-  FICTION_DRAFT: ArtifactType.FICTION_DRAFT_MANUSCRIPT,
-  OUTLINE: ArtifactType.OUTLINE,
-  BASE_STORY: ArtifactType.BASE_STORY,
-  RESEARCH: ArtifactType.RESEARCH_PACK,
+  // Nonfiction core
+  BOOK_SETUP:       ArtifactType.BOOK_SETUP_PROFILE,
+  PROMISE:          ArtifactType.PROMISE_BRIEF,
+  AUDIENCE:         ArtifactType.AUDIENCE_RESEARCH,
+  MARKET_ANALYSIS:  ArtifactType.MARKET_REPORT,
+  OUTLINE:          ArtifactType.OUTLINE,
+  BASE_STORY:       ArtifactType.BASE_STORY,
+  RESEARCH:         ArtifactType.RESEARCH_PACK,
   EXTERNAL_STORIES: ArtifactType.EXTERNAL_STORY_PACK,
   PERSONAL_STORIES: ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
-  CHAPTER_DRAFT: ArtifactType.CHAPTER_DRAFT,
-  EDITING: ArtifactType.EDITORIAL_ASSESSMENT,
+  MANIFEST:         ArtifactType.CHAPTER_MANIFEST,
+  CHAPTER_DRAFT:    ArtifactType.CHAPTER_DRAFT,
+  EDITING:          ArtifactType.EDITORIAL_ASSESSMENT,
+  TYPESET:          ArtifactType.TYPESET_PACKAGE,
+  // Post-production
+  LAUNCH_LISTING:   ArtifactType.LAUNCH_LISTING_PACKAGE,
+  PRESS_KIT:        ArtifactType.PRESS_KIT_PACKAGE,
+  SOCIAL_CAMPAIGN:  ArtifactType.SOCIAL_CAMPAIGN_PACKAGE,
+  AUDIO_PREP:       ArtifactType.AUDIO_PREP_PACKAGE,
+  COURSE_DESIGN:    ArtifactType.COURSE_DESIGN_PACKAGE,
+  SPEAKING_KIT:     ArtifactType.SPEAKING_KIT_PACKAGE,
+  // Fiction
+  STORY_SETUP:      ArtifactType.STORY_SETUP_PROFILE,
+  STORY_CORE:       ArtifactType.STORY_CORE_BIBLE,
+  WORLD_CAST:       ArtifactType.WORLD_CAST_BIBLE,
+  PLOT_BLUEPRINT:   ArtifactType.FICTION_PLOT_BLUEPRINT,
+  SCENE_PLAN:       ArtifactType.FICTION_SCENE_PLAN,
+  FICTION_DRAFT:    ArtifactType.FICTION_DRAFT_MANUSCRIPT,
 };
 
 export async function POST(
@@ -44,7 +56,7 @@ export async function POST(
 
   const book = await db.book.findUnique({
     where: { slug },
-    select: { id: true, workflowType: true },
+    select: { id: true, workflowType: true, titleWorking: true },
   });
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
@@ -130,6 +142,39 @@ export async function POST(
         create: { bookId: book.id, stageKey: nextStageKey, status: StageStatus.IN_PROGRESS },
       });
     }
+
+    // ── JARVIS integration — fire and forget, never blocks the response ──────
+    const bookTitle = book.titleWorking ?? slug;
+    notifyStageCommitted({ slug, stageKey, bookTitle });
+
+    if (stageKey === "EDITING") {
+      // Writing is complete — trigger JARVIS pre-launch marketing prep
+      triggerPreLaunch({ slug, bookTitle });
+    }
+    if (stageKey === "BOOK_SETUP") {
+      // New book created — sync to JARVIS idea inbox
+      syncBookToJarvis({ slug, title: bookTitle });
+    }
+
+    // Post-production stages — send committed artifact content to JARVIS
+    const POST_PRODUCTION_AGENTS: Partial<Record<string, string>> = {
+      LAUNCH_LISTING:  "Marquee",
+      PRESS_KIT:       "Bureau",
+      SOCIAL_CAMPAIGN: "Dispatch",
+      AUDIO_PREP:      "Studio",
+      COURSE_DESIGN:   "Podium",
+      SPEAKING_KIT:    "Lectern",
+    };
+    if (stageKey in POST_PRODUCTION_AGENTS) {
+      notifyPostProductionCommitted({
+        slug,
+        bookTitle,
+        stageKey,
+        agentName: POST_PRODUCTION_AGENTS[stageKey] ?? stageKey,
+        artifactContent: artifact.content,
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     return NextResponse.json({ success: true, stageStatus: "COMMITTED", nextStageKey: nextStageKey ?? null });
   } catch (err) {

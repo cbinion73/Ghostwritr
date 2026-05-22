@@ -25,8 +25,8 @@ export default async function BookWorkspacePage({
   const isFiction = spine.book.workflowType === BookWorkflowType.FICTION;
   const tokens = isFiction ? FICTION_STAGE_TOKENS : STAGE_TOKENS;
   const groupKeys: StageGroup[] = isFiction
-    ? ["setup", "story-architecture", "production"]
-    : ["setup", "material", "production"];
+    ? ["setup", "story-architecture", "production", "post-production"]
+    : ["setup", "material", "production", "post-production"];
 
   const stageByKey = new Map(spine.stages.map((s) => [s.stageKey, s]));
 
@@ -78,7 +78,12 @@ export default async function BookWorkspacePage({
   const totalCommitted = stages.filter((s) => s.status === "COMMITTED").length;
   const totalArtifacts = stages.reduce((sum, s) => sum + s.artifactCount, 0);
 
+  // Default to Chapter Draft (or Fiction Draft) as the primary workspace view.
+  // Fall back to the active/next-unlocked stage only if drafting hasn't started.
+  const draftStageKey = isFiction ? "FICTION_DRAFT" : "CHAPTER_DRAFT";
+  const draftStage = stages.find((s) => s.key === draftStageKey);
   const defaultStage =
+    (draftStage && !draftStage.locked ? draftStage : null) ??
     stages.find((s) => s.status === "IN_PROGRESS" || s.status === "READY_FOR_REVIEW") ??
     stages.find((s) => !s.locked) ??
     stages[0];

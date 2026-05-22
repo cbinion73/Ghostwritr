@@ -351,6 +351,114 @@ export async function loadPriorContext(
   return { priorContext, outlineText, sourceDocContext };
 }
 
+// ── Chapter-focused context loader (auto-loop mode) ───────────────────────────
+//
+// Instead of dumping all prior committed stages (~100k tokens), this extracts
+// only what a single-chapter dossier call needs:
+//   - The outline section for that specific chapter (~500–1 500 tokens)
+//   - User-uploaded source docs, capped at 6 000 chars total (~1 500 tokens)
+//
+// Combined with the system prompt + web search results, total input stays under
+// ~20k tokens per chapter call instead of ~110k.
+
+/**
+ * Find and return the outline section that covers `chapterTitle`.
+ * Matches by looking for a heading line that contains the title text (case-
+ * insensitive), then extracts content until the next chapter-level heading.
+ * Returns up to `maxChars` characters.
+ */
+function extractChapterSection(outlineText: string, chapterTitle: string, maxChars = 3000): string {
+  if (!outlineText || !chapterTitle) return "";
+
+  const lines = outlineText.split("\n");
+  const titleLower = chapterTitle.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+
+  // Find the line index whose text contains the chapter title
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLower = lines[i].toLowerCase().replace(/[^a-z0-9\s]/g, "");
+    if (lineLower.includes(titleLower) || titleLower.includes(lineLower.replace(/^chapter\s+\d+\s*/i, "").trim())) {
+      startIdx = i;
+      break;
+    }
+  }
+
+  if (startIdx === -1) {
+    // Fallback: couldn't find the chapter — return a short excerpt near the title
+    const idx = outlineText.toLowerCase().indexOf(titleLower.slice(0, 20));
+    if (idx === -1) return `Chapter: ${chapterTitle}`;
+    return outlineText.slice(Math.max(0, idx - 100), idx + maxChars);
+  }
+
+  // Find the next chapter-level heading after startIdx
+  const chapterHeadingRe = /^(#{1,3}\s+|(?:chapter\s+\d+|\d+[.:]))/i;
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (chapterHeadingRe.test(lines[i].trim()) && lines[i].trim().length > 3) {
+      endIdx = i;
+      break;
+    }
+  }
+
+  const section = lines.slice(startIdx, endIdx).join("\n").trim();
+  return section.slice(0, maxChars);
+}
+
+/**
+ * Lightweight context load for auto-loop chapter calls.
+ * Returns only the outline section for `chapterTitle` and truncated source docs.
+ */
+export async function loadChapterFocusedContext(
+  bookId: string,
+  chapterTitle: string,
+): Promise<{ chapterOutlineSection: string; sourceDocContext: string }> {
+  // Load the committed OUTLINE artifact
+  const outlineStage = await db.bookStage.findFirst({
+    where: {
+      bookId,
+      stageKey: "OUTLINE",
+      status: { in: ["COMMITTED", "READY_FOR_REVIEW"] },
+    },
+    select: {
+      artifacts: {
+        select: {
+          versions: {
+            select: { contentText: true },
+            orderBy: { versionNumber: "desc" },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  const fullOutline = outlineStage?.artifacts[0]?.versions[0]?.contentText ?? "";
+  const chapterOutlineSection = extractChapterSection(fullOutline, chapterTitle);
+
+  // User-uploaded source docs — cap total at 6 000 chars to stay lean
+  const sourceDocs = await db.sourceDocument.findMany({
+    where: { bookId, category: "USER_UPLOAD" },
+    select: { title: true, extractedText: true },
+  });
+
+  let sourceDocContext = "";
+  let docBudget = 6000;
+  const docSections: string[] = [];
+  for (const doc of sourceDocs) {
+    if (!doc.extractedText || docBudget <= 0) break;
+    const excerpt = doc.extractedText.slice(0, Math.min(docBudget, 3000));
+    docSections.push(`=== ${doc.title} ===\n${excerpt}`);
+    docBudget -= excerpt.length;
+  }
+  if (docSections.length > 0) {
+    sourceDocContext = `\n\nAUTHOR SOURCE DOCUMENTS (excerpts):\n\n${docSections.join("\n\n")}`;
+  }
+
+  return { chapterOutlineSection, sourceDocContext };
+}
+
 // ── Static SSE stream ─────────────────────────────────────────────────────────
 
 export function buildStaticStream(text: string): ReadableStream {

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import type { StageKey } from "@prisma/client";
 import type { StageGroup } from "@/lib/ui/stage-tokens";
 import { STAGE_STATE_DISPLAY, GROUP_COLORS } from "@/lib/ui/stage-tokens";
@@ -16,6 +18,7 @@ interface StageNavProps {
 }
 
 export function StageNav({
+  slug,
   title,
   subtitle,
   items,
@@ -23,11 +26,89 @@ export function StageNav({
   selectedKey,
   onSelect,
 }: StageNavProps) {
+  const router = useRouter();
+
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingSubtitle, setEditingSubtitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(title);
+  const [subtitleDraft, setSubtitleDraft] = useState(subtitle ?? "");
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const subtitleInputRef = useRef<HTMLInputElement>(null);
+
+  const saveTitle = async () => {
+    setEditingTitle(false);
+    const trimmed = titleDraft.trim();
+    if (!trimmed || trimmed === title) return;
+    await fetch(`/api/books/${slug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ titleWorking: trimmed }),
+    });
+    router.refresh();
+  };
+
+  const saveSubtitle = async () => {
+    setEditingSubtitle(false);
+    const trimmed = subtitleDraft.trim();
+    if (trimmed === (subtitle ?? "")) return;
+    await fetch(`/api/books/${slug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subtitle: trimmed }),
+    });
+    router.refresh();
+  };
+
   return (
     <aside style={navStyle}>
+      {/* Book title — click to edit */}
       <div style={bookTitleStyle}>
-        <div style={bookNameStyle}>{title}</div>
-        {subtitle && <div style={bookSubtitleStyle}>{subtitle}</div>}
+        {editingTitle ? (
+          <input
+            ref={titleInputRef}
+            style={titleInputStyle}
+            value={titleDraft}
+            autoFocus
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => void saveTitle()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); void saveTitle(); }
+              if (e.key === "Escape") { setTitleDraft(title); setEditingTitle(false); }
+            }}
+          />
+        ) : (
+          <div
+            style={bookNameStyle}
+            onClick={() => { setTitleDraft(title); setEditingTitle(true); }}
+            title="Click to edit title"
+          >
+            {title}
+          </div>
+        )}
+
+        {editingSubtitle ? (
+          <input
+            ref={subtitleInputRef}
+            style={subtitleInputStyle}
+            value={subtitleDraft}
+            autoFocus
+            placeholder="Add subtitle…"
+            onChange={(e) => setSubtitleDraft(e.target.value)}
+            onBlur={() => void saveSubtitle()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); void saveSubtitle(); }
+              if (e.key === "Escape") { setSubtitleDraft(subtitle ?? ""); setEditingSubtitle(false); }
+            }}
+          />
+        ) : (
+          <div
+            style={{ ...bookSubtitleStyle, opacity: subtitle ? 1 : 0.3 }}
+            onClick={() => { setSubtitleDraft(subtitle ?? ""); setEditingSubtitle(true); }}
+            title="Click to edit subtitle"
+          >
+            {subtitle || "Add subtitle…"}
+          </div>
+        )}
       </div>
 
       <div style={stagesStyle}>
@@ -97,6 +178,11 @@ const bookNameStyle: React.CSSProperties = {
   fontWeight: 600,
   color: "#d4c4b0",
   lineHeight: 1.3,
+  cursor: "text",
+  borderRadius: 3,
+  padding: "2px 4px",
+  margin: "-2px -4px",
+  transition: "background 120ms",
 };
 
 const bookSubtitleStyle: React.CSSProperties = {
@@ -104,6 +190,39 @@ const bookSubtitleStyle: React.CSSProperties = {
   color: "#6b5a4e",
   marginTop: 3,
   lineHeight: 1.3,
+  cursor: "text",
+  borderRadius: 3,
+  padding: "2px 4px",
+  margin: "3px -4px 0",
+  transition: "background 120ms",
+};
+
+const titleInputStyle: React.CSSProperties = {
+  width: "100%",
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,255,255,0.15)",
+  borderRadius: 4,
+  color: "#d4c4b0",
+  fontSize: "13px",
+  fontWeight: 600,
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  padding: "3px 6px",
+  outline: "none",
+  lineHeight: 1.3,
+};
+
+const subtitleInputStyle: React.CSSProperties = {
+  width: "100%",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 4,
+  color: "#8a7a6a",
+  fontSize: "11px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  padding: "3px 6px",
+  outline: "none",
+  lineHeight: 1.3,
+  marginTop: 4,
 };
 
 const stagesStyle: React.CSSProperties = {

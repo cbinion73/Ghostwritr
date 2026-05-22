@@ -2,6 +2,7 @@ import type { BookSetupProfile } from "../book-setup-types";
 import { DEFAULT_BOOK_SETUP_PROFILE } from "../book-setup-types";
 import { parseStoredJson } from "../json-utils";
 import { StageKey } from "@prisma/client";
+import { db } from "../db";
 import { getOrCreateBookBySlug, getStageForBook } from "../repositories/books";
 import {
   commitBookSetup,
@@ -61,6 +62,27 @@ export async function commitBookSetupWorkflow(bookSlug: string) {
       targetPageCount: committedProfile.targetPageCount,
       outputFormats: committedProfile.outputFormats,
       baseStoryFormatPreference: committedProfile.baseStoryFormatPreference,
+    },
+  });
+
+  // Propagate drafting-context fields to Book.metadataJson so all downstream
+  // agents (Quill, Scout, Chronicle) can access them via book.metadataJson.
+  const existingMeta = (book.metadataJson && typeof book.metadataJson === "object"
+    ? book.metadataJson
+    : {}) as Record<string, unknown>;
+  await db.book.update({
+    where: { id: book.id },
+    data: {
+      metadataJson: {
+        ...existingMeta,
+        ...(committedProfile.voiceTone != null && { voiceTone: committedProfile.voiceTone }),
+        ...(committedProfile.chapterFormat != null && { chapterFormat: committedProfile.chapterFormat }),
+        ...(committedProfile.readerLevel != null && { readerLevel: committedProfile.readerLevel }),
+        ...(committedProfile.voiceReferenceNotes?.length && { voiceReferenceNotes: committedProfile.voiceReferenceNotes }),
+        ...(committedProfile.writerPersonaBlend?.length && { writerPersonaBlend: committedProfile.writerPersonaBlend }),
+        targetWordCount: committedProfile.targetWordCount,
+        ...(committedProfile.targetPageCount != null && { targetPageCount: committedProfile.targetPageCount }),
+      },
     },
   });
 

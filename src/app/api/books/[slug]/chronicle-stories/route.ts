@@ -13,6 +13,7 @@ import {
   fetchTopPageTexts,
   formatSearchResults,
   loadPriorContext,
+  loadChapterFocusedContext,
   buildStaticStream,
 } from "../_research-helpers";
 
@@ -28,8 +29,14 @@ export async function POST(
   });
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = (await req.json()) as { messages: ChatMessage[]; chapterContext?: string };
-  const { messages, chapterContext } = body;
+  const body = (await req.json()) as {
+    messages: ChatMessage[];
+    chapterContext?: string;
+    // Single-chapter auto-loop mode
+    chapterKey?: string;
+    chapterTitle?: string;
+  };
+  const { messages, chapterContext, chapterTitle } = body;
   if (!Array.isArray(messages)) {
     return NextResponse.json({ error: "Missing messages" }, { status: 400 });
   }
@@ -45,22 +52,40 @@ export async function POST(
     );
   }
 
-  const { priorContext, outlineText, sourceDocContext } = await loadPriorContext(
-    book.id, book.workflowType, stageKey
-  );
-
   const meta = book.metadataJson && typeof book.metadataJson === "object"
     ? (book.metadataJson as Record<string, string>) : {};
   const bookSubject = [meta.premise, book.titleWorking].filter(Boolean).join(" ").slice(0, 80);
 
-  const topics = extractChapterTopics(outlineText, book.titleWorking ?? "book");
-  const userFocus = extractUserQueryFocus(messages);
+  // Auto-loop (single chapter): use lean focused context — outline section only, no full prior stages
+  // Conversation mode: load all prior committed stages as context
+  let priorContext = "";
+  let outlineText = "";
+  let sourceDocContext = "";
+
+  if (chapterTitle) {
+    const focused = await loadChapterFocusedContext(book.id, chapterTitle);
+    outlineText = focused.chapterOutlineSection;
+    sourceDocContext = focused.sourceDocContext;
+    if (focused.chapterOutlineSection) {
+      priorContext = `\n\nOUTLINE SECTION FOR THIS CHAPTER:\n${focused.chapterOutlineSection}`;
+    }
+  } else {
+    ({ priorContext, outlineText, sourceDocContext } = await loadPriorContext(
+      book.id, book.workflowType, stageKey
+    ));
+  }
+
+  // Single-chapter mode: focus all searches on the specified chapter
+  const topics = chapterTitle
+    ? [chapterTitle]
+    : extractChapterTopics(outlineText, book.titleWorking ?? "book");
+  const userFocus = chapterTitle ? null : extractUserQueryFocus(messages);
   const queries = buildStoryQueries(topics, userFocus, bookSubject);
 
   let searchContext = "";
   try {
-    const { results, attempts } = await searchWeb(queries, { perQueryLimit: 5, totalLimit: 15 });
-    const pageTexts = await fetchTopPageTexts(results, 3, 3000);
+    const { results, attempts } = await searchWeb(queries, { perQueryLimit: 5, totalLimit: 20 });
+    const pageTexts = await fetchTopPageTexts(results, 6, 4000);
     searchContext = formatSearchResults(results, attempts, "WEB STORY SOURCES", pageTexts);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Search failed";
@@ -73,34 +98,32 @@ export async function POST(
     meta.promise ? `- Core Promise: ${meta.promise}` : "",
   ].filter(Boolean).join("\n");
 
+  const chapterFocusLine = chapterTitle
+    ? `\n- CURRENT CHAPTER: "${chapterTitle}" — produce the complete 10-section Chronicle Dossier for THIS chapter only.`
+    : chapterContext ? `\n- Current chapter: ${chapterContext}` : "";
+
   const systemContent = `${persona.systemPrompt}
 
 Book context:
 - Title: ${book.titleWorking ?? "(untitled)"}${book.subtitle ? `\n- Subtitle: ${book.subtitle}` : ""}
-${briefLines ? briefLines + "\n" : ""}- You are speaking with the author about Stage: external stories${chapterContext ? `\n- Current chapter: ${chapterContext}` : ""}
+${briefLines ? briefLines + "\n" : ""}- Stage: external stories${chapterFocusLine}
 
-Always stay in character as ${persona.name}. Be concise. End your response with a question or a clear next step.
+${chapterTitle
+    ? `AUTO-LOOP MODE: You are being called automatically to research stories for one chapter at a time. Produce the complete 10-section Chronicle Dossier for "${chapterTitle}" and wrap it in an ARTIFACT block immediately. Do not ask for confirmation or suggest next steps — just produce the dossier.`
+    : `CONVERSATION MODE: Work chapter by chapter. When the author asks about a chapter, produce the full 10-section Chronicle Dossier for that chapter. When asked to compile, wrap all dossiers into a single ARTIFACT block.`}
 
-PROSE VOICE RULES:
-- No em-dashes (—). Use a comma, colon, semicolon, or period instead.
-- Banned words: "delve", "dive into", "unpack", "explore", "it's important to note", "moreover", "furthermore", "in conclusion", "to summarize", "stands as a testament", "in the realm of", "at its core", "leverage", "utilize", "seamlessly", "robust", "foster", "underscore", "navigate", "game-changing", "groundbreaking".
-- Vary sentence length. Prefer active voice. Write like a smart human who has edited their own work.
-
-STORY CURATOR RULES:
-- Draw on the web story sources below. Name real people, companies, or events — no composites or generics.
-- For every illustrative story, pair it with a counter-example that tests the chapter argument.
-- Cite the source URL for any story drawn from the search results.
-- If a story cannot be verified, label it "Training knowledge — verify before publishing."
-- Stories earn their place. Each one must directly illustrate the chapter's core argument, not decorate it.
+VERIFICATION FORMAT:
+- Stories drawn from web sources: cite as (Source: [Title], [URL], Tier [N])
+- Stories from training knowledge: label as (Training knowledge — verify before publishing)
+- Unverifiable stories: label as "Unverified — do not use without independent confirmation"
+- Prefer Tier 1 and Tier 2 sources. Tier 3 for color only.
 
 ARTIFACT PRODUCTION:
-When asked to "draft the artifact" or "produce the artifact for this stage":
-
 <ARTIFACT>
-{"type":"EXTERNAL_STORIES","title":"External Story Pack","content":"..."}
+{"type":"EXTERNAL_STORIES","title":"${chapterTitle ? `Chronicle Dossier: ${chapterTitle}` : `Chronicle Dossier — ${book.titleWorking ?? "Book"}`}","content":"[full 10-section dossier]"}
 </ARTIFACT>
 
-The "content" field: an External Story Pack organized by chapter. For each chapter: 2-3 real-world case studies or anecdotes (named people, companies, events) that illustrate the chapter argument, plus one counter-example that tests it. Include source citations where available.${priorContext}${sourceDocContext}${searchContext}`;
+The web story sources below are pre-labelled with quality tiers. Prefer attributable, publicly verifiable stories.${priorContext}${sourceDocContext}${searchContext}`;
 
   const { HumanMessage, SystemMessage, AIMessage } = await import("@langchain/core/messages");
   const langchainMessages = [
@@ -119,7 +142,7 @@ The "content" field: an External Story Pack organized by chapter. For each chapt
 
       if (queries.length > 0) {
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ text: `*Searched: ${queries.map((q) => `"${q}"`).join(", ")}*\n\n` })}\n\n`)
+          encoder.encode(`data: ${JSON.stringify({ text: `*Searching for stories: ${queries.map((q) => `"${q}"`).join(", ")}*\n\n` })}\n\n`)
         );
       }
 
@@ -145,7 +168,7 @@ The "content" field: an External Story Pack organized by chapter. For each chapt
       } finally {
         controller.close();
         if (promptTokens > 0 || completionTokens > 0) {
-          void logLLMCall({ bookId: book.id, stageRole: persona.stageRole, provider: modelSpec.provider, model: modelSpec.model, promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
+          void logLLMCall({ bookId: book.id, bookSlug: slug, bookTitle: book.titleWorking ?? undefined, stageKey: "EXTERNAL_STORIES", stageRole: persona.stageRole, provider: modelSpec.provider, model: modelSpec.model, promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
         }
       }
     },

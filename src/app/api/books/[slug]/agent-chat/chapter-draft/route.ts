@@ -115,3 +115,46 @@ export async function POST(
 
   return NextResponse.json({ success: true, artifactId: artifact.id });
 }
+
+// PATCH — update an existing chapter draft with new content
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ slug: string }> },
+) {
+  const { slug } = await params;
+  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+
+  const body = await req.json() as { artifactId: string; content: string; chapterTitle?: string };
+  const { artifactId, content } = body;
+  if (!artifactId || !content) {
+    return NextResponse.json({ error: "Missing artifactId or content" }, { status: 400 });
+  }
+
+  // Find the artifact and its latest version number
+  const artifact = await db.artifact.findFirst({
+    where: { id: artifactId, bookId: book.id },
+    select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
+  });
+  if (!artifact) return NextResponse.json({ error: "Artifact not found" }, { status: 404 });
+
+  const nextVersion = (artifact.versions[0]?.versionNumber ?? 0) + 1;
+
+  const version = await db.artifactVersion.create({
+    data: {
+      artifactId: artifact.id,
+      versionNumber: nextVersion,
+      lifecycleState: "REVIEW_READY",
+      contentJson: { text: content },
+      contentText: content,
+      createdByType: ActorType.USER, // edited by author
+    },
+  });
+
+  await db.artifact.update({
+    where: { id: artifact.id },
+    data: { currentVersionId: version.id, status: "REVIEW_READY" },
+  });
+
+  return NextResponse.json({ success: true, versionNumber: nextVersion });
+}

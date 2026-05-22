@@ -4,11 +4,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { StageKey, StageStatus } from "@prisma/client";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+type ChapterStatus = "pending" | "sourcing" | "done" | "error";
 
-type ChapterStatus = "pending" | "researching" | "done" | "error";
-
-interface ResearchChapter {
+interface StoryChapter {
   key: string;
   title: string;
   excerpt: string;
@@ -18,7 +16,7 @@ interface ResearchChapter {
   errorMsg?: string;
 }
 
-interface ScoutResearchPanelProps {
+interface ChronicleStoriesPanelProps {
   slug: string;
   status: StageStatus;
   outlineContent: string | null;
@@ -26,7 +24,7 @@ interface ScoutResearchPanelProps {
   onStageAdvance?: (key: StageKey) => void;
 }
 
-// ── Outline parser (same logic as chapter-draft-bmad-panel) ──────────────────
+// ── Outline parser (shared logic) ────────────────────────────────────────────
 
 function parseChaptersFromOutline(outline: string): Array<{ title: string; excerpt: string }> {
   if (!outline.trim()) return [];
@@ -75,15 +73,15 @@ function parseChaptersFromOutline(outline: string): Array<{ title: string; excer
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ScoutResearchPanel({
+export function ChronicleStoriesPanel({
   slug,
   status,
   outlineContent,
   bookTitle,
   onStageAdvance,
-}: ScoutResearchPanelProps) {
+}: ChronicleStoriesPanelProps) {
   const router = useRouter();
-  const [chapters, setChapters] = useState<ResearchChapter[]>([]);
+  const [chapters, setChapters] = useState<StoryChapter[]>([]);
   const [currentIdx, setCurrentIdx] = useState<number | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -95,59 +93,45 @@ export function ScoutResearchPanel({
 
   // ── Init: parse outline + restore saved progress ──────────────────────────
   useEffect(() => {
-    if (!outlineContent) {
-      setNoOutline(true);
-      return;
-    }
-
+    if (!outlineContent) { setNoOutline(true); return; }
     const parsed = parseChaptersFromOutline(outlineContent);
-    if (parsed.length === 0) {
-      setNoOutline(true);
-      return;
-    }
+    if (parsed.length === 0) { setNoOutline(true); return; }
 
-    const initial: ResearchChapter[] = parsed.map((ch, i) => ({
+    const initial: StoryChapter[] = parsed.map((ch, i) => ({
       key: `ch-${i + 1}`,
       title: ch.title,
       excerpt: ch.excerpt,
       status: "pending",
     }));
 
-    // Fetch any previously saved chapter dossiers
-    fetch(`/api/books/${slug}/scout-research/save-chapter`)
+    fetch(`/api/books/${slug}/chronicle-stories/save-chapter`)
       .then((r) => r.json())
       .then((data: { chapters: Array<{ chapterKey: string; chapterTitle: string; content: string; artifactId: string }> }) => {
         const byKey = new Map(data.chapters.map((c) => [c.chapterKey, c]));
         const merged = initial.map((ch) => {
           const saved = byKey.get(ch.key);
-          if (saved) {
-            return { ...ch, status: "done" as ChapterStatus, content: saved.content, artifactId: saved.artifactId };
-          }
+          if (saved) return { ...ch, status: "done" as ChapterStatus, content: saved.content, artifactId: saved.artifactId };
           return ch;
         });
         setChapters(merged);
-        const doneCount = merged.filter((c) => c.status === "done").length;
-        if (doneCount === merged.length) setAllDone(true);
+        if (merged.every((c) => c.status === "done")) setAllDone(true);
       })
       .catch(() => setChapters(initial));
   }, [slug, outlineContent]);
 
-  // ── Auto-start loop when chapters are loaded ──────────────────────────────
+  // ── Auto-start loop ───────────────────────────────────────────────────────
   useEffect(() => {
     if (chapters.length === 0 || isRunning || runningRef.current || allDone) return;
     const firstPending = chapters.findIndex((c) => c.status === "pending");
-    if (firstPending === -1) {
-      setAllDone(true);
-      return;
-    }
+    if (firstPending === -1) { setAllDone(true); return; }
     runningRef.current = true;
     setIsRunning(true);
     void runLoop(chapters, firstPending);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapters.length]);
 
-  // ── Research loop ─────────────────────────────────────────────────────────
-  const runLoop = useCallback(async (initialChapters: ResearchChapter[], startIdx: number) => {
+  // ── Story sourcing loop ───────────────────────────────────────────────────
+  const runLoop = useCallback(async (initialChapters: StoryChapter[], startIdx: number) => {
     let current = initialChapters;
 
     for (let i = startIdx; i < current.length; i++) {
@@ -157,28 +141,23 @@ export function ScoutResearchPanel({
       setCurrentIdx(i);
       setStreamingText("");
 
-      // Mark as researching
-      current = current.map((c, idx) =>
-        idx === i ? { ...c, status: "researching" } : c
-      );
+      current = current.map((c, idx) => idx === i ? { ...c, status: "sourcing" } : c);
       setChapters([...current]);
 
       try {
         const abort = new AbortController();
         abortRef.current = abort;
 
-        const res = await fetch(`/api/books/${slug}/scout-research`, {
+        const res = await fetch(`/api/books/${slug}/chronicle-stories`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chapterKey: chapter.key,
             chapterTitle: chapter.title,
-            messages: [
-              {
-                role: "user",
-                content: `Research chapter: "${chapter.title}". Produce the complete 10-section Chapter Research Dossier for this chapter. Wrap the dossier in an ARTIFACT block.`,
-              },
-            ],
+            messages: [{
+              role: "user",
+              content: `Source stories for chapter: "${chapter.title}". Produce the complete 10-section Chronicle Dossier for this chapter. Wrap the dossier in an ARTIFACT block.`,
+            }],
           }),
           signal: abort.signal,
         });
@@ -199,23 +178,23 @@ export function ScoutResearchPanel({
             try {
               const { text: t } = JSON.parse(raw) as { text: string };
               accumulated += t;
-              const display = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-              setStreamingText(display);
+              setStreamingText(accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim());
             } catch { /* skip */ }
           }
         }
 
-        // Extract ARTIFACT block (with fallback if model skipped the wrapper)
         const artStart = accumulated.indexOf("<ARTIFACT>");
         const artEnd = accumulated.indexOf("</ARTIFACT>");
 
         let artifact: { type: string; title: string; content: string };
 
         if (artStart !== -1 && artEnd !== -1) {
+          // Happy path: model produced a well-formed ARTIFACT block
           const rawArtifact = accumulated.slice(artStart + 10, artEnd).trim();
           try {
             artifact = JSON.parse(rawArtifact) as { type: string; title: string; content: string };
           } catch {
+            // LLM put literal newlines inside the JSON string — extract with regex
             const titleMatch = rawArtifact.match(/"title"\s*:\s*"((?:[^"\\]|\\.)*)"/);
             const contentStart = rawArtifact.indexOf('"content"');
             let content = "";
@@ -224,33 +203,29 @@ export function ScoutResearchPanel({
               content = afterKey.replace(/"\s*}\s*$/, "");
             }
             artifact = {
-              type: "RESEARCH",
-              title: titleMatch?.[1] ?? `Research Dossier: ${chapter.title}`,
+              type: "EXTERNAL_STORIES",
+              title: titleMatch?.[1] ?? `Chronicle Dossier: ${chapter.title}`,
               content: content || rawArtifact,
             };
           }
         } else {
-          // Fallback: model produced dossier content without ARTIFACT wrapper
+          // Fallback: model produced dossier content but skipped the ARTIFACT wrapper
+          // Strip the search-queries prefix line and use the rest as content
           const stripped = accumulated
-            .replace(/^\*Running[^\n]*\n+/, "")
+            .replace(/^\*Searching for stories:[^\n]*\n+/, "")
             .trim();
           if (stripped.length < 200) throw new Error("No dossier produced");
           artifact = {
-            type: "RESEARCH",
-            title: `Research Dossier: ${chapter.title}`,
+            type: "EXTERNAL_STORIES",
+            title: `Chronicle Dossier: ${chapter.title}`,
             content: stripped,
           };
         }
 
-        // Save chapter dossier
-        const saveRes = await fetch(`/api/books/${slug}/scout-research/save-chapter`, {
+        const saveRes = await fetch(`/api/books/${slug}/chronicle-stories/save-chapter`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chapterKey: chapter.key,
-            chapterTitle: artifact.title || chapter.title,
-            content: artifact.content,
-          }),
+          body: JSON.stringify({ chapterKey: chapter.key, chapterTitle: artifact.title || chapter.title, content: artifact.content }),
         });
         if (!saveRes.ok) throw new Error("Save failed");
         const { artifactId } = await saveRes.json() as { artifactId: string };
@@ -264,24 +239,18 @@ export function ScoutResearchPanel({
       } catch (err) {
         if ((err as Error).name === "AbortError") break;
         const msg = err instanceof Error ? err.message : "Error";
-        current = current.map((c, idx) =>
-          idx === i ? { ...c, status: "error", errorMsg: msg } : c
-        );
+        current = current.map((c, idx) => idx === i ? { ...c, status: "error", errorMsg: msg } : c);
         setChapters([...current]);
         setStreamingText("");
-        // Continue to next chapter on error
       }
     }
 
     setCurrentIdx(null);
     setIsRunning(false);
     runningRef.current = false;
-
-    const allComplete = current.every((c) => c.status === "done");
-    if (allComplete) setAllDone(true);
+    if (current.every((c) => c.status === "done")) setAllDone(true);
   }, [slug]);
 
-  // ── Retry a failed chapter ────────────────────────────────────────────────
   const retryChapter = (idx: number) => {
     const updated = chapters.map((c, i) =>
       i === idx ? { ...c, status: "pending" as ChapterStatus, errorMsg: undefined } : c
@@ -292,11 +261,9 @@ export function ScoutResearchPanel({
     void runLoop(updated, idx);
   };
 
-  // ── Commit: advance the stage ─────────────────────────────────────────────
   const handleCommit = async () => {
     setIsCommitting(true);
     try {
-      // Build combined content for stage artifact
       const combined = chapters
         .filter((c) => c.content)
         .map((c) => `# ${c.title}\n\n${c.content}`)
@@ -306,10 +273,10 @@ export function ScoutResearchPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          stageKey: "RESEARCH",
+          stageKey: "EXTERNAL_STORIES",
           artifact: {
-            type: "RESEARCH",
-            title: `Research Dossier — ${bookTitle}`,
+            type: "EXTERNAL_STORIES",
+            title: `Chronicle Dossier — ${bookTitle}`,
             content: combined,
           },
         }),
@@ -325,13 +292,11 @@ export function ScoutResearchPanel({
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   if (noOutline) {
     return (
       <div style={panelStyle}>
         <div style={emptyStyle}>
-          No committed outline found. Complete the Outline stage first — Scout needs chapter titles to research.
+          No committed outline found. Complete the Outline stage first — Chronicle needs chapter titles to source stories.
         </div>
       </div>
     );
@@ -342,24 +307,22 @@ export function ScoutResearchPanel({
 
   return (
     <div style={panelStyle}>
-      {/* Header */}
       <div style={headerStyle}>
         <div>
-          <div style={agentNameStyle}>Scout</div>
-          <div style={agentTaglineStyle}>Research Dossier — chapter by chapter</div>
+          <div style={agentNameStyle}>Chronicle</div>
+          <div style={agentTaglineStyle}>Story Dossier — chapter by chapter</div>
         </div>
         <div style={progressStyle}>
-          {doneCount}/{chapters.length} chapters researched
+          {doneCount}/{chapters.length} chapters sourced
           {errorCount > 0 && <span style={errorBadgeStyle}> · {errorCount} error{errorCount !== 1 ? "s" : ""}</span>}
         </div>
       </div>
 
-      {/* Chapter list */}
       <div style={chapterListStyle}>
         {chapters.map((ch, i) => {
           const isActive = currentIdx === i;
           return (
-            <div key={ch.key} style={{ ...chapterRowStyle, background: isActive ? "rgba(5,150,105,0.06)" : "transparent" }}>
+            <div key={ch.key} style={{ ...chapterRowStyle, background: isActive ? "rgba(124,58,237,0.06)" : "transparent" }}>
               <span style={{ ...statusIconStyle, color: statusColor(ch.status) }}>
                 {statusIcon(ch.status, isActive)}
               </span>
@@ -367,9 +330,7 @@ export function ScoutResearchPanel({
               {ch.status === "error" && (
                 <>
                   {ch.errorMsg && <span style={errorMsgStyle}>{ch.errorMsg}</span>}
-                  <button style={retryBtnStyle} onClick={() => retryChapter(i)}>
-                    Retry
-                  </button>
+                  <button style={retryBtnStyle} onClick={() => retryChapter(i)}>Retry</button>
                 </>
               )}
               {ch.status === "done" && (
@@ -380,215 +341,131 @@ export function ScoutResearchPanel({
         })}
       </div>
 
-      {/* Streaming preview for active chapter */}
       {streamingText && currentIdx !== null && (
         <div style={streamingBoxStyle}>
           <div style={streamingLabelStyle}>
-            Researching: {chapters[currentIdx]?.title}
+            Sourcing stories: {chapters[currentIdx]?.title}
           </div>
-          <div style={streamingTextStyle}>
-            {streamingText.slice(-1200)}
-          </div>
+          <div style={streamingTextStyle}>{streamingText.slice(-1200)}</div>
         </div>
       )}
 
-      {/* All done — commit button */}
       {allDone && status !== "COMMITTED" && (
         <div style={commitAreaStyle}>
           <div style={allDoneMessageStyle}>
-            All {chapters.length} chapters researched. Review any chapter below, then commit to advance.
+            All {chapters.length} chapters sourced. Review any dossier, then commit to advance.
           </div>
           <button
             style={{ ...commitBtnStyle, opacity: isCommitting ? 0.6 : 1 }}
             onClick={() => void handleCommit()}
             disabled={isCommitting}
           >
-            {isCommitting ? "Committing…" : `Commit Research Stage →`}
+            {isCommitting ? "Committing…" : "Commit External Stories Stage →"}
           </button>
         </div>
       )}
 
       {status === "COMMITTED" && (
-        <div style={committedBannerStyle}>Research stage committed.</div>
+        <div style={committedBannerStyle}>External Stories stage committed.</div>
       )}
     </div>
   );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function statusIcon(s: ChapterStatus, active: boolean): string {
-  if (active) return "⟳";
+  if (active || s === "sourcing") return "⟳";
   if (s === "done") return "✓";
   if (s === "error") return "✕";
-  if (s === "researching") return "⟳";
   return "○";
 }
 
 function statusColor(s: ChapterStatus): string {
-  if (s === "done") return "#059669";
+  if (s === "done") return "#7C3AED";
   if (s === "error") return "#dc2626";
-  if (s === "researching") return "#d97706";
+  if (s === "sourcing") return "#a855f7";
   return "#6b5a4e";
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-
 const panelStyle: React.CSSProperties = {
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  background: "#1a1410",
-  overflowY: "auto",
-  gap: 0,
+  flex: 1, display: "flex", flexDirection: "column", background: "#1a1410", overflowY: "auto",
 };
 
 const headerStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  padding: "20px 24px 14px",
-  borderBottom: "1px solid rgba(255,255,255,0.05)",
+  display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+  padding: "20px 24px 14px", borderBottom: "1px solid rgba(255,255,255,0.05)",
 };
 
 const agentNameStyle: React.CSSProperties = {
-  fontSize: "15px",
-  fontWeight: 700,
-  color: "#059669",
+  fontSize: "15px", fontWeight: 700, color: "#7C3AED",
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
 };
 
-const agentTaglineStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#6b5a4e",
-  marginTop: 2,
-};
+const agentTaglineStyle: React.CSSProperties = { fontSize: "12px", color: "#6b5a4e", marginTop: 2 };
 
-const progressStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#a09080",
-};
+const progressStyle: React.CSSProperties = { fontSize: "12px", color: "#a09080" };
 
-const errorBadgeStyle: React.CSSProperties = {
-  color: "#dc2626",
-};
+const errorBadgeStyle: React.CSSProperties = { color: "#dc2626" };
 
 const chapterListStyle: React.CSSProperties = {
-  padding: "12px 24px",
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-  flex: 1,
+  padding: "12px 24px", display: "flex", flexDirection: "column", gap: 4, flex: 1,
 };
 
 const chapterRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "8px 10px",
-  borderRadius: 6,
-  transition: "background 150ms",
+  display: "flex", alignItems: "center", gap: 10,
+  padding: "8px 10px", borderRadius: 6, transition: "background 150ms",
 };
 
-const statusIconStyle: React.CSSProperties = {
-  fontSize: "14px",
-  width: 18,
-  textAlign: "center",
-  flexShrink: 0,
-};
+const statusIconStyle: React.CSSProperties = { fontSize: "14px", width: 18, textAlign: "center", flexShrink: 0 };
 
 const chapterTitleStyle: React.CSSProperties = {
-  fontSize: "13px",
-  color: "#c4b4a0",
-  flex: 1,
-  lineHeight: 1.3,
+  fontSize: "13px", color: "#c4b4a0", flex: 1, lineHeight: 1.3,
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
 };
 
-const doneLabelStyle: React.CSSProperties = {
-  fontSize: "11px",
-  color: "#059669",
-  flexShrink: 0,
-};
+const doneLabelStyle: React.CSSProperties = { fontSize: "11px", color: "#7C3AED", flexShrink: 0 };
 
 const errorMsgStyle: React.CSSProperties = {
   fontSize: "11px", color: "#dc2626", flex: 1, fontStyle: "italic",
 };
 
 const retryBtnStyle: React.CSSProperties = {
-  fontSize: "11px",
-  color: "#d97706",
-  background: "rgba(217,119,6,0.1)",
-  border: "1px solid rgba(217,119,6,0.3)",
-  borderRadius: 4,
-  padding: "2px 8px",
-  cursor: "pointer",
-  flexShrink: 0,
+  fontSize: "11px", color: "#d97706", background: "rgba(217,119,6,0.1)",
+  border: "1px solid rgba(217,119,6,0.3)", borderRadius: 4, padding: "2px 8px",
+  cursor: "pointer", flexShrink: 0,
 };
 
 const streamingBoxStyle: React.CSSProperties = {
-  margin: "0 24px 16px",
-  background: "rgba(5,150,105,0.04)",
-  border: "1px solid rgba(5,150,105,0.15)",
-  borderRadius: 8,
-  padding: 14,
-  maxHeight: 200,
-  overflowY: "auto",
+  margin: "0 24px 16px", background: "rgba(124,58,237,0.04)",
+  border: "1px solid rgba(124,58,237,0.15)", borderRadius: 8, padding: 14,
+  maxHeight: 200, overflowY: "auto",
 };
 
 const streamingLabelStyle: React.CSSProperties = {
-  fontSize: "11px",
-  color: "#059669",
-  fontWeight: 600,
-  marginBottom: 8,
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
+  fontSize: "11px", color: "#7C3AED", fontWeight: 600, marginBottom: 8,
+  textTransform: "uppercase", letterSpacing: "0.08em",
 };
 
 const streamingTextStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#a09080",
-  lineHeight: 1.6,
-  whiteSpace: "pre-wrap",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  fontSize: "12px", color: "#a09080", lineHeight: 1.6,
+  whiteSpace: "pre-wrap", fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
 };
 
 const commitAreaStyle: React.CSSProperties = {
-  padding: "16px 24px 24px",
-  borderTop: "1px solid rgba(255,255,255,0.05)",
-  display: "flex",
-  flexDirection: "column",
-  gap: 12,
+  padding: "16px 24px 24px", borderTop: "1px solid rgba(255,255,255,0.05)",
+  display: "flex", flexDirection: "column", gap: 12,
 };
 
-const allDoneMessageStyle: React.CSSProperties = {
-  fontSize: "13px",
-  color: "#a09080",
-  lineHeight: 1.5,
-};
+const allDoneMessageStyle: React.CSSProperties = { fontSize: "13px", color: "#a09080", lineHeight: 1.5 };
 
 const commitBtnStyle: React.CSSProperties = {
-  padding: "10px 20px",
-  background: "#059669",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  fontSize: "13px",
-  fontWeight: 600,
-  cursor: "pointer",
-  alignSelf: "flex-start",
+  padding: "10px 20px", background: "#7C3AED", color: "#fff",
+  border: "none", borderRadius: 6, fontSize: "13px", fontWeight: 600,
+  cursor: "pointer", alignSelf: "flex-start",
 };
 
 const committedBannerStyle: React.CSSProperties = {
-  padding: "16px 24px",
-  color: "#059669",
-  fontSize: "13px",
-  borderTop: "1px solid rgba(5,150,105,0.2)",
+  padding: "16px 24px", color: "#7C3AED", fontSize: "13px",
+  borderTop: "1px solid rgba(124,58,237,0.2)",
 };
 
-const emptyStyle: React.CSSProperties = {
-  padding: "40px 24px",
-  color: "#6b5a4e",
-  fontSize: "13px",
-  lineHeight: 1.6,
-};
+const emptyStyle: React.CSSProperties = { padding: "40px 24px", color: "#6b5a4e", fontSize: "13px", lineHeight: 1.6 };

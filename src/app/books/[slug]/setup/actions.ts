@@ -6,7 +6,7 @@ import { HumanMessage } from "@langchain/core/messages";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-import type { BaseStoryFormatPreference, BookFormatTarget, WriterPersonaBlend } from "@/lib/book-setup-types";
+import type { BaseStoryFormatPreference, BookFormatTarget, WriterPersonaBlend, BookSetupProfile } from "@/lib/book-setup-types";
 import { parseJsonFromText } from "@/lib/json-utils";
 import { getWriterPersonaById, getActiveWriterPersonas } from "@/lib/repositories/writer-personas";
 import { getBookBySlugOrThrow } from "@/lib/repositories/books";
@@ -179,6 +179,11 @@ function toStringList(value: FormDataEntryValue | FormDataEntryValue[] | null) {
  */
 async function processSaveBookSetup(slug: string, formData: FormData) {
   const outputFormats = formData.getAll("outputFormats").map((value) => String(value)) as BookFormatTarget[];
+  const chapterFormat = formData.getAll("chapterFormat").map((v) => String(v)).filter(Boolean);
+  const voiceTone = String(formData.get("voiceTone") ?? "").trim() || undefined;
+  const readerLevelRaw = String(formData.get("readerLevel") ?? "").trim();
+  const readerLevel = (["casual", "practitioner", "professional", "expert"].includes(readerLevelRaw)
+    ? readerLevelRaw : undefined) as BookSetupProfile["readerLevel"];
 
   // Get current workspace to preserve voice blend if it exists
   const workspace = await getBookSetupWorkspace(slug);
@@ -248,6 +253,9 @@ async function processSaveBookSetup(slug: string, formData: FormData) {
     provenanceTrackingEnabled: formData.get("provenanceTrackingEnabled") === "on",
     marketingHandoffEnabled: formData.get("marketingHandoffEnabled") === "on",
     notesToSystem: toStringList(formData.get("notesToSystem")),
+    voiceTone,
+    chapterFormat: chapterFormat.length > 0 ? chapterFormat : undefined,
+    readerLevel,
   });
 }
 

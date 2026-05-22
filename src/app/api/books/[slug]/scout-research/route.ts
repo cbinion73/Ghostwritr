@@ -13,6 +13,7 @@ import {
   fetchTopPageTexts,
   formatSearchResults,
   loadPriorContext,
+  loadChapterFocusedContext,
   buildStaticStream,
 } from "../_research-helpers";
 
@@ -51,13 +52,28 @@ export async function POST(
     );
   }
 
-  const { priorContext, outlineText, sourceDocContext } = await loadPriorContext(
-    book.id, book.workflowType, stageKey
-  );
-
   const meta = book.metadataJson && typeof book.metadataJson === "object"
     ? (book.metadataJson as Record<string, string>) : {};
   const bookSubject = [meta.premise, book.titleWorking].filter(Boolean).join(" ").slice(0, 80);
+
+  // Auto-loop (single chapter): use lean focused context — outline section only, no full prior stages
+  // Conversation mode: load all prior committed stages as context
+  let priorContext = "";
+  let outlineText = "";
+  let sourceDocContext = "";
+
+  if (chapterTitle) {
+    const focused = await loadChapterFocusedContext(book.id, chapterTitle);
+    outlineText = focused.chapterOutlineSection;
+    sourceDocContext = focused.sourceDocContext;
+    if (focused.chapterOutlineSection) {
+      priorContext = `\n\nOUTLINE SECTION FOR THIS CHAPTER:\n${focused.chapterOutlineSection}`;
+    }
+  } else {
+    ({ priorContext, outlineText, sourceDocContext } = await loadPriorContext(
+      book.id, book.workflowType, stageKey
+    ));
+  }
 
   // Single-chapter mode: use provided chapterTitle as the sole topic
   // Multi-chapter / conversational mode: extract topics from outline
@@ -152,7 +168,7 @@ The web research results below are pre-labelled with source tiers.${priorContext
       } finally {
         controller.close();
         if (promptTokens > 0 || completionTokens > 0) {
-          void logLLMCall({ bookId: book.id, stageRole: persona.stageRole, provider: modelSpec.provider, model: modelSpec.model, promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
+          void logLLMCall({ bookId: book.id, bookSlug: slug, bookTitle: book.titleWorking ?? undefined, stageKey: "RESEARCH", stageRole: persona.stageRole, provider: modelSpec.provider, model: modelSpec.model, promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
         }
       }
     },

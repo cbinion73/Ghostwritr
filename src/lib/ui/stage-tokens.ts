@@ -12,7 +12,7 @@ import type { StageKey, StageStatus } from "@prisma/client";
  * Routes are the EXISTING per-stage pages in src/app/books/[slug]/*.
  */
 
-export type StageGroup = "setup" | "material" | "production" | "story-architecture";
+export type StageGroup = "setup" | "material" | "production" | "post-production" | "story-architecture";
 
 export type StageToken = {
   key: StageKey;
@@ -97,8 +97,16 @@ export const STAGE_TOKENS: readonly StageToken[] = [
     description: "Your own experiences, captured through interview",
   },
   {
-    key: "CHAPTER_DRAFT",
+    key: "MANIFEST" as StageKey,
     number: 10,
+    label: "Chapter Manifest",
+    route: (slug) => `/books/${slug}/manifest`,
+    group: "production" as StageGroup,
+    description: "Assign source materials to chapters — cuts generation context by 85%",
+  },
+  {
+    key: "CHAPTER_DRAFT",
+    number: 11,
     label: "Chapter Draft",
     route: (slug) => `/books/${slug}/chapter-draft`,
     group: "production",
@@ -106,12 +114,26 @@ export const STAGE_TOKENS: readonly StageToken[] = [
   },
   {
     key: "EDITING",
-    number: 11,
+    number: 12,
     label: "Editing & Typeset",
     route: (slug) => `/books/${slug}/editing`,
     group: "production",
     description: "Editorial pass and final manuscript output",
   },
+  {
+    key: "TYPESET" as StageKey,
+    number: 13,
+    label: "Typeset & Publish",
+    route: (slug) => `/books/${slug}/typeset`,
+    group: "production",
+    description: "Platform specs, front matter, ISBN, and export package",
+  },
+  { key: "LAUNCH_LISTING" as StageKey, number: 14, label: "Launch Listing", route: (slug) => `/books/${slug}/launch-listing`, group: "post-production" as StageGroup, description: "Amazon/KDP retail copy, keywords, and categories" },
+  { key: "PRESS_KIT" as StageKey, number: 15, label: "Press Kit", route: (slug) => `/books/${slug}/press-kit`, group: "post-production" as StageGroup, description: "Media kit, author bio, talking points, and interview Q&A" },
+  { key: "SOCIAL_CAMPAIGN" as StageKey, number: 16, label: "Social Campaign", route: (slug) => `/books/${slug}/social-campaign`, group: "post-production" as StageGroup, description: "30-day launch content calendar across all platforms" },
+  { key: "AUDIO_PREP" as StageKey, number: 17, label: "Audio Prep", route: (slug) => `/books/${slug}/audio-prep`, group: "post-production" as StageGroup, description: "ACX audiobook package: checklist, recording notes, pronunciation guide" },
+  { key: "COURSE_DESIGN" as StageKey, number: 18, label: "Course Design", route: (slug) => `/books/${slug}/course-design`, group: "post-production" as StageGroup, description: "Online course structure, modules, exercises, and platform selection" },
+  { key: "SPEAKING_KIT" as StageKey, number: 19, label: "Speaking Kit", route: (slug) => `/books/${slug}/speaking-kit`, group: "post-production" as StageGroup, description: "Keynote outline, speaker bio variants, one-sheet, and session descriptions" },
 ];
 
 export const FICTION_STAGE_TOKENS: readonly StageToken[] = [
@@ -125,6 +147,7 @@ export const FICTION_STAGE_TOKENS: readonly StageToken[] = [
   { key: "SCENE_PLAN", number: 8, label: "Scene Plan", route: (slug) => `/books/${slug}/scene-plan`, group: "story-architecture", description: "Chapter-level and scene-level progression." },
   { key: "FICTION_DRAFT", number: 9, label: "Draft", route: (slug) => `/books/${slug}/fiction-draft`, group: "production", description: "Draft chapter prose from the scene plan." },
   { key: "EDITING", number: 10, label: "Editing & Typeset", route: (slug) => `/books/${slug}/editing`, group: "production", description: "Editorial pass and final manuscript output." },
+  { key: "TYPESET" as StageKey, number: 11, label: "Typeset & Publish", route: (slug) => `/books/${slug}/typeset`, group: "production", description: "Platform specs, front matter, ISBN, and export package" },
 ];
 
 export const GROUP_COLORS: Record<StageGroup, { gutter: string; label: string }> = {
@@ -132,6 +155,7 @@ export const GROUP_COLORS: Record<StageGroup, { gutter: string; label: string }>
   material: { gutter: "#B8793A", label: "Material" },
   "story-architecture": { gutter: "#7C3AED", label: "Story Architecture" },
   production: { gutter: "#3730A3", label: "Production" },
+  "post-production": { gutter: "#0F766E", label: "Post-Production" },
 };
 
 /**

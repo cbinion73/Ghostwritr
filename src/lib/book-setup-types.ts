@@ -37,6 +37,11 @@ export type BookSetupProfile = {
   provenanceTrackingEnabled: boolean;
   marketingHandoffEnabled: boolean;
   notesToSystem: string[];
+
+  // Quill/drafting context — captured during setup, used by chapter draft agent
+  voiceTone?: string;           // qualitative voice description: "warm, conversational, plainspoken with occasional wit"
+  chapterFormat?: string[];     // ["reflection-questions", "exercises", "sidebars", "checklists", "case-studies", "callout-boxes"]
+  readerLevel?: "casual" | "practitioner" | "professional" | "expert";
 };
 
 export const DEFAULT_BOOK_SETUP_PROFILE: BookSetupProfile = {

@@ -1,501 +1,425 @@
-import Link from "next/link";
+/**
+ * Export & Publishing Pipeline
+ *
+ * This is NOT an agent. It is a deterministic export and assembly control center.
+ * It reads committed artifact state, runs a validation report, and provides
+ * export controls. It does not generate prose, make editorial decisions, or
+ * invoke any LLM.
+ */
 
-import { EditingExportMenu } from "../editing/export-menu";
-import { refreshPublishingPackage } from "../editing/actions";
-import { finalizePublishingHandoff } from "./actions";
+import Link from "next/link";
+import { AppTopBar } from "@/app/components/app-top-bar";
+import { getPublishPipelineData } from "@/lib/workflows/publish-pipeline";
 import { PublishPackageExportButton } from "./package-export-button";
 import { TypesetPackageButton } from "./typeset-package-button";
 
-import { getBookStageLinks } from "@/lib/navigation";
-import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
-import { getEditingWorkspace } from "@/lib/workflows/editing";
-
-function packageStatusLabel(status: string | null | undefined) {
-  switch (status) {
-    case "prepared_needs_editorial_revision":
-      return "Prepared, needs editorial revision";
-    case "ready_to_publish":
-      return "Ready to publish";
-    default:
-      return "Draft";
-  }
+function stageStatusBadge(status: string | null) {
+  if (status === "COMMITTED") return { label: "Committed", color: "#4a7c59" };
+  if (status === "IN_PROGRESS") return { label: "In Progress", color: "#B8793A" };
+  if (status === "READY_FOR_REVIEW") return { label: "Ready for Review", color: "#B8793A" };
+  return { label: "Not started", color: "#9a8a7a" };
 }
 
-function resolveEffectivePackageStatus(
-  packageStatus: string | null | undefined,
-  editorialRecommendation: string | null | undefined,
-) {
-  if (editorialRecommendation === "blocked") {
-    return "prepared_needs_editorial_revision";
-  }
-
-  return packageStatus ?? "draft";
+function chapterStatusLabel(status: string) {
+  if (status === "COMMITTED") return { label: "Committed", color: "#4a7c59", symbol: "✓" };
+  if (status === "REVIEW_READY") return { label: "Awaiting approval", color: "#B8793A", symbol: "◐" };
+  return { label: "Draft", color: "#9a8a7a", symbol: "○" };
 }
 
-export default async function PublishStagePage({
+function ValidationLevelIcon({ level }: { level: string }) {
+  if (level === "error") return <span style={{ color: "#c0392b", fontWeight: 700, marginRight: 6 }}>✕</span>;
+  if (level === "warning") return <span style={{ color: "#B8793A", fontWeight: 700, marginRight: 6 }}>!</span>;
+  return <span style={{ color: "#8a9a8a", fontWeight: 700, marginRight: 6 }}>i</span>;
+}
+
+export default async function PublishPipelinePage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const workspace = await getEditingWorkspace(slug);
-  const stageLinks = getBookStageLinks(workspace.book.workflowType, slug);
-  const staleDependency = getStaleDependencyState(workspace.stage?.metadataJson);
-  const staleRecoveryHint = staleDependency
-    ? getStaleDependencyRecoveryHint(workspace.stage?.stageKey)
-    : null;
-  const packageReady = Boolean(workspace.publishingPackage);
-  const effectivePackageStatus = resolveEffectivePackageStatus(
-    workspace.publishingPackage?.packageStatus,
-    workspace.editorialReadinessGate.recommendation,
-  );
-  const publishWorkspaceStatus = !packageReady
-    ? "WAITING ON EDITING"
-    : effectivePackageStatus === "prepared_needs_editorial_revision"
-      ? "EDITORIALLY BLOCKED"
-      : "READY";
+  const data = await getPublishPipelineData(slug);
+
+  const errors = data.validation.filter((v) => v.level === "error");
+  const warnings = data.validation.filter((v) => v.level === "warning");
+  const notices = data.validation.filter((v) => v.level === "notice");
+
+  const overallStatus =
+    errors.length > 0 ? "blocked" : warnings.length > 0 ? "warnings" : "ready";
+
+  const statusConfig = {
+    blocked: { label: "Blocked", color: "#c0392b", bg: "rgba(192,57,43,0.06)" },
+    warnings: { label: "Ready with warnings", color: "#B8793A", bg: "rgba(184,121,58,0.06)" },
+    ready: { label: "Ready to export", color: "#4a7c59", bg: "rgba(74,124,89,0.06)" },
+  }[overallStatus];
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={data.book.title ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
+      {/* ── Sidebar ── */}
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
-          <p className="muted">
-            Final publishing workspace for export readiness, delivery formats, and handoff quality.
-          </p>
+          <p className="muted">Export &amp; Publishing Pipeline</p>
         </div>
 
         <div className="muted" style={{ marginBottom: 20 }}>
           <div>
-            Book: <strong>{workspace.book.titleWorking ?? "Untitled Book"}</strong>
+            Book: <strong>{data.book.title ?? "Untitled Book"}</strong>
           </div>
           <div style={{ marginTop: 6 }}>
-            Publish: <strong>{publishWorkspaceStatus}</strong>
+            Pipeline:{" "}
+            <strong style={{ color: statusConfig.color }}>{statusConfig.label}</strong>
           </div>
         </div>
 
         <div className="stage-list">
-          {stageLinks.map((stage) => (
+          {data.stageLinks.map((stage) => (
             <Link key={stage.key} href={stage.href} className="stage-chip">
               {stage.label}
             </Link>
           ))}
-          <Link href={`/books/${slug}/publish`} className="stage-chip active">
-            Publish
-          </Link>
+        </div>
+
+        {/* Stage readiness at-a-glance */}
+        <div style={{ marginTop: 24, padding: "0 4px" }}>
+          <div className="label" style={{ marginBottom: 10 }}>Stage readiness</div>
+          {(
+            [
+              ["Book Setup", data.stages.bookSetup],
+              ["Outline", data.stages.outline],
+              ["Chapter Draft", data.stages.chapterDraft],
+              ["Editing", data.stages.editing],
+            ] as [string, string | null][]
+          ).map(([label, status]) => {
+            const badge = stageStatusBadge(status);
+            return (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 12 }}>
+                <span className="muted">{label}</span>
+                <span style={{ color: badge.color, fontWeight: 600, fontSize: 11 }}>{badge.label}</span>
+              </div>
+            );
+          })}
         </div>
       </aside>
 
+      {/* ── Main ── */}
       <main className="main-column">
+
+        {/* Header */}
         <section className="glass-panel topbar">
           <div>
-            <div className="label">Final Workspace</div>
-            <h2>Publish</h2>
+            <div className="label">Deterministic Assembly</div>
+            <h2>Export &amp; Publishing Pipeline</h2>
             <div className="muted">
-              This is the final handoff surface for the manuscript package: export formats,
-              packaging notes, and readiness to move from ghostwriting into publishing delivery.
+              Assembles committed chapter artifacts into structured export packages.
+              No prose is generated, edited, or rewritten. This pipeline reads what
+              was committed and packages it exactly as approved.
             </div>
-            {!packageReady ? (
-              <div className="muted" style={{ marginTop: 10 }}>
-                Commit the Editing stage to generate the publishing package first.
-              </div>
-            ) : null}
-            {staleDependency ? (
-              <div className="muted" style={{ marginTop: 10 }}>
-                <div>Stale: {staleDependency.reason}</div>
-                <div style={{ marginTop: 6 }}>Recommended recovery: {staleRecoveryHint}</div>
-              </div>
-            ) : null}
           </div>
 
           <div className="button-row">
-            <Link className="btn" href={`/books/${slug}/editing`}>
-              Open Editing
-            </Link>
-            <form action={refreshPublishingPackage.bind(null, slug)}>
-              <button className="btn" type="submit" disabled={!workspace.manuscriptAssembly}>
-                Refresh Package
-              </button>
-            </form>
-            <EditingExportMenu
+            <Link className="btn" href={`/books/${slug}`}>← Book Studio</Link>
+            {/* Markdown — plain text, always available */}
+            <a
+              href={`/api/books/${slug}/workspace-export?format=markdown`}
+              download
+              className="btn"
+            >
+              ↓ Markdown
+            </a>
+            {/* Typeset and publish packages — require committed chapters */}
+            <TypesetPackageButton
               slug={slug}
-              title={workspace.book.titleWorking ?? "manuscript"}
-              disabled={!packageReady}
+              title={data.book.title ?? "manuscript"}
+              disabled={!data.canExport}
             />
             <PublishPackageExportButton
               slug={slug}
-              title={workspace.book.titleWorking ?? "manuscript"}
-              disabled={!packageReady}
-            />
-            <TypesetPackageButton
-              slug={slug}
-              title={workspace.book.titleWorking ?? "manuscript"}
-              disabled={!packageReady}
+              title={data.book.title ?? "manuscript"}
+              disabled={!data.canExport}
             />
           </div>
         </section>
 
-        <section className="glass-panel section-panel">
+        {/* Validation report */}
+        <section className="glass-panel section-panel" style={{ marginTop: 18 }}>
           <div className="section-header">
             <div>
-              <h3>Publish Readiness</h3>
+              <h3>Validation Report</h3>
               <div className="muted">
-                A final operational readout before you hand the book to printing, ebook conversion,
-                or a publishing partner.
+                Issues that must be resolved before or after export. Errors block package
+                generation. Warnings allow export but should be reviewed before publishing.
               </div>
+            </div>
+            <div style={{
+              padding: "4px 12px",
+              borderRadius: 6,
+              background: statusConfig.bg,
+              border: `1px solid ${statusConfig.color}40`,
+              fontSize: 12,
+              fontWeight: 600,
+              color: statusConfig.color,
+              whiteSpace: "nowrap",
+            }}>
+              {statusConfig.label}
             </div>
           </div>
 
-          <div className="card" style={{ marginBottom: 18 }}>
-            <strong>Publish Package Sync</strong>
-            <div className="muted" style={{ marginTop: 10, lineHeight: 1.7 }}>
-              Status:{" "}
-              {workspace.publishPackageSyncState.status === "synced"
-                ? "Synced"
-                : workspace.publishPackageSyncState.status === "stale"
-                  ? "Refresh required"
-                  : "Missing"}
-              . {workspace.publishPackageSyncState.detail}
-            </div>
-            {workspace.publishPackageSyncState.lastRefreshedAt ? (
-              <div className="muted" style={{ marginTop: 8 }}>
-                Last refreshed {new Date(workspace.publishPackageSyncState.lastRefreshedAt).toLocaleString()}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="manuscript-progress-grid">
-            <div className="metric-card">
-              <div className="label">Package status</div>
-              <strong>{packageStatusLabel(effectivePackageStatus)}</strong>
-            </div>
-            <div className="metric-card">
-              <div className="label">Total words</div>
-              <strong>{workspace.publishingPackage?.totalWords.toLocaleString() ?? 0}</strong>
-            </div>
-            <div className="metric-card">
-              <div className="label">Chapters</div>
-              <strong>{workspace.publishingPackage?.chapterCount ?? workspace.totalChapters}</strong>
-            </div>
-            <div className="metric-card">
-              <div className="label">Export formats</div>
-              <strong>
-                {workspace.publishingPackage?.exportFormats.length
-                  ? workspace.publishingPackage.exportFormats.join(", ")
-                  : "Waiting on package"}
-              </strong>
-            </div>
-            <div className="metric-card">
-              <div className="label">Draft quality</div>
-              <strong>
-                {workspace.draftQualityRollup
-                  ? `${workspace.draftQualityRollup.averageScore}/100`
-                  : "Awaiting scored draft"}
-              </strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="workspace-grid" style={{ marginTop: 24, gridTemplateColumns: "1.1fr 0.9fr" }}>
-          <section className="glass-panel section-panel">
-            <div className="section-header">
-              <div>
-                <h3>Publishing Package</h3>
-                <div className="muted">
-                  The latest prepared publishing package snapshot for the current manuscript assembly.
-                </div>
-              </div>
-            </div>
-
-            {workspace.publishingPackage ? (
-              <div className="stack" style={{ padding: 0 }}>
-                <div className="card">
-                  <strong>{workspace.publishingPackage.title}</strong>
-                  {workspace.publishingPackage.subtitle ? (
-                    <div className="muted" style={{ marginTop: 8 }}>
-                      {workspace.publishingPackage.subtitle}
-                    </div>
-                  ) : null}
-                  <div className="pill-row" style={{ marginTop: 10 }}>
-                    <div className="pill">
-                      Prepared {new Date(workspace.publishingPackage.preparedAt).toLocaleString()}
-                    </div>
-                    <div className="pill">
-                      Status: {packageStatusLabel(effectivePackageStatus)}
-                    </div>
+          {data.validation.length === 0 ? (
+            <div className="muted">No issues found.</div>
+          ) : (
+            <div className="stack" style={{ padding: 0 }}>
+              {errors.length > 0 && (
+                <div className="card" style={{ borderLeft: "3px solid #c0392b" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#c0392b", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
+                    Errors — blocks export ({errors.length})
                   </div>
-                  <ul className="clean-list" style={{ marginTop: 14 }}>
-                    {workspace.publishingPackage.notes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
-                  <div className="pill-row" style={{ marginTop: 12 }}>
-                    <div className="pill">Trim: {workspace.publishingPackage.trimSize}</div>
-                    <div className="pill">
-                      Target pages: {workspace.publishingPackage.targetPageCount ?? "Not set"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="card">
-                  <strong>Final Delivery Checklist</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    <li>Manuscript assembled from the latest committed draft inputs.</li>
-                    <li>Editorial revisions and current readiness state are reflected in the latest manuscript version.</li>
-                    <li>Package includes the standard export set: DOCX, HTML, Markdown, and JSON.</li>
-                    <li>Final print layout and front/back matter can proceed from this package.</li>
-                  </ul>
-                </div>
-
-                <div className="card">
-                  <strong>Editorial Gate</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    <li>Readiness score: {workspace.editorialReadinessGate.score}/100</li>
-                    <li>Recommendation: {workspace.editorialReadinessGate.recommendation}</li>
-                    <li>Next action: {workspace.editorialReadinessGate.nextActions[0] ?? "No additional action recorded."}</li>
-                  </ul>
-                </div>
-
-                <div className="card">
-                  <strong>Draft Quality Baseline</strong>
-                  {workspace.draftQualityRollup ? (
-                    <>
-                      <ul className="clean-list" style={{ marginTop: 10 }}>
-                        <li>Average score: {workspace.draftQualityRollup.averageScore}/100</li>
-                        <li>Revision flags: {workspace.draftQualityRollup.chaptersNeedingRevision}</li>
-                        <li>Strong / watch / needs attention: {workspace.draftQualityRollup.strongChapters} / {workspace.draftQualityRollup.watchChapters} / {workspace.draftQualityRollup.attentionChapters}</li>
-                        <li>Weakest chapter: {workspace.draftQualityRollup.weakestChapterLabel ?? "None recorded"}</li>
-                      </ul>
-                      <div className="muted" style={{ marginTop: 10, lineHeight: 1.7 }}>
-                        {workspace.draftQualityRollup.headline}
+                  {errors.map((v) => (
+                    <div key={v.code} style={{ display: "flex", alignItems: "flex-start", marginBottom: 8, fontSize: 13 }}>
+                      <ValidationLevelIcon level={v.level} />
+                      <div>
+                        <span style={{ fontFamily: "monospace", fontSize: 11, color: "#9a8a7a", marginRight: 8 }}>{v.code}</span>
+                        {v.message}
                       </div>
-                    </>
-                  ) : (
-                    <div className="muted" style={{ marginTop: 10, lineHeight: 1.7 }}>
-                      Draft quality telemetry has not been persisted for this manuscript yet. Refresh the underlying drafts to attach scored quality data to the final package.
                     </div>
-                  )}
-                </div>
-
-                <div className="card">
-                  <strong>Front Matter Plan</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    {workspace.publishingPackage.frontMatter.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="card">
-                  <strong>Back Matter Plan</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    {workspace.publishingPackage.backMatter.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="card">
-                  <strong>Typesetting Plan</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    <li>Trim profile: {workspace.publishingPackage.typesettingPlan.trimProfile}</li>
-                    <li>Chapter openers: {workspace.publishingPackage.typesettingPlan.chapterOpenerStyle}</li>
-                    <li>Running heads: {workspace.publishingPackage.typesettingPlan.runningHeads}</li>
-                    <li>TOC included: {workspace.publishingPackage.typesettingPlan.tocIncluded ? "Yes" : "No"}</li>
-                    <li>Widow / orphan control: {workspace.publishingPackage.typesettingPlan.widowOrphanControl ? "Enabled" : "Disabled"}</li>
-                    <li>Section starts on recto: {workspace.publishingPackage.typesettingPlan.sectionStartsOnRecto ? "Yes" : "No"}</li>
-                    <li>
-                      Signature plan: {workspace.publishingPackage.typesettingPlan.estimatedSignatureCount} x{" "}
-                      {workspace.publishingPackage.typesettingPlan.signaturePageMultiple}-page signatures with{" "}
-                      {workspace.publishingPackage.typesettingPlan.estimatedBlankPages} blank page(s) reserved
-                    </li>
-                    <li>
-                      Estimated total pages: {workspace.publishingPackage.typesettingPlan.estimatedTotalPages} (
-                      {workspace.publishingPackage.typesettingPlan.estimatedFrontMatterPages} front /{" "}
-                      {workspace.publishingPackage.typesettingPlan.estimatedBodyPages} body /{" "}
-                      {workspace.publishingPackage.typesettingPlan.estimatedBackMatterPages} back)
-                    </li>
-                  </ul>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    {workspace.publishingPackage.typesettingPlan.notes.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="card">
-                  <strong>Interior Layout Package</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    <li>Includes a print-oriented interior HTML file for final production refinement.</li>
-                    <li>Includes a dedicated print stylesheet with page size, breaks, and chapter-opener rules.</li>
-                    <li>Preserves front matter, back matter, TOC intent, and running-head guidance from the publishing package.</li>
-                  </ul>
-                </div>
-
-                <div className="card">
-                  <strong>Production Deliverables</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    <li>Layout manifest for interior pagination, recto starts, and signature planning.</li>
-                    <li>Cover brief with spine-width estimate and cover-copy checklist.</li>
-                    <li>Distribution manifest for downstream ebook, print, and retailer completion steps.</li>
-                  </ul>
-                </div>
-
-                <div className="card">
-                  <strong>Preflight Checks</strong>
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    {workspace.publishingPackage.preflightChecks.map((check) => (
-                      <li key={check.name}>
-                        {check.name}: {check.status} - {check.detail}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {workspace.provenanceReport ? (
-                  <div className="card">
-                    <strong>Provenance Report</strong>
-                    <div className="muted" style={{ marginTop: 10, lineHeight: 1.7 }}>
-                      Generated {new Date(workspace.provenanceReport.generatedAt).toLocaleString()}
-                    </div>
-                    <ul className="clean-list" style={{ marginTop: 10 }}>
-                      {workspace.provenanceReport.artifactTrail.map((item) => (
-                        <li key={`${item.stage}-${item.source}`}>
-                          {item.stage}: {item.status} - {item.source}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {workspace.marketingHandoffPackage ? (
-                  <div className="card">
-                    <strong>Marketing Handoff</strong>
-                    <div className="muted" style={{ marginTop: 10 }}>
-                      {workspace.marketingHandoffPackage.synopsis}
-                    </div>
-                    <ul className="clean-list" style={{ marginTop: 10 }}>
-                      {workspace.marketingHandoffPackage.hooks.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="empty-state">
-                Publishing package not ready yet. Commit Editing after the manuscript assembly and
-                revision pass are up to date.
-              </div>
-            )}
-          </section>
-
-          <section className="glass-panel section-panel">
-            <div className="section-header">
-              <div>
-                <h3>Package History</h3>
-                <div className="muted">
-                  Track the final packaging snapshots over time.
-                </div>
-              </div>
-            </div>
-
-            {workspace.publishingHistory.length > 0 ? (
-              <div className="idea-list">
-                {workspace.publishingHistory.map((entry) => (
-                  <article key={entry.id} className="idea-card">
-                    <div className="chapter-list-header">
-                      <strong>Package v{entry.versionNumber}</strong>
-                      <span className={`binder-status status-${String(entry.lifecycleState).toLowerCase()}`}>
-                        {entry.lifecycleState}
-                      </span>
-                    </div>
-                    <div className="chapter-list-metrics" style={{ marginTop: 8 }}>
-                      <span>{entry.chapterCount} chapters</span>
-                      <span>{entry.totalWords.toLocaleString()} words</span>
-                      <span>{new Date(entry.createdAt).toLocaleString()}</span>
-                    </div>
-                    <div className="muted" style={{ marginTop: 10 }}>
-                      {entry.summary}
-                    </div>
-                    <div className="pill-row" style={{ marginTop: 10 }}>
-                      <div className="pill">Package: {packageStatusLabel(entry.packageStatus)}</div>
-                      <div className="pill">Formats: {entry.exportFormats.join(", ")}</div>
-                    </div>
-                    <ul className="clean-list" style={{ marginTop: 10 }}>
-                      {entry.notes.map((note) => (
-                        <li key={note}>{note}</li>
-                      ))}
-                    </ul>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="muted">
-                No package history yet. The first package snapshot appears after Editing is committed.
-              </div>
-            )}
-
-            {workspace.publishingPackage ? (
-              <div className="card" style={{ marginTop: 18 }}>
-                <strong>Finalize Handoff</strong>
-                <div className="muted" style={{ marginTop: 10, lineHeight: 1.7 }}>
-                  Mark this package as the final handoff snapshot once you are ready to treat the publish bundle as the current source of truth.
-                </div>
-                {workspace.finalHandoffState ? (
-                  <div className="muted" style={{ marginTop: 10, lineHeight: 1.7 }}>
-                    Finalized {new Date(workspace.finalHandoffState.finalizedAt).toLocaleString()}
-                    {workspace.finalHandoffState.archivedAt
-                      ? ` • Archive-ready ${new Date(workspace.finalHandoffState.archivedAt).toLocaleString()}`
-                      : ""}
-                  </div>
-                ) : null}
-                <form action={finalizePublishingHandoff.bind(null, slug)} className="stack" style={{ marginTop: 12, padding: 0 }}>
-                  <label className="muted">
-                    <input type="checkbox" name="archiveReady" defaultChecked={Boolean(workspace.finalHandoffState?.archivedAt)} /> Mark this handoff archive-ready too
-                  </label>
-                  <div className="button-row">
-                    <button className="btn btn-primary" type="submit" disabled={!packageReady}>
-                      {workspace.finalHandoffState ? "Refresh Final Handoff" : "Finalize Handoff"}
-                    </button>
-                    <Link className="btn" href={`/api/books/${slug}/archive`}>
-                      Export Final Archive
-                    </Link>
-                  </div>
-                </form>
-                {workspace.finalHandoffState?.notes?.length ? (
-                  <ul className="clean-list" style={{ marginTop: 10 }}>
-                    {workspace.finalHandoffState.notes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ) : null}
-
-            {workspace.publishingPackage ? (
-              <div className="card" style={{ marginTop: 18 }}>
-                <strong>Format Profiles</strong>
-                <div className="idea-list" style={{ marginTop: 12 }}>
-                  {workspace.publishingPackage.exportProfiles.map((profile) => (
-                    <article key={profile.format} className="idea-card">
-                      <div className="chapter-list-header">
-                        <strong>{profile.format}</strong>
-                        <span className="binder-status status-committed">{profile.status}</span>
-                      </div>
-                      <ul className="clean-list" style={{ marginTop: 10 }}>
-                        {profile.notes.map((note) => (
-                          <li key={note}>{note}</li>
-                        ))}
-                      </ul>
-                    </article>
                   ))}
                 </div>
+              )}
+
+              {warnings.length > 0 && (
+                <div className="card" style={{ borderLeft: "3px solid #B8793A" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#B8793A", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
+                    Warnings — review before publishing ({warnings.length})
+                  </div>
+                  {warnings.map((v) => (
+                    <div key={v.code} style={{ display: "flex", alignItems: "flex-start", marginBottom: 8, fontSize: 13 }}>
+                      <ValidationLevelIcon level={v.level} />
+                      <div>
+                        <span style={{ fontFamily: "monospace", fontSize: 11, color: "#9a8a7a", marginRight: 8 }}>{v.code}</span>
+                        {v.message}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {notices.length > 0 && (
+                <div className="card" style={{ borderLeft: "3px solid #8a9a8a" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#6f6256", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
+                    Notices ({notices.length})
+                  </div>
+                  {notices.map((v) => (
+                    <div key={v.code} style={{ display: "flex", alignItems: "flex-start", marginBottom: 8, fontSize: 13 }}>
+                      <ValidationLevelIcon level={v.level} />
+                      <div>
+                        <span style={{ fontFamily: "monospace", fontSize: 11, color: "#9a8a7a", marginRight: 8 }}>{v.code}</span>
+                        {v.message}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Chapter readiness */}
+        <section className="glass-panel section-panel" style={{ marginTop: 18 }}>
+          <div className="section-header">
+            <div>
+              <h3>Chapter Readiness</h3>
+              <div className="muted">
+                Only committed chapters are included in export packages.
               </div>
-            ) : null}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: data.summary.committedChapters === data.summary.totalChapters && data.summary.totalChapters > 0 ? "#4a7c59" : "#B8793A" }}>
+              {data.summary.committedChapters}/{data.summary.totalChapters} committed
+              {data.summary.committedWords > 0 && (
+                <span style={{ fontWeight: 400, color: "#8a7a6a", marginLeft: 10 }}>
+                  {data.summary.committedWords.toLocaleString()} words
+                </span>
+              )}
+            </div>
+          </div>
+
+          {data.chapters.length === 0 ? (
+            <div className="empty-state">
+              No chapter drafts found. Complete the Chapter Draft stage first.
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid rgba(45,36,29,0.1)" }}>
+                  <th style={{ textAlign: "left", padding: "6px 12px 6px 0", fontWeight: 600, color: "#6f6256", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>#</th>
+                  <th style={{ textAlign: "left", padding: "6px 12px 6px 0", fontWeight: 600, color: "#6f6256", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>Chapter</th>
+                  <th style={{ textAlign: "right", padding: "6px 12px 6px 0", fontWeight: 600, color: "#6f6256", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>Words</th>
+                  <th style={{ textAlign: "right", padding: "6px 0", fontWeight: 600, color: "#6f6256", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.chapters.map((ch, i) => {
+                  const st = chapterStatusLabel(ch.artifactStatus);
+                  return (
+                    <tr key={ch.id} style={{ borderBottom: "1px solid rgba(45,36,29,0.06)" }}>
+                      <td style={{ padding: "8px 12px 8px 0", color: "#9a8a7a", fontVariantNumeric: "tabular-nums" }}>{i + 1}</td>
+                      <td style={{ padding: "8px 12px 8px 0", color: "#2d241d" }}>{ch.title}</td>
+                      <td style={{ padding: "8px 12px 8px 0", textAlign: "right", color: "#6f6256", fontVariantNumeric: "tabular-nums" }}>
+                        {ch.wordCount > 0 ? ch.wordCount.toLocaleString() : "—"}
+                      </td>
+                      <td style={{ padding: "8px 0", textAlign: "right" }}>
+                        <span style={{ color: st.color, fontWeight: 600, fontSize: 12 }}>
+                          {st.symbol} {st.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {data.chapters.length > 0 && (
+                <tfoot>
+                  <tr style={{ borderTop: "1px solid rgba(45,36,29,0.15)" }}>
+                    <td colSpan={2} style={{ padding: "8px 12px 8px 0", fontWeight: 600, color: "#6f6256", fontSize: 12 }}>Total</td>
+                    <td style={{ padding: "8px 12px 8px 0", textAlign: "right", fontWeight: 600, color: "#6f6256", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                      {data.summary.totalWords.toLocaleString()}
+                    </td>
+                    <td style={{ padding: "8px 0", textAlign: "right", fontWeight: 600, color: "#6f6256", fontSize: 12 }}>
+                      {data.summary.committedChapters}/{data.summary.totalChapters}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          )}
+        </section>
+
+        {/* Package manifest reference */}
+        <section className="workspace-grid" style={{ marginTop: 18, gridTemplateColumns: "1fr 1fr" }}>
+
+          {/* Typeset package */}
+          <section className="glass-panel section-panel">
+            <div className="section-header">
+              <h3>Typeset Package</h3>
+            </div>
+            <div className="muted" style={{ marginBottom: 14, lineHeight: 1.7 }}>
+              Structured layout and print-oriented files for downstream design tools.
+            </div>
+            <div className="card">
+              <strong>Included files</strong>
+              <ul className="clean-list" style={{ marginTop: 10 }}>
+                <li><code>{data.book.title ?? "manuscript"}-interior.html</code> — print-oriented interior</li>
+                <li><code>{data.book.title ?? "manuscript"}-print.css</code> — print stylesheet</li>
+                <li><code>layout-manifest.json</code> — pagination, recto starts, signature plan</li>
+                <li><code>cover-brief.json</code> — spine-width estimate and cover checklist</li>
+                <li><code>typeset-package.json</code> — package manifest and metadata</li>
+              </ul>
+            </div>
+            <div className="card" style={{ marginTop: 10 }}>
+              <strong>What this package does not include</strong>
+              <ul className="clean-list" style={{ marginTop: 10 }}>
+                <li>No LLM-generated content</li>
+                <li>No rewritten or edited prose</li>
+                <li>No cover images or graphic assets</li>
+                <li>No ISBN or distribution metadata</li>
+              </ul>
+            </div>
+          </section>
+
+          {/* Publish package */}
+          <section className="glass-panel section-panel">
+            <div className="section-header">
+              <h3>Publish Package</h3>
+            </div>
+            <div className="muted" style={{ marginBottom: 14, lineHeight: 1.7 }}>
+              Full publishing handoff bundle with all export formats and distribution files.
+            </div>
+            <div className="card">
+              <strong>Included files</strong>
+              <ul className="clean-list" style={{ marginTop: 10 }}>
+                <li><code>.docx</code> — Word document</li>
+                <li><code>.html</code> — web-ready HTML</li>
+                <li><code>.md</code> — clean Markdown</li>
+                <li><code>.json</code> — structured manuscript data</li>
+                <li><code>-interior.html</code> + <code>-print.css</code> — typeset files</li>
+                <li><code>layout-manifest.json</code>, <code>cover-brief.json</code></li>
+                <li><code>distribution-manifest.json</code> — downstream publishing steps</li>
+                <li><code>preflight-report.json</code> — validation checks</li>
+                <li><code>publish-package.json</code> — package manifest</li>
+              </ul>
+            </div>
+            <div className="card" style={{ marginTop: 10 }}>
+              <strong>Provenance guarantee</strong>
+              <ul className="clean-list" style={{ marginTop: 10 }}>
+                <li>Every package records exactly which committed artifacts were used</li>
+                <li>Source artifacts are never modified by the export</li>
+                <li>Package timestamp shows when the export was generated</li>
+              </ul>
+            </div>
           </section>
         </section>
+
+        {/* Book metadata summary */}
+        <section className="glass-panel section-panel" style={{ marginTop: 18 }}>
+          <div className="section-header">
+            <h3>Book Metadata</h3>
+            <div className="muted">Used in export package headers and metadata files.</div>
+          </div>
+          <div className="manuscript-progress-grid">
+            <div className="metric-card">
+              <div className="label">Title</div>
+              <strong>{data.book.title ?? <span style={{ color: "#c0392b" }}>Missing</span>}</strong>
+            </div>
+            <div className="metric-card">
+              <div className="label">Subtitle</div>
+              <strong>{data.book.subtitle ?? <span style={{ color: "#9a8a7a" }}>Not set</span>}</strong>
+            </div>
+            <div className="metric-card">
+              <div className="label">Author</div>
+              <strong>{data.book.authorName ?? <span style={{ color: "#9a8a7a" }}>Not set</span>}</strong>
+            </div>
+            <div className="metric-card">
+              <div className="label">Word count target</div>
+              <strong>
+                {data.book.targetWordCount
+                  ? `${data.book.targetWordCount.toLocaleString()} words`
+                  : <span style={{ color: "#9a8a7a" }}>Not set</span>}
+              </strong>
+            </div>
+            <div className="metric-card">
+              <div className="label">Committed words</div>
+              <strong>{data.summary.committedWords.toLocaleString()}</strong>
+            </div>
+            <div className="metric-card">
+              <div className="label">Committed chapters</div>
+              <strong>{data.summary.committedChapters} of {data.summary.totalChapters}</strong>
+            </div>
+          </div>
+        </section>
+
+        {/* Pipeline operating principles footer */}
+        <section className="glass-panel section-panel" style={{ marginTop: 18, marginBottom: 32 }}>
+          <div className="section-header">
+            <h3>Pipeline Operating Principles</h3>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {[
+              ["Deterministic", "Same committed inputs produce the same output every time."],
+              ["Non-destructive", "Source artifacts are never modified by an export."],
+              ["Traceable", "Every output records exactly which artifact versions were used."],
+              ["Validated", "Missing or broken pieces are flagged before export."],
+              ["No silent invention", "Missing content is flagged, never fabricated."],
+              ["No editorial judgment", "Content quality belongs to Reed. This pipeline packages only."],
+            ].map(([title, desc]) => (
+              <div key={title} style={{ fontSize: 13, lineHeight: 1.6 }}>
+                <strong style={{ color: "#2d241d" }}>{title}</strong>
+                <div className="muted">{desc}</div>
+              </div>
+            ))}
+          </div>
+        </section>
       </main>
+      </div>
     </div>
   );
 }

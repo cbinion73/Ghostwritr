@@ -1,363 +1,459 @@
 import Link from "next/link";
 import { BookWorkflowType } from "@prisma/client";
 
-import { cloneBookAction, createBookAction, createBookAndBrainstormAction, createBookWithWizardAction, deleteBookAction } from "./actions";
-
+import { createBookAction, deleteBookAction } from "./actions";
 import { listBooks } from "@/lib/repositories/books";
-import { getCurrentEditingArtifactVersionIdsForBooks } from "@/lib/repositories/editing-artifacts";
 import { getDefaultBookWorkspaceHref } from "@/lib/workflow-registry";
-import { buildPublishPackageSyncState } from "@/lib/publish-sync";
+import { AppTopBar } from "./components/app-top-bar";
 
 export const dynamic = "force-dynamic";
 
-function getStageSummary(
-  stages: Array<{ stageKey: string; status: string }>,
-) {
+const F = '"Iowan Old Style", "Palatino Linotype", Georgia, serif';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getProgress(stages: Array<{ status: string }>) {
+  if (stages.length === 0) return 0;
+  const committed = stages.filter((s) => s.status === "COMMITTED").length;
+  return Math.round((committed / stages.length) * 100);
+}
+
+function getActiveStageLabel(stages: Array<{ stageKey: string; status: string }>) {
   const active =
-    stages.find((stage) => stage.status === "IN_PROGRESS") ??
-    stages.find((stage) => stage.status === "BLOCKED") ??
-    stages.find((stage) => stage.status === "READY_FOR_REVIEW") ??
-    stages.find((stage) => stage.status === "COMMITTED") ??
-    stages[0];
-
-  return active ? `${active.stageKey.replace(/_/g, " ")} • ${active.status.replace(/_/g, " ")}` : "No stages yet";
+    stages.find((s) => s.status === "IN_PROGRESS") ??
+    stages.find((s) => s.status === "READY_FOR_REVIEW") ??
+    stages.find((s) => s.status === "BLOCKED");
+  if (!active) {
+    const committed = [...stages].reverse().find((s) => s.status === "COMMITTED");
+    return committed
+      ? committed.stageKey.replace(/_/g, " ")
+      : "Not started";
+  }
+  return active.stageKey.replace(/_/g, " ");
 }
 
-function parseMetadataRecord(value: unknown) {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+function getStatusColor(stages: Array<{ status: string }>) {
+  const pct = getProgress(stages);
+  if (pct === 100) return "#4a7c59";
+  if (pct > 60) return "#B8793A";
+  return "#6f6256";
 }
 
-function getWorkflowProgress(stages: Array<{ status: string }>) {
-  if (stages.length === 0) {
-    return "0%";
-  }
-
-  const committed = stages.filter((stage) => stage.status === "COMMITTED").length;
-  return `${Math.round((committed / stages.length) * 100)}%`;
-}
-
-function getBlockerLabel(stages: Array<{ stageKey: string; status: string }>) {
-  const blocked = stages.find((stage) => stage.status === "BLOCKED");
-  if (blocked) {
-    return blocked.stageKey.replace(/_/g, " ");
-  }
-
-  const review = stages.find((stage) => stage.status === "READY_FOR_REVIEW");
-  if (review) {
-    return `${review.stageKey.replace(/_/g, " ")} review`;
-  }
-
-  const progress = stages.find((stage) => stage.status === "IN_PROGRESS");
-  if (progress) {
-    return `${progress.stageKey.replace(/_/g, " ")} in progress`;
-  }
-
-  return "No blocker";
-}
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function HomePage() {
   const books = await listBooks();
-  const editingArtifactVersionIds = await getCurrentEditingArtifactVersionIdsForBooks(
-    books.map((book) => book.id),
-    ["MANUSCRIPT_ASSEMBLY", "PUBLISHING_PACKAGE"],
-  );
 
   return (
-    <div className="page-shell library-shell">
-      <aside className="glass-panel sidebar">
-        <div className="brand-mark">
-          <h1>GHOSTWRITR</h1>
-          <p className="muted">
-            Start a new book, reopen an active one, or clear out old projects from one
-            calm library view.
-          </p>
-        </div>
+    <div style={pageStyle}>
+      {/* ── Top bar ── */}
+      <AppTopBar activePage="library" />
 
-        <div className="card">
-          <div className="label">Library</div>
-          <h3 style={{ marginTop: 6 }}>Book Workspace</h3>
-          <div className="muted">
-            Each book keeps its own Promise, Outline, dossiers, stories, and manuscript
-            flow so you can move between projects cleanly.
-          </div>
-        </div>
-      </aside>
-
-      <main className="main-column">
-        <section className="glass-panel topbar">
-          <div>
-            <div className="label">Opening Area</div>
-            <h2>Book Library</h2>
-            <div className="muted">
-              Create a new book, jump back into an existing one, or remove a project you
-              no longer need.
+      {/* ── Body ── */}
+      <div style={bodyStyle}>
+        {/* ── New Book panel ── */}
+        <aside style={newBookPanelStyle}>
+          <div style={panelHeadStyle}>
+            <div style={panelLabelStyle}>NEW BOOK</div>
+            <div style={panelTitleStyle}>Start writing</div>
+            <div style={panelSubStyle}>
+              Give your book a working title and we&apos;ll open it in Book Studio ready to go.
             </div>
           </div>
-        </section>
 
-        <section className="workspace-grid" style={{ gridTemplateColumns: "1.1fr 1.4fr" }}>
-          <section className="glass-panel section-panel">
-            <div className="section-header">
-              <h3>Start A New Book</h3>
-              <div className="muted">
-                Create a book and set up basic metadata, or jump straight into the
-                Promise Wizard to define your book's core concept.
-              </div>
+          <form action={createBookAction} style={formStyle}>
+            <input
+              name="titleWorking"
+              style={inputStyle}
+              type="text"
+              placeholder="Working title"
+              autoComplete="off"
+            />
+            <input
+              name="subtitle"
+              style={inputStyle}
+              type="text"
+              placeholder="Subtitle (optional)"
+              autoComplete="off"
+            />
+            <select name="workflowType" style={selectStyle} defaultValue={BookWorkflowType.NONFICTION}>
+              <option value={BookWorkflowType.NONFICTION}>Nonfiction</option>
+              <option value={BookWorkflowType.FICTION}>Fiction</option>
+            </select>
+            <button type="submit" style={createBtnStyle}>
+              Create Book →
+            </button>
+          </form>
+
+          <Link href="/ideas" style={ideasLinkStyle}>
+            View idea box →
+          </Link>
+        </aside>
+
+        {/* ── Library ── */}
+        <main style={libraryStyle}>
+          <div style={libraryHeadStyle}>
+            <div style={panelLabelStyle}>LIBRARY</div>
+            <div style={libraryTitleStyle}>
+              {books.length} book{books.length !== 1 ? "s" : ""}
             </div>
+          </div>
 
-            <div className="stack">
-              <div>
-                <div className="label" style={{ marginBottom: 8 }}>With Setup First</div>
-                <form action={createBookAction} className="stack">
-                  <input
-                    className="editor-input"
-                    name="titleWorking"
-                    placeholder="Working title"
-                    type="text"
-                  />
-                  <input
-                    className="editor-input"
-                    name="subtitle"
-                    placeholder="Subtitle (optional)"
-                    type="text"
-                  />
-                  <select className="editor-input" name="workflowType" defaultValue={BookWorkflowType.NONFICTION}>
-                    <option value={BookWorkflowType.NONFICTION}>Nonfiction workflow</option>
-                    <option value={BookWorkflowType.FICTION}>Fiction workflow</option>
-                  </select>
-                  <button className="btn btn-primary" type="submit">
-                    Create Book & Setup
-                  </button>
-                </form>
-              </div>
-
-              <div style={{ borderTop: "1px solid rgba(45, 36, 29, 0.1)", paddingTop: 16, marginTop: 16 }}>
-                <div className="label" style={{ marginBottom: 8 }}>Or Jump to Wizard</div>
-                <form action={createBookWithWizardAction} className="stack">
-                  <input
-                    className="editor-input"
-                    name="titleWorking"
-                    placeholder="Working title"
-                    type="text"
-                    required
-                  />
-                  <select className="editor-input" name="workflowType" defaultValue={BookWorkflowType.NONFICTION}>
-                    <option value={BookWorkflowType.NONFICTION}>Nonfiction workflow</option>
-                    <option value={BookWorkflowType.FICTION}>Fiction workflow</option>
-                  </select>
-                  <button className="btn" type="submit">
-                    Start Workflow ✨
-                  </button>
-                </form>
-              </div>
-
-              <div style={{ borderTop: "1px solid rgba(45, 36, 29, 0.1)", paddingTop: 16, marginTop: 16 }}>
-                <div className="label" style={{ marginBottom: 8 }}>Start with Brainstorm</div>
-                <form action={createBookAndBrainstormAction} className="stack">
-                  <input
-                    className="editor-input"
-                    name="titleWorking"
-                    placeholder="Working title (optional — name it later)"
-                    type="text"
-                  />
-                  <select className="editor-input" name="workflowType" defaultValue={BookWorkflowType.NONFICTION}>
-                    <option value={BookWorkflowType.NONFICTION}>Nonfiction workflow</option>
-                    <option value={BookWorkflowType.FICTION}>Fiction workflow</option>
-                  </select>
-                  <button className="btn" type="submit">
-                    Start Brainstorming ✦
-                  </button>
-                </form>
-              </div>
-
-              <div style={{ borderTop: "1px solid rgba(45, 36, 29, 0.1)", paddingTop: 16, marginTop: 16 }}>
-                <div className="label" style={{ marginBottom: 8 }}>Restore From Archive</div>
-                <form action="/api/books/import-archive" className="stack" method="post" encType="multipart/form-data">
-                  <input
-                    className="editor-input"
-                    name="archive"
-                    accept=".zip,application/zip"
-                    type="file"
-                    required
-                  />
-                  <button className="btn" type="submit">
-                    Import Book Archive
-                  </button>
-                </form>
-              </div>
+          {books.length === 0 ? (
+            <div style={emptyStyle}>
+              No books yet — create your first one.
             </div>
-          </section>
+          ) : (
+            <div style={cardGridStyle}>
+              {books.map((book) => {
+                const stages = book.stages.map((s) => ({
+                  stageKey: String(s.stageKey),
+                  status: String(s.status),
+                }));
+                const pct = getProgress(stages);
+                const activeLabel = getActiveStageLabel(stages);
+                const statusColor = getStatusColor(stages);
+                const studioHref = getDefaultBookWorkspaceHref(
+                  book.workflowType,
+                  book.slug,
+                  book.stages.find((s) => s.status === "IN_PROGRESS")?.stageKey ?? null,
+                );
+                const meta = book.metadataJson && typeof book.metadataJson === "object"
+                  ? book.metadataJson as Record<string, unknown>
+                  : {};
+                const premise = typeof meta.premise === "string" ? meta.premise : null;
 
-          <section className="glass-panel section-panel">
-            <div className="section-header">
-              <h3>Existing Books</h3>
-              <div className="muted">
-                Switch between books from here instead of editing URLs by hand.
-              </div>
-            </div>
-
-            <div className="stack">
-              {books.length > 0 ? (
-                books.map((book) => (
-                  <article className="card" key={book.id}>
-                    {(() => {
-                      const metadata = parseMetadataRecord(book.metadataJson);
-                      const automation =
-                        metadata.workflowAutomation && typeof metadata.workflowAutomation === "object"
-                          ? (metadata.workflowAutomation as {
-                              mode?: string;
-                              enabled?: boolean;
-                              lastSummary?: { title?: string };
-                            })
-                          : null;
-                      const editingStage = book.stages.find(
-                        (stage) => String(stage.stageKey) === "EDITING",
-                      );
-                      const editingStageMetadata = parseMetadataRecord(editingStage?.metadataJson);
-                      const versionIds = editingArtifactVersionIds.get(book.id) ?? {};
-                      const publishSyncState = buildPublishPackageSyncState({
-                        currentAssemblyVersionId: versionIds.MANUSCRIPT_ASSEMBLY ?? null,
-                        hasPublishingPackage: Boolean(versionIds.PUBLISHING_PACKAGE),
-                        packageSourceAssemblyVersionId:
-                          typeof editingStageMetadata.publishPackageSourceAssemblyVersionId === "string"
-                            ? editingStageMetadata.publishPackageSourceAssemblyVersionId
-                            : null,
-                        lastRefreshedAt:
-                          typeof editingStageMetadata.publishPackageRefreshedAt === "string"
-                            ? editingStageMetadata.publishPackageRefreshedAt
-                            : null,
-                      });
-                      const publishReady = book.stages.some((stage) => String(stage.stageKey) === "EDITING" && String(stage.status) === "COMMITTED");
-                      const finalizedAt =
-                        typeof editingStageMetadata.finalHandoffState === "object" &&
-                        editingStageMetadata.finalHandoffState &&
-                        "finalizedAt" in editingStageMetadata.finalHandoffState &&
-                        typeof editingStageMetadata.finalHandoffState.finalizedAt === "string"
-                          ? editingStageMetadata.finalHandoffState.finalizedAt
-                          : null;
-                      const progress = getWorkflowProgress(
-                        book.stages.map((stage) => ({
-                          status: String(stage.status),
-                        })),
-                      );
-                      const blocker = getBlockerLabel(
-                        book.stages.map((stage) => ({
-                          stageKey: String(stage.stageKey),
-                          status: String(stage.status),
-                        })),
-                      );
-
-                      return (
-                        <>
-                    <div className="chapter-list-header">
-                      <div>
-                        <strong>{book.titleWorking ?? "Untitled Book"}</strong>
-                        <div className="muted" style={{ marginTop: 6 }}>
-                          {book.subtitle || book.slug}
+                return (
+                  <article key={book.id} style={cardStyle}>
+                    <div style={cardTopStyle}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={cardTitleStyle}>
+                          {book.titleWorking ?? "Untitled Book"}
                         </div>
-                        <div className="muted" style={{ marginTop: 6 }}>
-                          {book.workflowType === BookWorkflowType.FICTION ? "Fiction workflow" : "Nonfiction workflow"}
-                        </div>
-                        <div className="muted" style={{ marginTop: 6 }}>
-                          Progress: {progress} • Automation: {(automation?.mode ?? "manual").replace(/_/g, " ")}
-                        </div>
-                        <div className="muted" style={{ marginTop: 6 }}>
-                          Next constraint: {blocker}
-                        </div>
-                      </div>
-                      <span className="binder-status status-draft">
-                        {getStageSummary(
-                          book.stages.map((stage) => ({
-                            stageKey: String(stage.stageKey),
-                            status: String(stage.status),
-                          })),
+                        {book.subtitle && (
+                          <div style={cardSubtitleStyle}>{book.subtitle}</div>
                         )}
+                        {premise && (
+                          <div style={cardPremiseStyle}>
+                            {premise.length > 120 ? premise.slice(0, 120) + "…" : premise}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ ...cardBadgeStyle, color: statusColor, borderColor: statusColor + "44" }}>
+                        {book.workflowType === BookWorkflowType.FICTION ? "Fiction" : "Nonfiction"}
+                      </div>
+                    </div>
+
+                    {/* Progress */}
+                    <div style={progressRowStyle}>
+                      <div style={progressTrackStyle}>
+                        <div style={{ ...progressFillStyle, width: `${pct}%`, background: statusColor }} />
+                      </div>
+                      <span style={{ ...progressLabelStyle, color: statusColor }}>
+                        {pct}%
+                      </span>
+                      <span style={stageLabelStyle}>
+                        {activeLabel}
                       </span>
                     </div>
 
-                    <div className="pill-row" style={{ marginTop: 12 }}>
-                      <div className="pill">Publish {publishReady ? "ready" : "not ready"}</div>
-                      <div className="pill">
-                        Publish {publishSyncState.status === "synced"
-                          ? "synced"
-                          : publishSyncState.status === "stale"
-                            ? "refresh required"
-                            : "package missing"}
-                      </div>
-                      <div className="pill">
-                        {finalizedAt ? `Finalized ${new Date(finalizedAt).toLocaleDateString()}` : "Handoff not finalized"}
-                      </div>
-                      <div className="pill">
-                        {automation?.lastSummary?.title ?? "No automation summary yet"}
-                      </div>
-                    </div>
-                    <div className="muted" style={{ marginTop: 8 }}>
-                      Publish handoff: {publishSyncState.detail}
-                    </div>
-
-                    <div className="button-row" style={{ marginTop: 14 }}>
-                      <Link
-                        className="btn"
-                        href={getDefaultBookWorkspaceHref(
-                          book.workflowType,
-                          book.slug,
-                          book.stages.find((stage) => stage.status === "IN_PROGRESS")?.stageKey ?? null,
-                        )}
-                      >
-                        Open Book
+                    {/* Actions */}
+                    <div style={cardFooterStyle}>
+                      <Link href={studioHref} style={openBtnStyle}>
+                        Open Book Studio →
                       </Link>
-                      {book.workflowType === BookWorkflowType.NONFICTION ? (
-                        <>
-                          <Link className="btn" href={`/books/${book.slug}/outline`}>
-                            Open Outline
-                          </Link>
-                          <Link className="btn" href={`/books/${book.slug}/chapter-draft`}>
-                            Open Draft
-                          </Link>
-                          <Link className="btn" href={`/books/${book.slug}/promise?wizard=true`} title="Restart the Promise Wizard">
-                            Restart Wizard
-                          </Link>
-                        </>
-                      ) : (
-                        <>
-                          <Link className="btn" href={`/books/${book.slug}/plot-blueprint`}>
-                            Open Plot
-                          </Link>
-                          <Link className="btn" href={`/books/${book.slug}/draft`}>
-                            Open Draft
-                          </Link>
-                        </>
-                      )}
-                      <form action={deleteBookAction}>
+                      <form action={deleteBookAction} style={{ display: "inline" }}>
                         <input name="slug" type="hidden" value={book.slug} />
-                        <button className="btn" type="submit">
+                        <button type="submit" style={deleteBtnStyle} title="Delete this book">
                           Delete
                         </button>
                       </form>
-                      <form action={cloneBookAction}>
-                        <input name="slug" type="hidden" value={book.slug} />
-                        <button className="btn" type="submit">
-                          Branch Book
-                        </button>
-                      </form>
-                      <Link className="btn" href={`/api/books/${book.slug}/archive`}>
-                        Export Archive
-                      </Link>
                     </div>
-                        </>
-                      );
-                    })()}
                   </article>
-                ))
-              ) : (
-                <div className="empty-state">
-                  No books yet. Create your first one from the panel on the left.
-                </div>
-              )}
+                );
+              })}
             </div>
-          </section>
-        </section>
-      </main>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#1a1410",
+  fontFamily: F,
+  display: "flex",
+  flexDirection: "column",
+};
+
+const bodyStyle: React.CSSProperties = {
+  flex: 1,
+  display: "flex",
+  gap: "0",
+  overflow: "hidden",
+  minHeight: 0,
+};
+
+// ── New Book panel ────────────────────────────────────────────────────────────
+
+const newBookPanelStyle: React.CSSProperties = {
+  width: "280px",
+  flexShrink: 0,
+  borderRight: "1px solid rgba(255,255,255,0.06)",
+  padding: "32px 28px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "28px",
+  overflowY: "auto",
+};
+
+const panelHeadStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px",
+};
+
+const panelLabelStyle: React.CSSProperties = {
+  fontSize: "10px",
+  letterSpacing: "0.1em",
+  color: "#5a4a3a",
+  fontWeight: 600,
+  fontFamily: F,
+};
+
+const panelTitleStyle: React.CSSProperties = {
+  fontSize: "20px",
+  fontWeight: 700,
+  color: "#e8d5b0",
+  fontFamily: F,
+  lineHeight: 1.2,
+};
+
+const panelSubStyle: React.CSSProperties = {
+  fontSize: "13px",
+  color: "#6a5a4a",
+  lineHeight: 1.6,
+  fontFamily: F,
+};
+
+const formStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "10px",
+};
+
+const inputStyle: React.CSSProperties = {
+  padding: "9px 12px",
+  borderRadius: "6px",
+  border: "1px solid rgba(255,255,255,0.1)",
+  background: "rgba(255,255,255,0.05)",
+  color: "#e8d5b0",
+  fontSize: "13px",
+  fontFamily: F,
+  outline: "none",
+  width: "100%",
+  boxSizing: "border-box",
+};
+
+const selectStyle: React.CSSProperties = {
+  ...inputStyle,
+  cursor: "pointer",
+  appearance: "none" as const,
+};
+
+const createBtnStyle: React.CSSProperties = {
+  padding: "10px 16px",
+  borderRadius: "6px",
+  border: "none",
+  background: "#B8793A",
+  color: "#fff",
+  fontSize: "13px",
+  fontWeight: 600,
+  fontFamily: F,
+  cursor: "pointer",
+  textAlign: "center" as const,
+  marginTop: "4px",
+  transition: "opacity 150ms",
+};
+
+const ideasLinkStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "12px",
+  color: "#5a4a3a",
+  textDecoration: "none",
+  fontFamily: F,
+  textAlign: "center" as const,
+  paddingTop: "4px",
+  transition: "color 150ms",
+};
+
+// ── Library ───────────────────────────────────────────────────────────────────
+
+const libraryStyle: React.CSSProperties = {
+  flex: 1,
+  padding: "32px 40px",
+  overflowY: "auto",
+  display: "flex",
+  flexDirection: "column",
+  gap: "24px",
+};
+
+const libraryHeadStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "12px",
+};
+
+const libraryTitleStyle: React.CSSProperties = {
+  fontSize: "20px",
+  fontWeight: 700,
+  color: "#e8d5b0",
+  fontFamily: F,
+};
+
+const emptyStyle: React.CSSProperties = {
+  fontSize: "14px",
+  color: "#5a4a3a",
+  fontFamily: F,
+  padding: "40px 0",
+};
+
+const cardGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+  gap: "16px",
+};
+
+const cardStyle: React.CSSProperties = {
+  background: "rgba(254,251,245,0.04)",
+  border: "1px solid rgba(255,255,255,0.07)",
+  borderRadius: "10px",
+  padding: "20px 22px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "14px",
+  transition: "border-color 200ms, background 200ms",
+};
+
+const cardTopStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "12px",
+  alignItems: "flex-start",
+};
+
+const cardTitleStyle: React.CSSProperties = {
+  fontSize: "16px",
+  fontWeight: 700,
+  color: "#e8d5b0",
+  fontFamily: F,
+  lineHeight: 1.3,
+};
+
+const cardSubtitleStyle: React.CSSProperties = {
+  fontSize: "13px",
+  color: "#8a7060",
+  fontFamily: F,
+  marginTop: "3px",
+  lineHeight: 1.4,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap" as const,
+};
+
+const cardPremiseStyle: React.CSSProperties = {
+  fontSize: "12px",
+  color: "#6a5a4a",
+  fontFamily: F,
+  marginTop: "6px",
+  lineHeight: 1.5,
+};
+
+const cardBadgeStyle: React.CSSProperties = {
+  fontSize: "10px",
+  fontWeight: 600,
+  letterSpacing: "0.06em",
+  padding: "3px 8px",
+  borderRadius: "4px",
+  border: "1px solid",
+  whiteSpace: "nowrap" as const,
+  flexShrink: 0,
+  alignSelf: "flex-start",
+  marginTop: "2px",
+  fontFamily: F,
+};
+
+const progressRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+};
+
+const progressTrackStyle: React.CSSProperties = {
+  flex: 1,
+  height: "3px",
+  background: "rgba(255,255,255,0.08)",
+  borderRadius: "2px",
+  overflow: "hidden",
+};
+
+const progressFillStyle: React.CSSProperties = {
+  height: "100%",
+  borderRadius: "2px",
+  transition: "width 400ms ease",
+};
+
+const progressLabelStyle: React.CSSProperties = {
+  fontSize: "11px",
+  fontWeight: 600,
+  fontFamily: F,
+  whiteSpace: "nowrap" as const,
+};
+
+const stageLabelStyle: React.CSSProperties = {
+  fontSize: "11px",
+  color: "#6a5a4a",
+  fontFamily: F,
+  whiteSpace: "nowrap" as const,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  maxWidth: "160px",
+};
+
+const cardFooterStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  paddingTop: "4px",
+  borderTop: "1px solid rgba(255,255,255,0.05)",
+};
+
+const openBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: "8px 14px",
+  borderRadius: "6px",
+  border: "1px solid rgba(184,121,58,0.4)",
+  background: "rgba(184,121,58,0.1)",
+  color: "#c9a96e",
+  fontSize: "12px",
+  fontWeight: 600,
+  fontFamily: F,
+  textDecoration: "none",
+  textAlign: "center" as const,
+  transition: "background 150ms",
+};
+
+const deleteBtnStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: "6px",
+  border: "1px solid rgba(255,255,255,0.08)",
+  background: "transparent",
+  color: "#4a3a2a",
+  fontSize: "12px",
+  fontFamily: F,
+  cursor: "pointer",
+  transition: "color 150ms",
+};

@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { toggleBookFileAction, uploadBookFileAction } from "./actions";
+import { AppTopBar } from "@/app/components/app-top-bar";
+import { STAGE_LINKS } from "@/lib/navigation";
 
 import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { listBookSourceDocuments } from "@/lib/repositories/source-documents";
@@ -27,7 +29,9 @@ export default async function BookFilesPage({
   const files = await listBookSourceDocuments({ bookId: book.id });
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={book.titleWorking ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
@@ -46,12 +50,12 @@ export default async function BookFilesPage({
         </div>
 
         <div className="stage-list">
-          <Link href="/" className="stage-chip">
-            Library
-          </Link>
-          <Link href={`/books/${slug}/promise`} className="stage-chip active">
-            Back To Promise
-          </Link>
+          <Link href="/" className="stage-chip">← Library</Link>
+          {STAGE_LINKS.map((stage) => (
+            <Link key={stage.key} href={stage.href(slug)} className="stage-chip">
+              {stage.label}
+            </Link>
+          ))}
         </div>
       </aside>
 
@@ -64,6 +68,9 @@ export default async function BookFilesPage({
               Review uploaded materials and decide which ones are active inputs for the book.
             </div>
           </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link className="btn" href={`/books/${slug}`}>← Book Studio</Link>
+          </div>
         </section>
 
         <section className="glass-panel section-panel">
@@ -74,9 +81,9 @@ export default async function BookFilesPage({
             </div>
           </div>
 
-          <form action={uploadBookFileAction.bind(null, slug)} style={{ display: "grid", gap: "16px", padding: "20px", backgroundColor: "rgba(255, 255, 255, 0.3)", borderRadius: "6px", marginBottom: "32px" }}>
+          <form action={uploadBookFileAction.bind(null, slug)} style={{ display: "grid", gap: "16px", padding: "20px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "6px", marginBottom: "32px" }}>
             <div style={{ display: "grid", gap: "8px" }}>
-              <label style={{ fontSize: "14px", fontWeight: 500, color: "#2d241d" }}>
+              <label style={{ fontSize: "14px", fontWeight: 500, color: "#e8d5b0" }}>
                 Select File
               </label>
               <input
@@ -85,17 +92,17 @@ export default async function BookFilesPage({
                 required
                 style={{
                   padding: "12px",
-                  border: "1px solid rgba(45, 36, 29, 0.2)",
+                  border: "1px solid rgba(255,255,255,0.1)",
                   borderRadius: "6px",
                   fontSize: "14px",
-                  color: "#2d241d",
-                  backgroundColor: "white",
+                  color: "#e8d5b0",
+                  backgroundColor: "rgba(255,255,255,0.06)",
                   cursor: "pointer",
                 }}
               />
             </div>
             <div style={{ display: "grid", gap: "8px" }}>
-              <label style={{ fontSize: "14px", fontWeight: 500, color: "#2d241d" }}>
+              <label style={{ fontSize: "14px", fontWeight: 500, color: "#e8d5b0" }}>
                 Optional Note
               </label>
               <textarea
@@ -103,30 +110,18 @@ export default async function BookFilesPage({
                 placeholder="Add a note about this document (optional)"
                 style={{
                   padding: "12px",
-                  border: "1px solid rgba(45, 36, 29, 0.2)",
+                  border: "1px solid rgba(255,255,255,0.1)",
                   borderRadius: "6px",
                   fontSize: "14px",
-                  color: "#2d241d",
+                  color: "#e8d5b0",
                   fontFamily: "inherit",
                   minHeight: "80px",
                   resize: "vertical",
+                  background: "rgba(255,255,255,0.05)",
                 }}
               />
             </div>
-            <button
-              type="submit"
-              style={{
-                padding: "12px 16px",
-                backgroundColor: "#16384f",
-                color: "white",
-                border: "none",
-                borderRadius: "6px",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "opacity 0.2s",
-              }}
-            >
+            <button type="submit" className="btn">
               Upload File
             </button>
           </form>
@@ -187,6 +182,7 @@ export default async function BookFilesPage({
           )}
         </section>
       </main>
+      </div>
     </div>
   );
 }

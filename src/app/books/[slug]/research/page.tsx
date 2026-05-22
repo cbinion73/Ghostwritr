@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppTopBar } from "@/app/components/app-top-bar";
 import {
   addResearchBinderTab,
   addResearchIdeaClip,
@@ -80,7 +81,9 @@ export default async function ResearchStagePage({
   const staleDependency = getStaleDependencyState(workspace.stage?.metadataJson);
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={workspace.book.titleWorking ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
@@ -138,6 +141,7 @@ export default async function ResearchStagePage({
           </div>
 
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}`}>← Book Studio</Link>
             <Link className="btn" href={`/books/${slug}/outline`}>
               Back to Outline
             </Link>
@@ -479,7 +483,7 @@ export default async function ResearchStagePage({
           </section>
         </section>
       </main>
+      </div>
     </div>
-
   );
 }

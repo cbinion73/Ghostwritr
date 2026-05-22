@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BookWorkflowType } from "@prisma/client";
 
 import { commitBookSetupAction, saveBookSetupAction, saveAndCommitSetupAction } from "./actions";
+import { AppTopBar } from "@/app/components/app-top-bar";
 import { TargetMetricsFields } from "./target-metrics";
 import { VoiceBlendSection } from "./voice-blend-section";
 
@@ -23,7 +24,9 @@ export default async function BookSetupStagePage({
       : `/books/${slug}/promise`;
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={workspace.book.titleWorking ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
@@ -123,6 +126,66 @@ export default async function BookSetupStagePage({
                 subtitle={workspace.profile.subtitle ?? null}
                 initialBlend={workspace.profile.writerPersonaBlend}
               />
+              <label className="form-field">
+                <span className="field-label">Author Voice Tone</span>
+                <input
+                  className="editor-input"
+                  defaultValue={workspace.profile.voiceTone ?? ""}
+                  name="voiceTone"
+                  placeholder="e.g. warm and conversational, direct and plainspoken, witty with depth"
+                  type="text"
+                />
+                <span className="field-hint">How would your ideal reader describe your writing voice in a few words?</span>
+              </label>
+
+              <div className="card">
+                <h4>Chapter Format</h4>
+                <p className="muted" style={{ margin: "0 0 10px" }}>What structured tools will appear inside chapters?</p>
+                {[
+                  { value: "reflection-questions", label: "Reflection Questions" },
+                  { value: "exercises", label: "Exercises" },
+                  { value: "sidebars", label: "Sidebars" },
+                  { value: "checklists", label: "Checklists" },
+                  { value: "case-studies", label: "Case Studies" },
+                  { value: "callout-boxes", label: "Callout Boxes" },
+                ].map(({ value, label }) => (
+                  <label className="checkbox-row" key={value}>
+                    <input
+                      defaultChecked={workspace.profile.chapterFormat?.includes(value) ?? false}
+                      name="chapterFormat"
+                      type="checkbox"
+                      value={value}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="card">
+                <h4>Reader Level</h4>
+                <p className="muted" style={{ margin: "0 0 10px" }}>Who are you writing for?</p>
+                {[
+                  { value: "casual", label: "Casual Reader", hint: "General audience, minimal assumed knowledge" },
+                  { value: "practitioner", label: "Practitioner", hint: "Someone working in the field but not expert" },
+                  { value: "professional", label: "Professional", hint: "Experienced, expects depth and precision" },
+                  { value: "expert", label: "Expert", hint: "High assumed knowledge, peer-level writing" },
+                ].map(({ value, label, hint }) => (
+                  <label className="checkbox-row" key={value} style={{ alignItems: "flex-start", gap: 8 }}>
+                    <input
+                      defaultChecked={(workspace.profile.readerLevel ?? "casual") === value}
+                      name="readerLevel"
+                      style={{ marginTop: 3 }}
+                      type="radio"
+                      value={value}
+                    />
+                    <span>
+                      <strong>{label}</strong>
+                      <span className="muted" style={{ display: "block", fontSize: "12px" }}>{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
               <label className="form-field">
                 <span className="field-label">Base Story Format</span>
                 <select
@@ -347,6 +410,7 @@ export default async function BookSetupStagePage({
           </div>
         </section>
       </main>
+      </div>
     </div>
   );
 }

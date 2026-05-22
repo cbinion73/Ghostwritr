@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppTopBar } from "@/app/components/app-top-bar";
 import {
   commitPersonalStoriesStage,
   markNoStoryForCurrentQuestion,
@@ -26,7 +27,9 @@ export default async function PersonalStoriesStagePage({
   const canCommit = workspace.outlineReady && workspace.encyclopedia.entries.length > 0;
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={workspace.book.titleWorking ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
@@ -77,6 +80,7 @@ export default async function PersonalStoriesStagePage({
           </div>
 
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}`}>← Book Studio</Link>
             <form action={seedPersonalStoriesStage.bind(null, slug)}>
               <button className="btn" type="submit" disabled={!canStartInterview}>
                 Start Chapter-Aware Interview
@@ -284,6 +288,7 @@ export default async function PersonalStoriesStagePage({
           </div>
         </div>
       </aside>
+      </div>
     </div>
   );
 }

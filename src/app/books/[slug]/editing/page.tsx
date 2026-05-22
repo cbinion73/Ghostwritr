@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppTopBar } from "@/app/components/app-top-bar";
 import {
   applyManuscriptRevision,
   assembleManuscript,
@@ -139,7 +140,9 @@ export default async function EditingStagePage({
   );
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={workspace.book.titleWorking ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
@@ -197,6 +200,7 @@ export default async function EditingStagePage({
             ) : null}
           </div>
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}`}>← Book Studio</Link>
             <form action={assembleManuscript.bind(null, slug)}>
               <button className="btn" type="submit" disabled={!workspace.manuscriptReady}>
                 {workspace.manuscriptAssembly ? "Reassemble Manuscript" : "Assemble Manuscript"}
@@ -1187,6 +1191,7 @@ export default async function EditingStagePage({
           )}
         </div>
       </aside>
+      </div>
     </div>
   );
 }

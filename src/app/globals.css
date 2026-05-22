@@ -1354,3 +1354,106 @@ select.editor-input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Dark shell — wraps any page in Book Studio dark theme ─────────────────── */
+.dark-shell {
+  --bg: #1a1410;
+  --panel: rgba(254, 251, 245, 0.04);
+  --panel-solid: #211a15;
+  --paper: #1e1813;
+  --ink: #e8d5b0;
+  --muted: #6a5a4a;
+  --line: rgba(255, 255, 255, 0.07);
+  --accent: #B8793A;
+  --accent-soft: rgba(184, 121, 58, 0.1);
+  --gold: #c9a96e;
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.4);
+
+  background: #1a1410;
+  color: #e8d5b0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dark-shell body,
+.dark-shell .page-shell {
+  background: transparent;
+}
+
+.dark-shell .glass-panel {
+  background: rgba(254, 251, 245, 0.04);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark-shell .btn {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #8a7060;
+  background: transparent;
+}
+
+.dark-shell .btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dark-shell .btn-primary {
+  background: #B8793A;
+  color: #fff;
+  border-color: transparent;
+}
+
+.dark-shell .editor-input,
+.dark-shell .editor-textarea {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #e8d5b0;
+}
+
+.dark-shell h2,
+.dark-shell h3,
+.dark-shell h4,
+.dark-shell strong {
+  color: #e8d5b0;
+}
+
+.dark-shell .pill {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #8a7060;
+}
+
+.dark-shell .card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark-shell .stage-chip.active {
+  background: rgba(184, 121, 58, 0.12);
+  border-color: rgba(184, 121, 58, 0.3);
+  color: #c9a96e;
+}
+
+.dark-shell .stage-chip {
+  color: #4a3a2a;
+}
+
+.dark-shell .speed-dial {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dark-shell .metric,
+.dark-shell .version-item,
+.dark-shell .live-feed-item {
+  border-color: rgba(255, 255, 255, 0.06);
+  color: #8a7060;
+}
+
+.dark-shell .empty-state {
+  color: #4a3a2a;
+}
+
+.dark-shell select.editor-input option {
+  background: #211a15;
+  color: #e8d5b0;
+}

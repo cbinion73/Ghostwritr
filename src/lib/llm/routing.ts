@@ -60,7 +60,46 @@ export type StageRole =
   | "fiction:draft"
   | "market-analysis:research"
   | "length-adjustment:author"
-  | "final-editor:polish";
+  | "final-editor:assess"
+  | "final-editor:polish"
+  | "manifest:generate"
+  | "typeset:plan"
+  | "launch:listing"
+  | "press:kit"
+  | "social:campaign"
+  | "audio:prep"
+  | "course:design"
+  | "speaking:kit";
+
+/**
+ * Per-role output token overrides.
+ *
+ * Most stages are fine with the provider default (8,192).
+ * Roles that produce long-form prose need more headroom:
+ *
+ *  - chapter-draft:author  — full chapter prose (up to ~5,000 words) + Quill Package Notes
+ *                            easily 5,000–8,000 tokens of output. 16,000 gives safe margin.
+ *  - final-editor:polish   — 10-section editorial review across the full manuscript,
+ *                            can be 3,000–6,000 tokens. 16,000 gives safe margin.
+ *  - fiction:draft         — long prose scenes, same as chapter draft.
+ *  - base-story:author     — full narrative essay, needs headroom beyond 8,192.
+ */
+const ROLE_OUTPUT_TOKENS: Partial<Record<StageRole, number>> = {
+  "chapter-draft:author":  16000,
+  "chapter-draft:revise":  16000,
+  "final-editor:assess":   16000,
+  "final-editor:polish":   16000,
+  "fiction:draft":         16000,
+  "base-story:author":     12000,
+  "manifest:generate":     16000,
+  "typeset:plan":          16000,
+  "launch:listing":        16000,
+  "press:kit":             16000,
+  "social:campaign":       16000,
+  "audio:prep":            16000,
+  "course:design":         16000,
+  "speaking:kit":          16000,
+};
 
 const DEFAULT_ROUTING: Record<StageRole, string> = {
   // --- External Stories: Claude for narrative extraction + enrichment ---
@@ -103,7 +142,16 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "fiction:draft": "anthropic:claude-sonnet-4-6",
   "market-analysis:research": "google:gemini-2.5-flash",
   "length-adjustment:author": "anthropic:claude-sonnet-4-6",
-  "final-editor:polish": "anthropic:claude-opus-4-6",
+  "final-editor:assess": "anthropic:claude-sonnet-4-6",  // full manuscript audit — analytical, Sonnet sufficient
+  "final-editor:polish": "anthropic:claude-opus-4-6",    // prose revision of specific chapters — Opus quality justified
+  "manifest:generate": "anthropic:claude-sonnet-4-6",
+  "typeset:plan": "openai:gpt-5.4",  // web search for current KDP/B&N specs
+  "launch:listing":   "openai:gpt-5.4",        // web search for current KDP categories/keyword trends
+  "press:kit":        "openai:gpt-4o-mini",    // post-production: cost-optimized, no heavy reasoning needed
+  "social:campaign":  "openai:gpt-4o-mini",
+  "audio:prep":       "openai:gpt-4o-mini",
+  "course:design":    "openai:gpt-4o-mini",
+  "speaking:kit":     "openai:gpt-4o-mini",
 };
 
 function envKeyForRole(role: StageRole): string {
@@ -139,11 +187,18 @@ export async function getModelForRole(
   options: ModelOptions = {},
   fallbackRole?: StageRole,
 ): Promise<BaseChatModel | null> {
-  const primary = await getModel(resolveModelSpec(role), options);
+  // Apply per-role output token ceiling unless caller already specified one
+  const roleMaxTokens = ROLE_OUTPUT_TOKENS[role];
+  const resolvedOptions: ModelOptions =
+    roleMaxTokens && !options.maxOutputTokens
+      ? { ...options, maxOutputTokens: roleMaxTokens }
+      : options;
+
+  const primary = await getModel(resolveModelSpec(role), resolvedOptions);
   if (primary) return primary;
 
   if (fallbackRole) {
-    const secondary = await getModel(resolveModelSpec(fallbackRole), options);
+    const secondary = await getModel(resolveModelSpec(fallbackRole), resolvedOptions);
     if (secondary) return secondary;
   }
 

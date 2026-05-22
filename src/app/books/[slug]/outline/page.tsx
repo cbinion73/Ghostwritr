@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppTopBar } from "@/app/components/app-top-bar";
 import {
   approveOutlinePhase,
   commitOutlineStage,
@@ -197,7 +198,7 @@ function renderMeWePhaseBadges(phases: string[]) {
             border: "1px solid var(--line)",
             padding: "6px 10px",
             fontSize: 12,
-            background: "rgba(255,255,255,0.72)",
+            background: "rgba(255,255,255,0.07)",
           }}
         >
           {phase}
@@ -406,11 +407,11 @@ function renderPhaseTwoChapterDetail(
                 key={paragraph.id}
                 style={{
                   borderRadius: 18,
-                  border: selected ? "2px solid rgba(37,99,235,0.4)" : "1px solid var(--line)",
+                  border: selected ? "2px solid rgba(184,121,58,0.3)" : "1px solid rgba(255,255,255,0.08)",
                   padding: 14,
                   background: selected
-                    ? "rgba(219,234,254,0.55)"
-                    : "rgba(255,255,255,0.62)",
+                    ? "rgba(184,121,58,0.12)"
+                    : "rgba(255,255,255,0.05)",
                 }}
               >
                 <div className="metric-row">
@@ -494,8 +495,8 @@ function renderOutlineProgressTracker(input: {
   };
 
   const getStatusIcon = (status: PhaseStatus, hasDraft: boolean) => {
-    if (status === "committed" || status === "approved") return "✅";
-    if (status === "locked") return "🔒";
+    if (status === "committed" || status === "approved") return "✓";
+    if (status === "locked") return "■";
     return hasDraft ? "⏳" : "○";
   };
 
@@ -518,7 +519,7 @@ function renderOutlineProgressTracker(input: {
           style={{
             flex: 2,
             height: 8,
-            background: "rgba(45,36,29,0.1)",
+            background: "rgba(255,255,255,0.08)",
             borderRadius: 999,
             overflow: "hidden",
           }}
@@ -557,10 +558,10 @@ function renderOutlineProgressTracker(input: {
                 borderRadius: 8,
                 border: active
                   ? `2px solid ${accent}`
-                  : "1px solid rgba(45, 36, 29, 0.1)",
+                  : "1px solid rgba(255,255,255,0.08)",
                 background: active
-                  ? "rgba(255,255,255,0.92)"
-                  : "#fff",
+                  ? "rgba(255,255,255,0.09)"
+                  : "rgba(255,255,255,0.04)",
                 textDecoration: "none",
                 color: "inherit",
               }}
@@ -586,12 +587,12 @@ function renderOutlineProgressTracker(input: {
                 gap: 10,
                 padding: "10px 12px",
                 borderRadius: 8,
-                border: "1px solid rgba(45, 36, 29, 0.1)",
-                background: "#fff",
-                color: "#6b7280",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(255,255,255,0.04)",
+                color: "#6a5a4a",
               }}
             >
-              <span style={{ fontSize: 14 }}>🔒</span>
+              <span style={{ fontSize: 14 }}>■</span>
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{phase.label}</span>
               <span
                 style={{
@@ -637,16 +638,15 @@ function renderCurrentPhaseBanner(input: {
           display: "flex",
           gap: 12,
           padding: "12px 16px",
-          background: "#dcfce7",
-          border: "1px solid rgba(22,163,74,0.25)",
+          background: "rgba(74,124,89,0.15)",
+          border: "1px solid rgba(74,124,89,0.3)",
         }}
       >
-        <div style={{ fontSize: 20, flexShrink: 0 }}>🎉</div>
         <div>
-          <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#166534" }}>
+          <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#e8d5b0" }}>
             {title}
           </p>
-          <p style={{ margin: 0, fontSize: 12, color: "#15803d", lineHeight: 1.45 }}>
+          <p style={{ margin: 0, fontSize: 12, color: "#c9a96e", lineHeight: 1.45 }}>
             {description}
           </p>
         </div>
@@ -662,16 +662,15 @@ function renderCurrentPhaseBanner(input: {
           display: "flex",
           gap: 12,
           padding: "12px 16px",
-          background: "#fef3c7",
-          border: "1px solid rgba(245,158,11,0.25)",
+          background: "rgba(184,121,58,0.12)",
+          border: "1px solid rgba(184,121,58,0.3)",
         }}
       >
-        <div style={{ fontSize: 20, flexShrink: 0 }}>👉</div>
         <div>
-          <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#92400e" }}>
+          <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#e8d5b0" }}>
             This phase needs approval
           </p>
-          <p style={{ margin: 0, fontSize: 12, color: "#78350f", lineHeight: 1.45 }}>
+          <p style={{ margin: 0, fontSize: 12, color: "#c9a96e", lineHeight: 1.45 }}>
             Review the current output and approve this phase to unlock the Commit Outline button.
           </p>
         </div>
@@ -686,16 +685,15 @@ function renderCurrentPhaseBanner(input: {
         display: "flex",
         gap: 12,
         padding: "12px 16px",
-        background: "rgba(255,255,255,0.72)",
-        border: "1px solid rgba(45,36,29,0.1)",
+        background: "rgba(255,255,255,0.05)",
+        border: "1px solid rgba(255,255,255,0.08)",
       }}
     >
-      <div style={{ fontSize: 20, flexShrink: 0 }}>🛠️</div>
       <div>
-        <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#2d241d" }}>
+        <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#e8d5b0" }}>
           Generate this phase first
         </p>
-        <p style={{ margin: 0, fontSize: 12, color: "#6f6256", lineHeight: 1.45 }}>
+        <p style={{ margin: 0, fontSize: 12, color: "#6a5a4a", lineHeight: 1.45 }}>
           Once this phase has content, you can review it, approve it, and move forward.
         </p>
       </div>
@@ -729,16 +727,15 @@ function renderOutlineGenerationStatus(outline: BookOutline | null) {
           display: "flex",
           gap: 12,
           padding: "12px 16px",
-          background: "#fff7ed",
-          border: "1px solid rgba(249,115,22,0.28)",
+          background: "rgba(184,121,58,0.08)",
+          border: "1px solid rgba(184,121,58,0.3)",
         }}
       >
-        <div style={{ fontSize: 20, flexShrink: 0 }}>⚠️</div>
         <div>
-          <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#9a3412" }}>
+          <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#e8d5b0" }}>
             This outline generation fell back before saving a real draft
           </p>
-          <p style={{ margin: 0, fontSize: 12, color: "#7c2d12", lineHeight: 1.5 }}>
+          <p style={{ margin: 0, fontSize: 12, color: "#6a5a4a", lineHeight: 1.5 }}>
             Sonnet did not complete successfully, so the app kept the prior outline state and only used the local scaffold for diagnostics.
             {meta.reason ? ` Last failure: ${meta.reason}` : ""}
           </p>
@@ -754,16 +751,15 @@ function renderOutlineGenerationStatus(outline: BookOutline | null) {
         display: "flex",
         gap: 12,
         padding: "12px 16px",
-        background: "#ecfdf5",
-        border: "1px solid rgba(16,185,129,0.24)",
+        background: "rgba(74,124,89,0.12)",
+        border: "1px solid rgba(74,124,89,0.3)",
       }}
     >
-      <div style={{ fontSize: 20, flexShrink: 0 }}>✨</div>
       <div>
-        <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#065f46" }}>
+        <p style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 700, color: "#e8d5b0" }}>
           Sonnet generated the current outline draft
         </p>
-        <p style={{ margin: 0, fontSize: 12, color: "#047857", lineHeight: 1.5 }}>
+        <p style={{ margin: 0, fontSize: 12, color: "#6a5a4a", lineHeight: 1.5 }}>
           This draft came from {meta.model ?? "Claude Sonnet"} rather than the local scaffold.
         </p>
       </div>
@@ -788,12 +784,12 @@ function renderPhaseApprovalCard(input: {
       style={{
         border:
           input.approval.status === "approved"
-            ? "1px solid rgba(22,163,74,0.28)"
-            : "1px solid rgba(245,158,11,0.28)",
+            ? "1px solid rgba(74,124,89,0.3)"
+            : "1px solid rgba(184,121,58,0.3)",
         background:
           input.approval.status === "approved"
-            ? "rgba(220,252,231,0.55)"
-            : "rgba(254,243,199,0.55)",
+            ? "rgba(74,124,89,0.15)"
+            : "rgba(184,121,58,0.12)",
       }}
     >
       <h3>{input.title}</h3>
@@ -973,9 +969,9 @@ function renderFullToc(
                                       key={paragraph.id}
                                       style={{
                                         borderRadius: 16,
-                                        border: "1px solid var(--line)",
+                                        border: "1px solid rgba(255,255,255,0.08)",
                                         padding: 14,
-                                        background: "rgba(255,255,255,0.65)",
+                                        background: "rgba(255,255,255,0.05)",
                                       }}
                                     >
                                       <div className="metric-row">
@@ -1189,7 +1185,9 @@ export default async function OutlineStagePage({
         : undefined;
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={outlineWorkspace.book.titleWorking ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
@@ -1803,6 +1801,7 @@ export default async function OutlineStagePage({
           </div>
         </div>
       </aside>
+      </div>
     </div>
   );
 }

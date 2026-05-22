@@ -23,6 +23,8 @@ export async function uploadBookSourceDocument(input: {
   mimeType: string;
   bytes: Uint8Array;
   note?: string;
+  /** If provided, used as the document title (shown to agents as the section header). Defaults to fileName. */
+  customTitle?: string;
   metadataJson?: Prisma.InputJsonValue;
 }) {
   const uploadId = randomUUID();
@@ -43,7 +45,7 @@ export async function uploadBookSourceDocument(input: {
       bookId: input.bookId,
       category: SourceDocumentCategory.USER_UPLOAD,
       sourceType: SourceDocumentType.FILE,
-      title: input.fileName,
+      title: input.customTitle ?? input.fileName,
       storagePath: absoluteStoragePath,
       mimeType: input.mimeType || "application/octet-stream",
       metadataJson: {

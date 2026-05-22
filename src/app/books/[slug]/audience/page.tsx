@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { commitAudienceStage } from "./actions";
+import { AppTopBar } from "@/app/components/app-top-bar";
 
 import { STAGE_LINKS } from "@/lib/navigation";
 import { getPromiseWorkspace } from "@/lib/workflows/promise";
@@ -15,7 +16,9 @@ export default async function AudienceStagePage({
   const isCommitted = workspace.stage?.status === "COMMITTED";
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar bookSlug={slug} bookTitle={workspace.book.titleWorking ?? undefined} activePage="studio" />
+      <div className="page-shell" style={{ flex: 1 }}>
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
           <h1>GHOSTWRITR</h1>
@@ -38,7 +41,7 @@ export default async function AudienceStagePage({
             <Link
               key={stage.key}
               href={stage.href(slug)}
-              className={`stage-chip ${stage.key === "PROMISE" ? "active" : ""}`}
+              className={`stage-chip ${stage.key === "AUDIENCE" ? "active" : ""}`}
             >
               {stage.label}
             </Link>
@@ -58,6 +61,7 @@ export default async function AudienceStagePage({
           </div>
 
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}`}>← Book Studio</Link>
             <Link className="btn" href={`/books/${slug}/promise`}>
               Refine in Promise
             </Link>
@@ -193,6 +197,7 @@ export default async function AudienceStagePage({
           </ul>
         </div>
       </aside>
+      </div>
     </div>
   );
 }

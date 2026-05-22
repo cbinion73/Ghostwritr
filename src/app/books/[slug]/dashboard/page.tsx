@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArtifactType, BookWorkflowType, StageKey } from "@prisma/client";
+import { AppTopBar } from "@/app/components/app-top-bar";
 import {
   BaseStoryBundleSchema,
   BookOutlineSchema,
@@ -572,7 +573,13 @@ export default async function DashboardPage({
   );
 
   return (
-    <div className="page-shell">
+    <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <AppTopBar
+        bookSlug={slug}
+        bookTitle={book.titleWorking ?? undefined}
+        activePage="dashboard"
+      />
+      <div className="page-shell" style={{ flex: 1 }}>
       <DashboardAutoRefresh active={autoRefresh} />
       <aside className="glass-panel sidebar">
         <div className="brand-mark">
@@ -615,6 +622,7 @@ export default async function DashboardPage({
           </div>
 
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}`}>← Book Studio</Link>
             <Link className="btn" href={`/books/${slug}/outline`}>
               Back to Outline
             </Link>
@@ -1062,6 +1070,7 @@ export default async function DashboardPage({
           )}
         </section>
       </main>
+    </div>
     </div>
   );
 }

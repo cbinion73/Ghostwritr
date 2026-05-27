@@ -88,22 +88,42 @@ export async function POST(
 
     const now = new Date();
 
-    // Create the Artifact
-    const newArtifact = await db.artifact.create({
-      data: {
-        bookId: book.id,
+    // Find-or-create the Artifact by title to prevent duplicate dossiers from
+    // rapid saves / double-clicks / network retries.
+    const existingArtifact = await db.artifact.findFirst({
+      where: {
         stageId: bookStage.id,
-        artifactType,
         title: artifact.title,
-        status: "COMMITTED",
       },
+      select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
     });
+
+    let targetArtifactId: string;
+    let nextVersionNumber: number;
+
+    if (existingArtifact) {
+      // Artifact already exists — add a new version rather than a duplicate artifact
+      targetArtifactId = existingArtifact.id;
+      nextVersionNumber = (existingArtifact.versions[0]?.versionNumber ?? 0) + 1;
+    } else {
+      const newArtifact = await db.artifact.create({
+        data: {
+          bookId: book.id,
+          stageId: bookStage.id,
+          artifactType,
+          title: artifact.title,
+          status: "COMMITTED",
+        },
+      });
+      targetArtifactId = newArtifact.id;
+      nextVersionNumber = 1;
+    }
 
     // Create the ArtifactVersion
     const newVersion = await db.artifactVersion.create({
       data: {
-        artifactId: newArtifact.id,
-        versionNumber: 1,
+        artifactId: targetArtifactId,
+        versionNumber: nextVersionNumber,
         lifecycleState: "COMMITTED",
         contentJson: { text: artifact.content },
         contentText: artifact.content,
@@ -112,9 +132,9 @@ export async function POST(
       },
     });
 
-    // Point artifact to its committed version
+    // Point artifact to its latest committed version
     await db.artifact.update({
-      where: { id: newArtifact.id },
+      where: { id: targetArtifactId },
       data: { committedVersionId: newVersion.id },
     });
 

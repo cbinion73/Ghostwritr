@@ -11,7 +11,10 @@ import { ArtifactType, StageStatus, ActorType } from "@prisma/client";
 import { getModelForRole } from "@/lib/llm/routing";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
 
-export async function generateManifest(bookId: string): Promise<{ success: boolean; content?: string; error?: string }> {
+export async function generateManifest(
+  bookId: string,
+  onChunk?: (text: string) => void,
+): Promise<{ success: boolean; content?: string; error?: string }> {
   // Load book metadata
   const book = await db.book.findUnique({
     where: { id: bookId },
@@ -132,7 +135,10 @@ Produce the full manifest now, covering every chapter in the outline. Use exact 
         : Array.isArray(chunk.content)
           ? chunk.content.filter((c): c is { type: "text"; text: string } => typeof c === "object" && "text" in c).map((c) => c.text).join("")
           : "";
-      manifestContent += text;
+      if (text) {
+        manifestContent += text;
+        onChunk?.(text); // forward each token to the SSE stream to keep the connection alive
+      }
     }
   } catch (err) {
     await db.bookStage.update({ where: { id: manifestStage.id }, data: { status: StageStatus.NOT_STARTED } });

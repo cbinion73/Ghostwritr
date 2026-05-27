@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { generateManifest } from "@/lib/workflows/manifest-generator";
 
 export const maxDuration = 300;
+export const runtime = "nodejs";
 
 // GET — return manifest content and stage status
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> }) {
@@ -57,7 +58,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
       try {
         send("status", { message: "Starting manifest generation…" });
-        const result = await generateManifest(book.id);
+        // Pass onChunk so each LLM token is forwarded as a heartbeat SSE event.
+        // This keeps the connection alive through nginx / reverse proxies that
+        // would otherwise drop the stream after ~60s of silence.
+        const result = await generateManifest(book.id, (text) => {
+          send("chunk", { text });
+        });
         if (result.success) {
           send("complete", { message: "Manifest generated successfully.", content: result.content });
         } else {

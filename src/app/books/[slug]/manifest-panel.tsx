@@ -169,9 +169,11 @@ export function ManifestPanel({ slug, status, onStageAdvance, bookTitle }: Manif
           const raw = line.slice(6).trim();
           if (raw === "[DONE]") break;
           try {
-            const parsed = JSON.parse(raw) as { event?: string; message?: string; content?: string };
+            const parsed = JSON.parse(raw) as { event?: string; message?: string; content?: string; text?: string };
             if (parsed.event === "status" && parsed.message) {
               setStatusMessage(parsed.message);
+            } else if (parsed.event === "chunk") {
+              // heartbeat token — keeps connection alive through proxies; no UI update needed
             } else if (parsed.event === "complete") {
               setManifestContent(parsed.content ?? null);
               setPanelStatus("complete");

@@ -499,23 +499,30 @@ async function getChapterSeeds(bookId: string) {
     (baseStory?.chapters ?? []).map((chapter) => [chapter.chapterKey, chapter]),
   );
 
+  // Only run external stories for real narrative chapters — skip section headers
+  // like "Big question: ...", "Pillars: ...", "Full Book Outline" etc.
+  const REAL_CHAPTER_RE = /^(introduction|epilogue|prologue|conclusion|closing|afterword|foreword|preface|chapter\s+\d+)/i;
+  const isRealChapter = (title: string) => REAL_CHAPTER_RE.test(title.trim());
+
   if (paragraph) {
     return {
       outline,
       paragraph,
       baseStory,
       chapterSeeds: paragraph.sections.flatMap((section) =>
-        section.chapters.map((chapter) => ({
-          chapterKey: chapter.chapterId,
-          chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
-          chapterTitle: chapter.chapterTitle,
-          chapterDescription: chapter.chapterDescription,
-          sectionId: section.sectionId,
-          sectionTitle: section.sectionTitle,
-          baseStoryChapterPurpose: baseStoryChapters.get(chapter.chapterId)?.chapterPurpose,
-          baseStoryChapterThread: baseStoryChapters.get(chapter.chapterId)?.chapterStory,
-          baseStoryBookThread: baseStory?.bookThread,
-        })),
+        section.chapters
+          .filter((chapter) => isRealChapter(chapter.chapterTitle))
+          .map((chapter) => ({
+            chapterKey: chapter.chapterId,
+            chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
+            chapterTitle: chapter.chapterTitle,
+            chapterDescription: chapter.chapterDescription,
+            sectionId: section.sectionId,
+            sectionTitle: section.sectionTitle,
+            baseStoryChapterPurpose: baseStoryChapters.get(chapter.chapterId)?.chapterPurpose,
+            baseStoryChapterThread: baseStoryChapters.get(chapter.chapterId)?.chapterStory,
+            baseStoryBookThread: baseStory?.bookThread,
+          })),
       ),
     };
   }
@@ -526,17 +533,19 @@ async function getChapterSeeds(bookId: string) {
     baseStory,
     chapterSeeds:
       outline?.sections.flatMap((section) =>
-        section.chapters.map((chapter) => ({
-          chapterKey: chapter.id,
-          chapterLabel: `Chapter ${chapter.number}: ${chapter.title}`,
-          chapterTitle: chapter.title,
-          chapterDescription: chapter.description,
-          sectionId: section.id,
-          sectionTitle: section.title,
-          baseStoryChapterPurpose: baseStoryChapters.get(chapter.id)?.chapterPurpose,
-          baseStoryChapterThread: baseStoryChapters.get(chapter.id)?.chapterStory,
-          baseStoryBookThread: baseStory?.bookThread,
-        })),
+        section.chapters
+          .filter((chapter) => isRealChapter(chapter.title))
+          .map((chapter) => ({
+            chapterKey: chapter.id,
+            chapterLabel: `Chapter ${chapter.number}: ${chapter.title}`,
+            chapterTitle: chapter.title,
+            chapterDescription: chapter.description,
+            sectionId: section.id,
+            sectionTitle: section.title,
+            baseStoryChapterPurpose: baseStoryChapters.get(chapter.id)?.chapterPurpose,
+            baseStoryChapterThread: baseStoryChapters.get(chapter.id)?.chapterStory,
+            baseStoryBookThread: baseStory?.bookThread,
+          })),
       ) ?? [],
   };
 }

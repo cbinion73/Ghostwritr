@@ -160,8 +160,12 @@ export async function POST(
   // Filter out undefined (defensive against enum mismatches) and MANIFEST
   // (Cartographer output is injected separately for CHAPTER_DRAFT; it's not
   // a conversational artifact other agents need in their generic context).
+  // PERSONAL_STORIES (Scribe) is a personal interview — it needs the outline
+  // and book brief but not the 100K+ research/story packs. Excluding RESEARCH
+  // and EXTERNAL_STORIES from Scribe's context cuts input tokens by ~80%.
+  const SCRIBE_SKIP = new Set<StageKey>(["RESEARCH", "EXTERNAL_STORIES", "BASE_STORY"]);
   const priorKeys = (currentIdx > 0 ? stageOrder.slice(0, currentIdx) : [])
-    .filter((k): k is StageKey => Boolean(k) && k !== "MANIFEST");
+    .filter((k): k is StageKey => Boolean(k) && k !== "MANIFEST" && (stageKey !== "PERSONAL_STORIES" || !SCRIBE_SKIP.has(k)));
 
   // Stages that accumulate multiple artifacts per chapter — load ALL saved artifacts,
   // not just take:1, so agents like Scribe can see all prior chapter dossiers.
@@ -333,11 +337,11 @@ export async function POST(
     priorContext = assembly;
   }
 
-  // ── TYPESET: inject chapter summary + publishing package ─────────────────
+  // ── TYPESET: inject chapter summary + publishing package + Scout research ──
   // Folio needs chapter titles/word counts (not full prose) + the editing
-  // publishing package. No need for research/stories/full manuscript.
+  // publishing package + Scout research dossiers (for bibliography generation).
   if (!skipContext && stageKey === "TYPESET") {
-    const [chapterStage, publishingStage, outlineStage] = await Promise.all([
+    const [chapterStage, publishingStage, outlineStage, researchStage] = await Promise.all([
       db.bookStage.findUnique({
         where: { bookId_stageKey: { bookId: book.id, stageKey: "CHAPTER_DRAFT" } },
         select: {
@@ -371,6 +375,18 @@ export async function POST(
           },
         },
       }),
+      db.bookStage.findUnique({
+        where: { bookId_stageKey: { bookId: book.id, stageKey: "RESEARCH" } },
+        select: {
+          artifacts: {
+            select: {
+              title: true,
+              versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 },
+            },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      }),
     ]);
 
     // Build chapter summary (titles + word counts only, not full prose)
@@ -393,6 +409,17 @@ export async function POST(
     const publishingPackageText = publishingStage?.artifacts[0]?.versions[0]?.contentText;
     const outlineText = outlineStage?.artifacts[0]?.versions[0]?.contentText;
 
+    // Scout research — capped per dossier to keep context lean
+    const RESEARCH_CAP = 3000;
+    const researchSections = (researchStage?.artifacts ?? [])
+      .map((a) => {
+        const t = a.versions[0]?.contentText;
+        if (!t) return null;
+        const capped = t.length > RESEARCH_CAP ? t.slice(0, RESEARCH_CAP) + "\n…[truncated]" : t;
+        return `=== SCOUT: ${a.title ?? "Research Dossier"} ===\n${capped}`;
+      })
+      .filter((s): s is string => s !== null);
+
     let assembly = "";
     if (chapterSummary.length > 0) {
       assembly += `\n\nMANUSCRIPT SUMMARY — chapter list for TOC generation:\nTotal: approximately ${totalWords.toLocaleString()} words across ${chapterSummary.length} chapters\n\n${chapterSummary.join("\n")}`;
@@ -403,6 +430,9 @@ export async function POST(
     if (outlineText && !publishingPackageText) {
       // fallback: include outline for chapter order reference if no publishing package yet
       assembly += `\n\nBOOK OUTLINE — for chapter order reference:\n\n${outlineText}`;
+    }
+    if (researchSections.length > 0) {
+      assembly += `\n\nSCOUT RESEARCH DOSSIERS — your source material for bibliography generation:\n\n${researchSections.join("\n\n")}`;
     }
 
     priorContext = assembly;

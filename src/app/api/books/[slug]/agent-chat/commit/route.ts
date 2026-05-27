@@ -136,10 +136,22 @@ export async function POST(
       : null;
 
     if (nextStageKey) {
+      // Only advance if next stage is not already committed — don't overwrite finished work
       await db.bookStage.upsert({
         where: { bookId_stageKey: { bookId: book.id, stageKey: nextStageKey } },
         update: { status: StageStatus.IN_PROGRESS },
         create: { bookId: book.id, stageKey: nextStageKey, status: StageStatus.IN_PROGRESS },
+      });
+      // Roll back if it was already committed
+      await db.bookStage.updateMany({
+        where: {
+          bookId: book.id,
+          stageKey: nextStageKey,
+          committedAt: { not: null },
+          status: StageStatus.IN_PROGRESS,
+          committedArtifactVersionId: { not: null },
+        },
+        data: { status: StageStatus.COMMITTED },
       });
     }
 

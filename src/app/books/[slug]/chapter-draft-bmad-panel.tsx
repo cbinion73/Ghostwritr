@@ -56,26 +56,32 @@ function parseChapters(outline: string): Array<{ title: string; excerpt: string 
     if (/^#{1,3}\s+PART\s+/i.test(line)) continue;
 
     // ## Introduction / Closing / Conclusion / Epilogue / Preface / Afterword
-    if (/^#{1,3}\s+(Introduction|Closing|Conclusion|Epilogue|Appendix|Preface|Foreword|Afterword)\b/i.test(line)) {
+    // Skip word-count annotations like "## Introduction: 2,000 words"
+    if (
+      /^#{1,3}\s+(Introduction|Closing|Conclusion|Epilogue|Appendix|Preface|Foreword|Afterword)\b/i.test(line) &&
+      !/\d[\d,]*\s+words?$/i.test(line)
+    ) {
       chapters.push({ title: line.replace(/^#{1,3}\s+/, "").trim(), startLine: i });
       continue;
     }
 
     // ### Chapter N: Title  OR  ## Chapter N: Title  OR  **Chapter N: Title**
-    if (/^#{1,3}\s+Chapter\s+\d+/i.test(line)) {
+    // Skip word-count annotations like "## Chapter 1 (Trust): 5,500 words"
+    if (/^#{1,3}\s+Chapter\s+\d+/i.test(line) && !/\d[\d,]*\s+words?$/i.test(line)) {
       chapters.push({ title: line.replace(/^#{1,3}\s+/, "").trim(), startLine: i });
       continue;
     }
 
     // Bare "Chapter N:" lines (no markdown hashes)
-    if (/^Chapter\s+\d+/i.test(line)) {
+    // Skip word-count annotations like "Chapter 1 (Trust): 5,500 words"
+    if (/^Chapter\s+\d+/i.test(line) && !/\d[\d,]*\s+words?$/i.test(line)) {
       chapters.push({ title: line, startLine: i });
       continue;
     }
 
     // **Chapter N: Title** bold heading
     const boldMatch = line.match(/^\*\*(.{3,80})\*\*\s*$/);
-    if (boldMatch && /chapter\s+\d+/i.test(boldMatch[1])) {
+    if (boldMatch && /chapter\s+\d+/i.test(boldMatch[1]) && !/\d[\d,]*\s+words?$/i.test(boldMatch[1])) {
       chapters.push({ title: boldMatch[1], startLine: i });
       continue;
     }
@@ -131,8 +137,11 @@ export function ChapterDraftBmadPanel({
   const [initialized, setInitialized] = useState(false);
   const [manifestBuilding, setManifestBuilding] = useState(false);
   const runningRef = useRef(false);
+  const autoApproveRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const chaptersRef = useRef<Chapter[]>([]);
+  // Ref so runFromIndex can call approveAll without a circular useCallback dependency
+  const approveAllRef = useRef<(() => Promise<void>) | null>(null);
 
   // ── Bootstrap: check manifest, build if missing, then load chapters ─────────
   useEffect(() => {
@@ -577,6 +586,17 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same voice, sa
       runningRef.current = false;
       setIsRunning(false);
       abortRef.current = null;
+
+      // Auto-approve: if all chapters are drafted with no errors, commit and advance
+      if (autoApproveRef.current) {
+        autoApproveRef.current = false;
+        const final = chaptersRef.current;
+        const allDone = final.every((c) => c.status === "review" || c.status === "approved");
+        const hasErrors = final.some((c) => c.status === "error");
+        if (allDone && !hasErrors) {
+          await approveAllRef.current?.();
+        }
+      }
     }
   }, [writeChapter, saveChapterDraft]);
 
@@ -762,7 +782,7 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
   };
 
   // ── Approve all and commit the stage ────────────────────────────────────────
-  const approveAll = async () => {
+  const approveAll = useCallback(async () => {
     const res = await fetch(`/api/books/${slug}/agent-chat/chapter-draft/approve-all`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -774,7 +794,10 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
     if (nextStageKey && onStageAdvance) {
       setTimeout(() => onStageAdvance(nextStageKey), 400);
     }
-  };
+  }, [slug, stageKey, router, onStageAdvance]);
+
+  // Keep ref in sync so runFromIndex can call it without a circular dependency
+  approveAllRef.current = approveAll;
 
   // ── Derived state ────────────────────────────────────────────────────────────
   const totalChapters = chapters.length;
@@ -853,15 +876,30 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
             </button>
           )}
           {!isRunning && chapters.some((c) => c.status === "pending") && (
-            <button
-              style={startBtnStyle}
-              onClick={() => {
-                const first = chapters.findIndex((c) => c.status === "pending");
-                if (first >= 0) void runFromIndex(first);
-              }}
-            >
-              ▶ Write chapters
-            </button>
+            <>
+              <button
+                style={startBtnStyle}
+                onClick={() => {
+                  const first = chapters.findIndex((c) => c.status === "pending");
+                  if (first >= 0) void runFromIndex(first);
+                }}
+              >
+                ▶ Write chapters
+              </button>
+              <button
+                style={writeFullBookBtnStyle}
+                onClick={() => {
+                  const first = chapters.findIndex((c) => c.status === "pending");
+                  if (first >= 0) {
+                    autoApproveRef.current = true;
+                    void runFromIndex(first);
+                  }
+                }}
+                title="Draft all chapters and auto-commit when done — no review step"
+              >
+                ▶▶ Write full book
+              </button>
+            </>
           )}
           {isRunning && (
             <button
@@ -1229,6 +1267,19 @@ const startBtnStyle: React.CSSProperties = {
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
   cursor: "pointer",
   whiteSpace: "nowrap",
+};
+
+const writeFullBookBtnStyle: React.CSSProperties = {
+  padding: "7px 14px",
+  borderRadius: "7px",
+  border: "none",
+  background: "#B8793A",
+  color: "#fefbf5",
+  fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  fontWeight: 600,
 };
 
 const stopBtnStyle: React.CSSProperties = {

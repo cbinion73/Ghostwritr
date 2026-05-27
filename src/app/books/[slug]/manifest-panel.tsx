@@ -209,7 +209,8 @@ export function ManifestPanel({ slug, status, onStageAdvance, bookTitle }: Manif
       if (data.status === "IN_PROGRESS") {
         setPanelStatus("generating");
         setStatusMessage("Manifest generation in progress…");
-        // Poll every 3s
+        // Poll every 3s, but give up after 5 minutes and show a retry button
+        const startedAt = Date.now();
         const poll = setInterval(async () => {
           try {
             const r = await fetch(`/api/books/${slug}/manifest`);
@@ -219,6 +220,11 @@ export function ManifestPanel({ slug, status, onStageAdvance, bookTitle }: Manif
               setManifestContent(d.content);
               setPanelStatus("complete");
               setExpandedChapter(0);
+            } else if (Date.now() - startedAt > 5 * 60 * 1000) {
+              // Still IN_PROGRESS after 5 min — likely a stale/crashed job
+              clearInterval(poll);
+              setErrorMessage("Manifest generation appears to be stuck. Click Try Again to restart it.");
+              setPanelStatus("error");
             }
           } catch { /* ignore */ }
         }, 3000);

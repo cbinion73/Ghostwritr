@@ -3,7 +3,6 @@ import { BookWorkflowType } from "@prisma/client";
 
 import { createBookAction, deleteBookAction } from "./actions";
 import { listBooks } from "@/lib/repositories/books";
-import { getDefaultBookWorkspaceHref } from "@/lib/workflow-registry";
 import { AppTopBar } from "./components/app-top-bar";
 
 export const dynamic = "force-dynamic";
@@ -113,11 +112,7 @@ export default async function HomePage() {
                 const pct = getProgress(stages);
                 const activeLabel = getActiveStageLabel(stages);
                 const statusColor = getStatusColor(stages);
-                const studioHref = getDefaultBookWorkspaceHref(
-                  book.workflowType,
-                  book.slug,
-                  book.stages.find((s) => s.status === "IN_PROGRESS")?.stageKey ?? null,
-                );
+                const studioHref = `/books/${book.slug}`;
                 const meta = book.metadataJson && typeof book.metadataJson === "object"
                   ? book.metadataJson as Record<string, unknown>
                   : {};

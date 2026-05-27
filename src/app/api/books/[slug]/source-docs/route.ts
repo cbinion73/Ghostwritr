@@ -51,12 +51,16 @@ export async function POST(
     customTitle: label,
   });
 
-  // Fire-and-forget text extraction — runs in background, no await
+  // Fire-and-forget text extraction — runs in background, no await.
+  // useVision: true — PDFs are sent to Claude for full vision extraction
+  // (text + diagrams + visual models). Blueprint source docs often contain
+  // visual frameworks that text-only extraction would silently drop.
   processDocumentForKnowledgeBase({
     documentId: doc.id,
     filePath: doc.storagePath,
     mimeType: doc.mimeType,
     fileName: file.name,
+    useVision: true,
   }).catch((err: unknown) =>
     console.warn("[source-docs] text extraction failed:", err),
   );

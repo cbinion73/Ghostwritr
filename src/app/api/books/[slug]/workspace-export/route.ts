@@ -6,6 +6,21 @@ import { buildKdpDocx } from "@/lib/kdp-docx-export";
 export const runtime = "nodejs";
 
 /**
+ * Normalize a chapter title to its bare content for fuzzy matching.
+ * Strips the chapter number/label prefix and all punctuation so that
+ * "Chapter 1: Trust — The Soil Everything Grows From" and
+ * "Chapter 1 — Trust: The Soil Everything Grows From" produce the same key.
+ */
+function normalizeTitleCore(title: string): string {
+  return title
+    .replace(/^(chapter\s+\d+|introduction|prologue|epilogue|conclusion|closing|glossary|acknowledgments|afterword|foreword|preface)\s*[—:–\-]+\s*/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Extract chapter titles from the [TABLE OF CONTENTS] block in TYPESET front matter.
  * Returns them in document order so we can sort chapters to match.
  */
@@ -146,6 +161,12 @@ export async function GET(
     // Build chapter map from drafts (deduped, latest per title, no errors)
     const chapterMap = deduplicateChapters(chapterStage?.artifacts ?? []);
 
+    const typesetContent = typesetStage?.artifacts[0]?.versions[0]?.contentText ?? "";
+
+    // Extract TOC order early so revision matching can validate against it
+    const tocOrder = extractTocOrder(typesetContent);
+    const tocNormSet = new Set(tocOrder.map(normalizeTitleCore));
+
     // Overlay Reed revisions: artifacts whose title starts with "Revised:"
     for (const rev of (editingStage?.artifacts ?? [])) {
       if (!rev.title?.startsWith("Revised:")) continue;
@@ -154,32 +175,30 @@ export async function GET(
 
       // Normalize Reed title: "Revised: Chapter 2 — How..." → "Chapter 2 — How..."
       const revStripped = rev.title.replace(/^Revised:\s*/, "").trim();
+      const revCore = normalizeTitleCore(revStripped);
 
-      // Find the best matching chapter key (Reed uses " — " separator, drafts use ": ")
+      // Match by normalizing both titles to their bare content
+      // (strips chapter number, punctuation, colon/dash variations)
+      // e.g. "Chapter 1: Trust — The Soil..." and "Chapter 1 — Trust: The Soil..."
+      // both normalize to "trust the soil everything grows from"
       let matched = false;
       for (const chapterTitle of chapterMap.keys()) {
-        const normChapter = chapterTitle.replace(/:\s*/, " — ");
         if (
-          normChapter === revStripped ||
           chapterTitle === revStripped ||
-          chapterTitle.toLowerCase().includes(revStripped.toLowerCase()) ||
-          revStripped.toLowerCase().includes(chapterTitle.replace(/^Chapter \d+:\s*/i, "").toLowerCase())
+          normalizeTitleCore(chapterTitle) === revCore
         ) {
           chapterMap.set(chapterTitle, revText);
           matched = true;
           break;
         }
       }
-      // If no match found, add the revision as a standalone entry
-      if (!matched) {
+      // Only add as standalone if it's a real section in the TOC —
+      // prevents revision artifacts with non-chapter titles ("Callout Markers Applied", etc.)
+      // from polluting the chapter list
+      if (!matched && tocNormSet.has(revCore)) {
         chapterMap.set(revStripped, revText);
       }
     }
-
-    const typesetContent = typesetStage?.artifacts[0]?.versions[0]?.contentText ?? "";
-
-    // Extract TOC order from TYPESET front matter to sort chapters correctly
-    const tocOrder = extractTocOrder(typesetContent);
     const orderedChapterEntries = sortByToc(chapterMap, tocOrder);
 
     const chapterBlocks = orderedChapterEntries

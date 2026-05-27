@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { BookWorkflowType } from "@prisma/client";
 import type { StageStatus } from "@prisma/client";
 
+export const dynamic = "force-dynamic";
+
 import { db } from "@/lib/db";
 import { getBookSpine } from "@/lib/repositories/book-spine";
 import {

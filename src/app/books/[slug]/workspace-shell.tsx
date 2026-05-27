@@ -325,22 +325,10 @@ const topBarStyle: React.CSSProperties = {
   gap: "16px",
 };
 
-const breadcrumbStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0",
-};
-
 const breadcrumbLinkStyle: React.CSSProperties = {
   fontSize: "12px",
   color: "#8a7060",
   textDecoration: "none",
-};
-
-const sepStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#3a2e26",
-  margin: "0 4px",
 };
 
 const progressStyle: React.CSSProperties = {

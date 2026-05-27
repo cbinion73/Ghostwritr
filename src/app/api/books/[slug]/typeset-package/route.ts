@@ -4,6 +4,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { BookWorkflowType } from "@prisma/client";
+import { db } from "@/lib/db";
 import {
   buildCoverBrief,
   buildTypesetLayoutManifest,
@@ -15,6 +17,7 @@ import {
   buildTypesetPlanInput,
   contentDisposition,
 } from "@/lib/manuscript-export";
+import { generateBibliography } from "@/lib/workflows/bibliography-generator";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +32,13 @@ export async function GET(
 
   try {
     const { slug } = (await context.params) as { slug: string };
+
+    // Quick lookup for bibliography gate-check (workflowType) and bookId
+    const bookMeta = await db.book.findUnique({
+      where: { slug },
+      select: { id: true, workflowType: true, titleWorking: true },
+    });
+
     const { payload, plan, publishingPackage } = await buildTypesetPlanInput(slug);
     const filenameBase = sanitizeManuscriptFilename(payload.title);
     const interiorHtml = buildTypesetInteriorHtml(payload, plan);
@@ -36,11 +46,48 @@ export async function GET(
     const layoutManifest = buildTypesetLayoutManifest(payload, plan);
     const coverBrief = buildCoverBrief(payload, plan);
 
+    // ── Bibliography (non-fiction only) ──────────────────────────────────────
+    const isNonFiction =
+      bookMeta && bookMeta.workflowType !== BookWorkflowType.FICTION;
+    let bibliographyHtml: string | null = null;
+    let bibliographyCitationCount = 0;
+
+    if (isNonFiction && bookMeta) {
+      const bibResult = await generateBibliography(
+        bookMeta.id,
+        bookMeta.titleWorking ?? payload.title,
+      );
+      if (bibResult.citations.length > 0) {
+        bibliographyHtml = bibResult.html;
+        bibliographyCitationCount = bibResult.citations.length;
+      }
+    }
+
     await mkdir(bundleDir, { recursive: true });
     await writeFile(join(bundleDir, `${filenameBase}-interior.html`), interiorHtml, "utf8");
     await writeFile(join(bundleDir, `${filenameBase}-print.css`), printCss, "utf8");
     await writeFile(join(bundleDir, "layout-manifest.json"), JSON.stringify(layoutManifest, null, 2), "utf8");
     await writeFile(join(bundleDir, "cover-brief.json"), JSON.stringify(coverBrief, null, 2), "utf8");
+
+    // Write bibliography if generated
+    if (bibliographyHtml) {
+      await writeFile(join(bundleDir, "bibliography.html"), bibliographyHtml, "utf8");
+    }
+
+    const includedFiles = [
+      `${filenameBase}-interior.html`,
+      `${filenameBase}-print.css`,
+      "layout-manifest.json",
+      "cover-brief.json",
+    ];
+    if (bibliographyHtml) includedFiles.push("bibliography.html");
+
+    // Ensure "Bibliography" appears in backMatter list when we have one
+    const backMatter = [...(plan.backMatter ?? [])];
+    if (bibliographyHtml && !backMatter.some((s) => /bibliography/i.test(s))) {
+      backMatter.push("Bibliography");
+    }
+
     await writeFile(
       join(bundleDir, "typeset-package.json"),
       JSON.stringify(
@@ -53,7 +100,7 @@ export async function GET(
           chapterCount: payload.chapterCount,
           totalWords: payload.totalWords,
           frontMatter: plan.frontMatter ?? [],
-          backMatter: plan.backMatter ?? [],
+          backMatter,
           runningHeads: plan.runningHeads ?? null,
           chapterOpenerStyle: plan.chapterOpenerStyle ?? null,
           tocIncluded: plan.tocIncluded ?? true,
@@ -66,12 +113,10 @@ export async function GET(
           estimatedBlankPages: plan.estimatedBlankPages ?? null,
           sectionStartsOnRecto: plan.sectionStartsOnRecto ?? true,
           preflightChecks: publishingPackage?.preflightChecks ?? [],
-          includedFiles: [
-            `${filenameBase}-interior.html`,
-            `${filenameBase}-print.css`,
-            "layout-manifest.json",
-            "cover-brief.json",
-          ],
+          bibliography: bibliographyHtml
+            ? { included: true, citationCount: bibliographyCitationCount, format: "Chicago 17th edition" }
+            : { included: false },
+          includedFiles,
         },
         null,
         2,

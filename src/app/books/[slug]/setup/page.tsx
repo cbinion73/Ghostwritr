@@ -210,7 +210,7 @@ export default async function BookSetupStagePage({
                 targetWordCount={workspace.profile.targetWordCount}
                 wordCountTolerance={workspace.profile.wordCountTolerance}
                 targetPageCount={workspace.profile.targetPageCount ?? null}
-                trimSize={workspace.profile.trimSize}
+                trimSize={workspace.profile.trimSize ?? "6 x 9 in"}
               />
               <label className="form-field">
                 <span className="field-label">Trim Size</span>
@@ -227,7 +227,7 @@ export default async function BookSetupStagePage({
                 <h4>Output Formats</h4>
                 <label className="checkbox-row">
                   <input
-                    defaultChecked={workspace.profile.outputFormats.includes("PRINT")}
+                    defaultChecked={workspace.profile.outputFormats?.includes("PRINT") ?? false}
                     name="outputFormats"
                     type="checkbox"
                     value="PRINT"
@@ -236,7 +236,7 @@ export default async function BookSetupStagePage({
                 </label>
                 <label className="checkbox-row">
                   <input
-                    defaultChecked={workspace.profile.outputFormats.includes("EBOOK")}
+                    defaultChecked={workspace.profile.outputFormats?.includes("EBOOK") ?? false}
                     name="outputFormats"
                     type="checkbox"
                     value="EBOOK"
@@ -245,7 +245,7 @@ export default async function BookSetupStagePage({
                 </label>
                 <label className="checkbox-row">
                   <input
-                    defaultChecked={workspace.profile.outputFormats.includes("AUDIO")}
+                    defaultChecked={workspace.profile.outputFormats?.includes("AUDIO") ?? false}
                     name="outputFormats"
                     type="checkbox"
                     value="AUDIO"
@@ -258,7 +258,7 @@ export default async function BookSetupStagePage({
                 <span className="field-label">Voice Reference Notes</span>
                 <textarea
                   className="editor-textarea"
-                  defaultValue={workspace.profile.voiceReferenceNotes.join("\n")}
+                  defaultValue={(workspace.profile.voiceReferenceNotes ?? []).join("\n")}
                   name="voiceReferenceNotes"
                   placeholder="Voice reference notes or manuscript cues, one per line"
                 />
@@ -267,7 +267,7 @@ export default async function BookSetupStagePage({
                 <span className="field-label">System Notes And Human Direction</span>
                 <textarea
                   className="editor-textarea"
-                  defaultValue={workspace.profile.notesToSystem.join("\n")}
+                  defaultValue={(workspace.profile.notesToSystem ?? []).join("\n")}
                   name="notesToSystem"
                   placeholder="Additional system notes and human direction, one per line"
                 />

@@ -30,23 +30,32 @@ export async function processDocumentForKnowledgeBase(input: {
   filePath: string;
   mimeType: string;
   fileName: string;
+  /** When true, PDFs are sent to Claude for full vision extraction (text + diagrams). Default: false. */
+  useVision?: boolean;
 }): Promise<{ extractedText: string; chunkCount: number }> {
   try {
     console.log(
-      `[processDocumentForKnowledgeBase] Processing: ${input.fileName}`
+      `[processDocumentForKnowledgeBase] Processing: ${input.fileName}${input.useVision ? " (vision)" : ""}`
     );
 
     // Extract text from the document
     const extractedText = await extractTextFromDocument(
       input.filePath,
       input.mimeType,
-      input.fileName
+      input.fileName,
+      { useVision: input.useVision ?? false },
     );
 
     if (!extractedText || extractedText.length === 0) {
       console.warn(
         `[processDocumentForKnowledgeBase] No text extracted from ${input.fileName}`
       );
+      // Still write to DB so the UI knows extraction finished.
+      // null = still processing; "" = finished but no text found.
+      await db.sourceDocument.update({
+        where: { id: input.documentId },
+        data: { extractedText: "", embeddingState: "FAILED" },
+      });
       return { extractedText: "", chunkCount: 0 };
     }
 
@@ -75,6 +84,15 @@ export async function processDocumentForKnowledgeBase(input: {
       "[processDocumentForKnowledgeBase] Error:",
       error instanceof Error ? error.message : error
     );
+    // Mark as failed so the UI stops spinning instead of waiting forever.
+    try {
+      await db.sourceDocument.update({
+        where: { id: input.documentId },
+        data: { extractedText: "", embeddingState: "FAILED" },
+      });
+    } catch {
+      // Ignore secondary DB error — the original error is what matters.
+    }
     throw error;
   }
 }

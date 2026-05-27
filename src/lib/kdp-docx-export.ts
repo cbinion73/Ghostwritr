@@ -2,9 +2,10 @@
  * KDP-ready DOCX generator for GHOSTWRITR manuscripts.
  *
  * Produces a properly formatted Word document suitable for direct upload to
- * Amazon KDP. Follows KDP interior formatting guidelines:
- *   - 6×9 trim, mirrored margins
- *   - Georgia 12pt body, 1.5× line spacing, first-line indent
+ * Amazon KDP. Follows KDP interior formatting guidelines, driven by the
+ * [DESIGN SPEC] block in the TYPESET_PACKAGE artifact.
+ *   - Trim size, margins, and font driven by Folio's typeset decisions
+ *   - First-line indent on body paragraphs
  *   - Centered page numbers in footer
  *   - Heading 1 for chapter titles, Heading 2 for section headings
  *   - Proper bullet / numbered lists
@@ -30,249 +31,527 @@ import {
   WidthType,
 } from "docx";
 
-// ── Layout constants ──────────────────────────────────────────────────────────
-const PAGE_W  = convertInchesToTwip(6);
-const PAGE_H  = convertInchesToTwip(9);
-const M_TOP   = convertInchesToTwip(0.85);
-const M_BOT   = convertInchesToTwip(0.85);
-const M_IN    = convertInchesToTwip(0.875); // binding/gutter
-const M_OUT   = convertInchesToTwip(0.625);
-
-const F       = "Georgia";         // body font
-const SZ      = 24;                // 12pt in half-points
-const SZ_SM   = 20;                // 10pt — copyright
-const SZ_CH   = 40;                // 20pt — chapter title
-const SZ_SEC  = 28;                // 14pt — section heading
-const SZ_BOOK = 52;                // 26pt — title page book title
-const SZ_SUB  = 32;                // 16pt — title page subtitle
-const SZ_WB   = 26;                // 13pt — workbench heading
-const LINE    = 360;               // 1.5× line spacing
-const SPA     = 120;               // paragraph space-after (twips)
-const INDENT  = convertInchesToTwip(0.3); // first-line indent
-
-// Callout box colours (Author's Workbench)
+// Callout box colours (Author's Workbench) — these never change
 const BOX_FILL   = "F2F1ED";
 const BOX_BORDER = "4A4A4A";
 
-// ── Section properties ────────────────────────────────────────────────────────
-const PAGE_PROPS = {
-  page: {
-    size: { width: PAGE_W, height: PAGE_H },
-    margin: { top: M_TOP, bottom: M_BOT, left: M_IN, right: M_OUT, gutter: 0 },
-  },
-};
+// Universal first-line indent
+const INDENT = convertInchesToTwip(0.3);
 
-function makeFooter() {
-  return new Footer({
-    children: [
+// Paragraph space-after (twips) — fixed regardless of font
+const SPA = 120;
+
+// ── Design spec types ─────────────────────────────────────────────────────────
+interface DesignSpec {
+  trimW: number;     // inches
+  trimH: number;
+  marginTop: number;
+  marginBot: number;
+  marginIn: number;  // inside/gutter
+  marginOut: number;
+  font: string;
+  bodySz: number;    // half-points
+  leading: number;   // twips (1pt = 20 twips)
+  chapterOpenStyle: "classic" | "minimal" | "number-prominent";
+  sectionBreak: string;
+}
+
+function parseDesignSpec(raw: string): DesignSpec {
+  const get = (key: string) => {
+    const m = raw.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+    return m ? m[1].trim() : "";
+  };
+
+  // Trim size → dimensions and margins
+  const trim = get("Trim") || "6x9";
+  type TrimKey = "5x8" | "5.5x8.5" | "6x9" | "7x10";
+  const TRIM_TABLE: Record<TrimKey, { w: number; h: number; top: number; bot: number; ins: number; out: number }> = {
+    "5x8":     { w: 5,   h: 8,   top: 0.75,  bot: 0.75,  ins: 0.75,  out: 0.5   },
+    "5.5x8.5": { w: 5.5, h: 8.5, top: 0.75,  bot: 0.75,  ins: 0.875, out: 0.5   },
+    "6x9":     { w: 6,   h: 9,   top: 0.85,  bot: 0.85,  ins: 0.875, out: 0.625 },
+    "7x10":    { w: 7,   h: 10,  top: 0.875, bot: 0.875, ins: 0.875, out: 0.625 },
+  };
+  const t = TRIM_TABLE[trim as TrimKey] ?? TRIM_TABLE["6x9"];
+
+  // Font — map to Word-safe name
+  const fontRaw = get("Font") || "Georgia";
+  const FONT_MAP: Record<string, string> = {
+    "Garamond":          "Garamond",
+    "Georgia":           "Georgia",
+    "Palatino Linotype": "Palatino Linotype",
+    "Book Antiqua":      "Book Antiqua",
+    "Times New Roman":   "Times New Roman",
+  };
+  const font = FONT_MAP[fontRaw] ?? "Georgia";
+
+  // Body size in half-points (23 = 11.5pt, 24 = 12pt)
+  const bodyPtRaw = parseFloat(get("BodyPt") || "11.5");
+  const bodySz = Math.round(bodyPtRaw * 2);
+
+  // Leading in twips (1pt = 20 twips)
+  const leadingPtRaw = parseFloat(get("LeadingPt") || "15");
+  const leading = Math.round(leadingPtRaw * 20);
+
+  const chapterOpenStyleRaw = get("ChapterOpenStyle") || "classic";
+  const chapterOpenStyle = (
+    ["classic", "minimal", "number-prominent"].includes(chapterOpenStyleRaw)
+      ? chapterOpenStyleRaw
+      : "classic"
+  ) as DesignSpec["chapterOpenStyle"];
+
+  const sectionBreakRaw = get("SectionBreak") || "* * *";
+  const sectionBreak =
+    sectionBreakRaw === "whitespace" ? ""
+    : sectionBreakRaw === "rule" ? "———"
+    : "* * *";
+
+  return {
+    trimW: t.w, trimH: t.h,
+    marginTop: t.top, marginBot: t.bot, marginIn: t.ins, marginOut: t.out,
+    font, bodySz, leading, chapterOpenStyle, sectionBreak,
+  };
+}
+
+// ── Front/back matter parser ──────────────────────────────────────────────────
+interface TypesetSections {
+  designSpec: string;
+  titlePage: string;
+  copyrightPage: string;
+  dedication: string;
+  toc: string;
+  acknowledgments: string;
+  aboutAuthor: string;
+}
+
+function parseTypeset(raw: string): TypesetSections {
+  const out: TypesetSections = {
+    designSpec: "",
+    titlePage: "",
+    copyrightPage: "",
+    dedication: "",
+    toc: "",
+    acknowledgments: "",
+    aboutAuthor: "",
+  };
+
+  // Extract design spec block before === FRONT MATTER ===
+  const specRaw = raw.includes("=== FRONT MATTER ===")
+    ? raw.split("=== FRONT MATTER ===")[0]
+    : "";
+  const specMatch = specRaw.match(/\[DESIGN SPEC\]([\s\S]*?)(?=\[|$)/);
+  out.designSpec = specMatch ? specMatch[1].trim() : "";
+
+  // Parse the rest from front/back matter sections
+  const contentRaw = raw.includes("=== FRONT MATTER ===")
+    ? raw.slice(raw.indexOf("=== FRONT MATTER ==="))
+    : raw;
+
+  const frontRaw = contentRaw.includes("=== BACK MATTER ===")
+    ? contentRaw.split("=== BACK MATTER ===")[0].replace("=== FRONT MATTER ===", "").trim()
+    : contentRaw.replace("=== FRONT MATTER ===", "").trim();
+  const backRaw = contentRaw.includes("=== BACK MATTER ===")
+    ? (contentRaw.split("=== BACK MATTER ===")[1] ?? "").trim()
+    : "";
+
+  const parse = (src: string) => {
+    const parts = src.split(/\[([^\]]+)\]/);
+    for (let i = 1; i < parts.length; i += 2) {
+      const k = (parts[i] ?? "").trim().toUpperCase();
+      const v = (parts[i + 1] ?? "").trim();
+      if (k === "TITLE PAGE")        out.titlePage      = v;
+      else if (k === "COPYRIGHT PAGE")   out.copyrightPage  = v;
+      else if (k === "DEDICATION")       out.dedication     = v;
+      else if (k === "TABLE OF CONTENTS") out.toc           = v;
+      else if (k === "ACKNOWLEDGMENTS")  out.acknowledgments = v;
+      else if (k === "ABOUT THE AUTHOR") out.aboutAuthor    = v;
+    }
+  };
+  parse(frontRaw);
+  parse(backRaw);
+  return out;
+}
+
+// ── Main export ───────────────────────────────────────────────────────────────
+export interface ManuscriptInput {
+  title: string;
+  subtitle?: string | null;
+  author?: string | null;
+  typesetContent: string;
+  chapters: Array<{ title: string; body: string }>;
+}
+
+export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
+  const { title, subtitle, chapters } = input;
+  const ts  = parseTypeset(input.typesetContent);
+  const spec = parseDesignSpec(ts.designSpec);
+
+  // Layout constants derived from design spec
+  const PAGE_W  = convertInchesToTwip(spec.trimW);
+  const PAGE_H  = convertInchesToTwip(spec.trimH);
+  const M_TOP   = convertInchesToTwip(spec.marginTop);
+  const M_BOT   = convertInchesToTwip(spec.marginBot);
+  const M_IN    = convertInchesToTwip(spec.marginIn);
+  const M_OUT   = convertInchesToTwip(spec.marginOut);
+  const F       = spec.font;
+  const SZ      = spec.bodySz;
+  const SZ_SM   = Math.round(SZ * 0.83);   // ~10pt for 12pt body — copyright
+  const SZ_CH   = Math.round(SZ * 1.67);   // ~20pt — chapter title
+  const SZ_SEC  = Math.round(SZ * 1.17);   // ~14pt — section heading
+  const SZ_BOOK = Math.round(SZ * 2.17);   // ~26pt — title page book title
+  const SZ_SUB  = Math.round(SZ * 1.33);   // ~16pt — title page subtitle
+  const SZ_WB   = Math.round(SZ * 1.08);   // ~13pt — workbench heading
+  const LINE    = spec.leading;
+
+  // ── Section properties ──────────────────────────────────────────────────────
+  const PAGE_PROPS = {
+    page: {
+      size: { width: PAGE_W, height: PAGE_H },
+      margin: { top: M_TOP, bottom: M_BOT, left: M_IN, right: M_OUT, gutter: 0 },
+    },
+  };
+
+  // ── Footer ──────────────────────────────────────────────────────────────────
+  function makeFooter() {
+    return new Footer({
+      children: [
+        new Paragraph({
+          children: [new TextRun({ children: [PageNumber.CURRENT], font: F, size: SZ_SM })],
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 0 },
+        }),
+      ],
+    });
+  }
+
+  // ── Text / paragraph builders ───────────────────────────────────────────────
+  function run(
+    text: string,
+    opts: { bold?: boolean; italics?: boolean; size?: number; allCaps?: boolean } = {},
+  ): TextRun {
+    return new TextRun({
+      text,
+      font: F,
+      size: opts.size ?? SZ,
+      bold: opts.bold,
+      italics: opts.italics,
+      allCaps: opts.allCaps,
+    });
+  }
+
+  function blankPara(size = SZ): Paragraph {
+    return new Paragraph({ children: [run("", { size })], spacing: { after: 0 } });
+  }
+
+  function pageBreakPara(): Paragraph {
+    return new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } });
+  }
+
+  // ── Inline markdown parser ──────────────────────────────────────────────────
+  function parseInline(text: string, baseSize = SZ): TextRun[] {
+    const runs: TextRun[] = [];
+    const re = /\*\*(.+?)\*\*|\*(.+?)\*|_(.+?)_/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) runs.push(run(text.slice(last, m.index), { size: baseSize }));
+      if (m[1]) runs.push(run(m[1], { bold: true, size: baseSize }));
+      else if (m[2] || m[3]) runs.push(run((m[2] ?? m[3])!, { italics: true, size: baseSize }));
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) runs.push(run(text.slice(last), { size: baseSize }));
+    return runs.length ? runs : [run(text, { size: baseSize })];
+  }
+
+  // ── List detection ──────────────────────────────────────────────────────────
+  function detectList(line: string): { type: "bullet" | "number" | null; text: string } {
+    if (/^[-*]\s+/.test(line)) return { type: "bullet", text: line.replace(/^[-*]\s+/, "") };
+    if (/^\d+[.)]\s+/.test(line)) return { type: "number", text: line.replace(/^\d+[.)]\s+/, "") };
+    return { type: null, text: line };
+  }
+
+  // ── Body paragraph ──────────────────────────────────────────────────────────
+  function bodyPara(text: string, firstInSection = false, size = SZ): Paragraph {
+    return new Paragraph({
+      children: parseInline(text, size),
+      spacing: { line: LINE, after: SPA },
+      indent: firstInSection ? undefined : { firstLine: INDENT },
+    });
+  }
+
+  // ── Special element box builders ────────────────────────────────────────────
+
+  function buildReflectionBox(heading: string, paras: Paragraph[]): Table {
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              shading: { fill: "F5F0E8", type: ShadingType.CLEAR },
+              margins: {
+                top:    convertInchesToTwip(0.2),
+                bottom: convertInchesToTwip(0.2),
+                left:   convertInchesToTwip(0.25),
+                right:  convertInchesToTwip(0.25),
+              },
+              borders: {
+                top:    { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                left:   { style: BorderStyle.THICK, size: 4 * 4, color: "8B6914" },
+                right:  { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+              },
+              children: [
+                new Paragraph({
+                  children: [run(heading || "Reflection Questions", { italics: true, size: SZ_SEC, })],
+                  spacing: { after: 200 },
+                }),
+                ...paras,
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  }
+
+  function buildSidebarBox(heading: string, paras: Paragraph[]): Table {
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              shading: { fill: "F0F0F0", type: ShadingType.CLEAR },
+              margins: {
+                top:    convertInchesToTwip(0.2),
+                bottom: convertInchesToTwip(0.2),
+                left:   convertInchesToTwip(0.25),
+                right:  convertInchesToTwip(0.25),
+              },
+              borders: {
+                top:    { style: BorderStyle.SINGLE, size: 4, color: "888888" },
+                bottom: { style: BorderStyle.SINGLE, size: 4, color: "888888" },
+                left:   { style: BorderStyle.SINGLE, size: 4, color: "888888" },
+                right:  { style: BorderStyle.SINGLE, size: 4, color: "888888" },
+              },
+              children: [
+                new Paragraph({
+                  children: [run(heading, { bold: true, size: SZ_SEC })],
+                  spacing: { after: 200 },
+                }),
+                ...paras,
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  }
+
+  function buildCaseStudyBox(heading: string, paras: Paragraph[]): Table {
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              shading: { fill: "EEF2F7", type: ShadingType.CLEAR },
+              margins: {
+                top:    convertInchesToTwip(0.2),
+                bottom: convertInchesToTwip(0.2),
+                left:   convertInchesToTwip(0.25),
+                right:  convertInchesToTwip(0.25),
+              },
+              borders: {
+                top:    { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                left:   { style: BorderStyle.THICK, size: 6 * 4, color: "2E5B8A" },
+                right:  { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+              },
+              children: [
+                new Paragraph({
+                  children: [run(heading, { bold: true, size: SZ_SEC, })],
+                  spacing: { after: 200 },
+                }),
+                ...paras,
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  }
+
+  function buildChecklistBox(heading: string, paras: Paragraph[]): Table {
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              shading: { fill: "F2F1ED", type: ShadingType.CLEAR },
+              margins: {
+                top:    convertInchesToTwip(0.2),
+                bottom: convertInchesToTwip(0.2),
+                left:   convertInchesToTwip(0.25),
+                right:  convertInchesToTwip(0.25),
+              },
+              borders: {
+                top:    { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
+                bottom: { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
+                left:   { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
+                right:  { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
+              },
+              children: [
+                new Paragraph({
+                  children: [run(heading, { bold: true, size: SZ_SEC })],
+                  spacing: { after: 200 },
+                }),
+                ...paras,
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  }
+
+  function buildCalloutBox(heading: string, paras: Paragraph[]): Table {
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              shading: { fill: "FDF6E3", type: ShadingType.CLEAR },
+              margins: {
+                top:    convertInchesToTwip(0.2),
+                bottom: convertInchesToTwip(0.2),
+                left:   convertInchesToTwip(0.25),
+                right:  convertInchesToTwip(0.25),
+              },
+              borders: {
+                top:    { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                left:   { style: BorderStyle.THICK, size: 6 * 4, color: "B8793A" },
+                right:  { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+              },
+              children: [
+                new Paragraph({
+                  children: [run(heading, { bold: true, allCaps: true, size: SZ_SM })],
+                  spacing: { after: 200 },
+                }),
+                ...paras,
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  }
+
+  // ── Author's Workbench box ──────────────────────────────────────────────────
+  function buildWorkbenchBox(heading: string, paras: Paragraph[]): Table {
+    const cellChildren: Paragraph[] = [
       new Paragraph({
-        children: [new TextRun({ children: [PageNumber.CURRENT], font: F, size: SZ_SM })],
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 0 },
+        children: [run(heading || "The Author's Workbench", { bold: true, size: SZ_WB })],
+        spacing: { after: 200 },
       }),
-    ],
-  });
-}
+      ...paras,
+    ];
 
-// ── Text / paragraph builders ─────────────────────────────────────────────────
-function run(
-  text: string,
-  opts: { bold?: boolean; italics?: boolean; size?: number; allCaps?: boolean } = {},
-): TextRun {
-  return new TextRun({ text, font: F, size: opts.size ?? SZ, bold: opts.bold, italics: opts.italics, allCaps: opts.allCaps });
-}
-
-function blankPara(size = SZ): Paragraph {
-  return new Paragraph({ children: [run("", { size })], spacing: { after: 0 } });
-}
-
-function pageBreakPara(): Paragraph {
-  return new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } });
-}
-
-// ── Inline markdown parser ────────────────────────────────────────────────────
-// Handles **bold** and *italic* / _italic_ within a run of text.
-function parseInline(text: string, baseSize = SZ): TextRun[] {
-  const runs: TextRun[] = [];
-  const re = /\*\*(.+?)\*\*|\*(.+?)\*|_(.+?)_/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) runs.push(run(text.slice(last, m.index), { size: baseSize }));
-    if (m[1]) runs.push(run(m[1], { bold: true, size: baseSize }));
-    else if (m[2] || m[3]) runs.push(run((m[2] ?? m[3])!, { italics: true, size: baseSize }));
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) runs.push(run(text.slice(last), { size: baseSize }));
-  return runs.length ? runs : [run(text, { size: baseSize })];
-}
-
-// ── List detection ────────────────────────────────────────────────────────────
-// Returns { type: "bullet" | "number" | null, text: string }
-function detectList(line: string): { type: "bullet" | "number" | null; text: string } {
-  if (/^[-*]\s+/.test(line)) return { type: "bullet", text: line.replace(/^[-*]\s+/, "") };
-  if (/^\d+[.)]\s+/.test(line)) return { type: "number", text: line.replace(/^\d+[.)]\s+/, "") };
-  return { type: null, text: line };
-}
-
-// ── Body paragraph ────────────────────────────────────────────────────────────
-function bodyPara(text: string, firstInSection = false, size = SZ): Paragraph {
-  return new Paragraph({
-    children: parseInline(text, size),
-    spacing: { line: LINE, after: SPA },
-    indent: firstInSection ? undefined : { firstLine: INDENT },
-  });
-}
-
-// ── Author's Workbench box ────────────────────────────────────────────────────
-// Renders all workbench paragraphs inside a bordered, shaded table cell.
-function buildWorkbenchBox(heading: string, paras: Paragraph[]): Table {
-  const cellChildren: Paragraph[] = [
-    // Workbench heading
-    new Paragraph({
-      children: [run(heading || "The Author's Workbench", { bold: true, size: SZ_WB })],
-      spacing: { after: 200 },
-    }),
-    ...paras,
-  ];
-
-  return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
-    rows: [
-      new TableRow({
-        children: [
-          new TableCell({
-            shading: { fill: BOX_FILL, type: ShadingType.CLEAR },
-            margins: {
-              top:    convertInchesToTwip(0.2),
-              bottom: convertInchesToTwip(0.2),
-              left:   convertInchesToTwip(0.25),
-              right:  convertInchesToTwip(0.25),
-            },
-            borders: {
-              top:    { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
-              bottom: { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
-              left:   { style: BorderStyle.THICK,  size: 12, color: BOX_BORDER },
-              right:  { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
-            },
-            children: cellChildren,
-          }),
-        ],
-      }),
-    ],
-  });
-}
-
-// ── Chapter block parser ──────────────────────────────────────────────────────
-// Returns { bodyItems: (Paragraph | Table)[], workbenchTable?: Table }
-function parseChapterContent(text: string): { bodyItems: Array<Paragraph | Table> } {
-  // Detect workbench start: --- followed (within 3 lines) by "Author's Workbench"
-  // or a heading like ## The Author's Workbench
-  const WB_RE = /\n---\n\n(?:#+\s*)?(The Author['']s Workbench[^\n]*)/i;
-  const wbMatch = WB_RE.exec(text);
-
-  let bodyText = text;
-  let workbenchText = "";
-  let workbenchHeading = "The Author's Workbench";
-
-  if (wbMatch) {
-    bodyText = text.slice(0, wbMatch.index).trim();
-    workbenchHeading = wbMatch[1].trim();
-    workbenchText = text.slice(wbMatch.index + wbMatch[0].length).trim();
-  } else {
-    // Also check for plain "The Author's Workbench" heading without ---
-    const plainWB = /^(?:#+\s*)?(The Author['']s Workbench[^\n]*)/im.exec(text);
-    if (plainWB) {
-      bodyText = text.slice(0, plainWB.index).trim();
-      workbenchHeading = plainWB[1].trim();
-      workbenchText = text.slice(plainWB.index + plainWB[0].length).trim();
-    }
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              shading: { fill: BOX_FILL, type: ShadingType.CLEAR },
+              margins: {
+                top:    convertInchesToTwip(0.2),
+                bottom: convertInchesToTwip(0.2),
+                left:   convertInchesToTwip(0.25),
+                right:  convertInchesToTwip(0.25),
+              },
+              borders: {
+                top:    { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
+                bottom: { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
+                left:   { style: BorderStyle.THICK,  size: 12, color: BOX_BORDER },
+                right:  { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
+              },
+              children: cellChildren,
+            }),
+          ],
+        }),
+      ],
+    });
   }
 
-  const bodyItems = renderBlocks(bodyText);
+  // ── Block renderer ──────────────────────────────────────────────────────────
+  function renderBlocks(text: string, boxSize = SZ): Array<Paragraph | Table> {
+    const items: Array<Paragraph | Table> = [];
+    const blocks = text.split(/\n{2,}/);
+    let firstInSection = true;
 
-  if (workbenchText) {
-    const wbParas = renderBlocks(workbenchText).filter((b): b is Paragraph => b instanceof Paragraph);
-    const wbTable = buildWorkbenchBox(workbenchHeading, wbParas);
-    bodyItems.push(
-      blankPara(),  // spacing before box
-      wbTable,
-    );
-  }
+    for (const raw of blocks) {
+      const line = raw.trim();
+      if (!line) continue;
 
-  return { bodyItems };
-}
-
-// ── Block renderer ────────────────────────────────────────────────────────────
-// Converts a block of markdown-ish prose into an array of Paragraphs.
-function renderBlocks(text: string, boxSize = SZ): Array<Paragraph | Table> {
-  const items: Array<Paragraph | Table> = [];
-  const blocks = text.split(/\n{2,}/);
-  let firstInSection = true;
-
-  for (const raw of blocks) {
-    const line = raw.trim();
-    if (!line) continue;
-
-    // H3 / H2 section heading inside chapter
-    if (line.startsWith("### ") || line.startsWith("## ")) {
-      const heading = line.replace(/^#{2,3}\s+/, "");
-      items.push(new Paragraph({
-        children: [run(heading, { bold: true, size: SZ_SEC })],
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 480, after: 240 },
-      }));
-      firstInSection = true;
-      continue;
-    }
-
-    // H1 inside body — treat as section heading
-    if (line.startsWith("# ")) {
-      const heading = line.slice(2).trim();
-      items.push(new Paragraph({
-        children: [run(heading, { bold: true, size: SZ_SEC })],
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 480, after: 240 },
-      }));
-      firstInSection = true;
-      continue;
-    }
-
-    // Horizontal rule — small vertical gap
-    if (/^[-*_]{3,}$/.test(line)) {
-      items.push(blankPara(boxSize));
-      continue;
-    }
-
-    // Multi-line block: could contain bullet/numbered list items
-    const lines = line.split("\n");
-    if (lines.length === 1) {
-      const det = detectList(line);
-      if (det.type === "bullet") {
+      // H3 / H2 section heading inside chapter
+      if (line.startsWith("### ") || line.startsWith("## ")) {
+        const heading = line.replace(/^#{2,3}\s+/, "");
         items.push(new Paragraph({
-          children: parseInline(det.text, boxSize),
-          bullet: { level: 0 },
-          spacing: { after: 80, line: LINE },
+          children: [run(heading, { bold: true, size: SZ_SEC })],
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 480, after: 240 },
+        }));
+        firstInSection = true;
+        continue;
+      }
+
+      // H1 inside body — treat as section heading
+      if (line.startsWith("# ")) {
+        const heading = line.slice(2).trim();
+        items.push(new Paragraph({
+          children: [run(heading, { bold: true, size: SZ_SEC })],
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 480, after: 240 },
+        }));
+        firstInSection = true;
+        continue;
+      }
+
+      // Blockquote / pull quote — handles "> text", ">> text", "> > text"
+      if (/^>+\s/.test(line)) {
+        const quoteText = line.replace(/^>+\s*/, "").trim();
+        items.push(new Paragraph({
+          children: parseInline(quoteText, SZ),
+          indent: { left: convertInchesToTwip(0.4), right: convertInchesToTwip(0.4) },
+          spacing: { before: 200, after: 200, line: LINE },
+          border: {
+            left: { style: BorderStyle.THICK, size: 12, color: "C9A96E", space: 6 },
+          },
         }));
         firstInSection = false;
         continue;
       }
-      if (det.type === "number") {
-        items.push(new Paragraph({
-          children: parseInline(det.text, boxSize),
-          numbering: { reference: "list-numbering", level: 0 },
-          spacing: { after: 80, line: LINE },
-        }));
-        firstInSection = false;
+
+      // Horizontal rule — small vertical gap
+      if (/^[-*_]{3,}$/.test(line)) {
+        items.push(blankPara(boxSize));
         continue;
       }
-    } else {
-      // Multi-line block — treat each sub-line individually
-      for (const subLine of lines) {
-        const sl = subLine.trim();
-        if (!sl) continue;
-        const det = detectList(sl);
+
+      // Multi-line block: could contain bullet/numbered list items
+      const lines = line.split("\n");
+      if (lines.length === 1) {
+        const det = detectList(line);
         if (det.type === "bullet") {
           items.push(new Paragraph({
             children: parseInline(det.text, boxSize),
@@ -291,172 +570,291 @@ function renderBlocks(text: string, boxSize = SZ): Array<Paragraph | Table> {
           firstInSection = false;
           continue;
         }
-        items.push(bodyPara(sl, firstInSection, boxSize));
-        firstInSection = false;
+      } else {
+        // Multi-line block — treat each sub-line individually
+        for (const subLine of lines) {
+          const sl = subLine.trim();
+          if (!sl) continue;
+          const det = detectList(sl);
+          if (det.type === "bullet") {
+            items.push(new Paragraph({
+              children: parseInline(det.text, boxSize),
+              bullet: { level: 0 },
+              spacing: { after: 80, line: LINE },
+            }));
+            firstInSection = false;
+            continue;
+          }
+          if (det.type === "number") {
+            items.push(new Paragraph({
+              children: parseInline(det.text, boxSize),
+              numbering: { reference: "list-numbering", level: 0 },
+              spacing: { after: 80, line: LINE },
+            }));
+            firstInSection = false;
+            continue;
+          }
+          items.push(bodyPara(sl, firstInSection, boxSize));
+          firstInSection = false;
+        }
+        continue;
       }
-      continue;
+
+      items.push(bodyPara(line, firstInSection, boxSize));
+      firstInSection = false;
     }
 
-    items.push(bodyPara(line, firstInSection, boxSize));
-    firstInSection = false;
+    return items;
   }
 
-  return items;
-}
+  // ── Chapter block parser ────────────────────────────────────────────────────
+  //
+  // Two-phase strategy:
+  //
+  // Phase 1 — line scanner: explicitly detects CALLOUT blocks (which use a
+  //   `> CALLOUT: Title` / `> Para` multiline format stored by Quill/Reed) and
+  //   builds callout boxes directly, without letting their content bleed into
+  //   surrounding regular text. Regular lines are buffered into `textBuf`.
+  //
+  // Phase 2 — buffer dispatch: when the buffer is flushed (at each CALLOUT
+  //   boundary and at EOF), the accumulated regular text is processed through
+  //   the existing special-element dispatcher (Reflection Questions, Sidebar,
+  //   Exercise, Checklist, Case Study, Author's Workbench).
+  //
+  // CALLOUTs are intentionally excluded from ALL_SPECIAL_RE because they are
+  // handled in phase 1. All other box types come from Quill's ### header
+  // format and don't suffer from the bleed-through problem.
+  function parseChapterContent(text: string): { bodyItems: Array<Paragraph | Table> } {
+    const items: Array<Paragraph | Table> = [];
 
-// ── Front/back matter parser ──────────────────────────────────────────────────
-interface TypesetSections {
-  titlePage: string;
-  copyrightPage: string;
-  dedication: string;
-  toc: string;
-  acknowledgments: string;
-  aboutAuthor: string;
-}
+    // ── Phase 2 dispatch: flushes buffered regular text ───────────────────────
+    function flushBuffer(buf: string[]) {
+      if (buf.length === 0) return;
+      const raw = buf.join("\n");
+      buf.length = 0;
 
-function parseTypeset(raw: string): TypesetSections {
-  const out: TypesetSections = { titlePage: "", copyrightPage: "", dedication: "", toc: "", acknowledgments: "", aboutAuthor: "" };
-  const frontRaw = raw.includes("=== BACK MATTER ===")
-    ? raw.split("=== BACK MATTER ===")[0].replace("=== FRONT MATTER ===", "").trim()
-    : raw.replace("=== FRONT MATTER ===", "").trim();
-  const backRaw = raw.includes("=== BACK MATTER ===")
-    ? (raw.split("=== BACK MATTER ===")[1] ?? "").trim() : "";
+      // Split on Quill's ### special-element markers (excluding CALLOUT —
+      // those are handled in phase 1 before we ever get here)
+      const ALL_SPECIAL_RE = /\n(?=### (?:Reflection Questions|Exercise:|Sidebar:|Checklist:|Case Study:|The Author['']s Workbench))/;
+      const segments = raw.split(ALL_SPECIAL_RE);
 
-  const parse = (src: string) => {
-    const parts = src.split(/\[([^\]]+)\]/);
-    for (let i = 1; i < parts.length; i += 2) {
-      const k = (parts[i] ?? "").trim().toUpperCase();
-      const v = (parts[i + 1] ?? "").trim();
-      if (k === "TITLE PAGE") out.titlePage = v;
-      else if (k === "COPYRIGHT PAGE") out.copyrightPage = v;
-      else if (k === "DEDICATION") out.dedication = v;
-      else if (k === "TABLE OF CONTENTS") out.toc = v;
-      else if (k === "ACKNOWLEDGMENTS") out.acknowledgments = v;
-      else if (k === "ABOUT THE AUTHOR") out.aboutAuthor = v;
+      for (const segment of segments) {
+        const trimmed = segment.trim();
+        if (!trimmed) continue;
+
+        const headerMatch = trimmed.match(/^### (.+?)\n([\s\S]*)$/);
+        if (headerMatch) {
+          const rawHeader = (headerMatch[1] ?? "").trim();
+          const content   = (headerMatch[2] ?? "").trim();
+
+          const isWorkbench  = /^The Author['']s Workbench/i.test(rawHeader);
+          const isReflection = /^Reflection Questions/i.test(rawHeader);
+          const isExercise   = /^Exercise:/i.test(rawHeader);
+          const isSidebar    = /^Sidebar:/i.test(rawHeader);
+          const isChecklist  = /^Checklist:/i.test(rawHeader);
+          const isCaseStudy  = /^Case Study:/i.test(rawHeader);
+
+          if (isWorkbench || isReflection || isExercise || isSidebar || isChecklist || isCaseStudy) {
+            const contentParas = renderBlocks(content).filter((b): b is Paragraph => b instanceof Paragraph);
+            items.push(blankPara());
+            if (isWorkbench)       items.push(buildWorkbenchBox(rawHeader, contentParas));
+            else if (isReflection) items.push(buildReflectionBox("Reflection Questions", contentParas));
+            else if (isExercise)   items.push(buildCaseStudyBox(rawHeader, contentParas));
+            else if (isSidebar) {
+              const boxSize = Math.round(SZ * 0.92);
+              const sidebarParas = renderBlocks(content, boxSize).filter((b): b is Paragraph => b instanceof Paragraph);
+              items.push(buildSidebarBox(rawHeader, sidebarParas));
+            }
+            else if (isChecklist)  items.push(buildChecklistBox(rawHeader, contentParas));
+            else if (isCaseStudy)  items.push(buildCaseStudyBox(rawHeader, contentParas));
+            items.push(blankPara());
+            continue;
+          }
+        }
+
+        // Regular body text
+        items.push(...renderBlocks(trimmed));
+      }
     }
-  };
-  parse(frontRaw);
-  parse(backRaw);
-  return out;
-}
 
-// ── Front matter builders ─────────────────────────────────────────────────────
-function buildTitlePage(title: string, subtitle: string | null | undefined, author: string): Paragraph[] {
-  return [
-    new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(1.5), after: 0 } }),
-    new Paragraph({
-      children: [run(title, { size: SZ_BOOK, bold: true })],
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 240 },
-    }),
-    ...(subtitle ? [new Paragraph({
-      children: [run(subtitle, { size: SZ_SUB, italics: true })],
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 960 },
-    })] : [new Paragraph({ children: [run("")], spacing: { after: 960 } })]),
-    new Paragraph({
-      children: [run(author)],
-      alignment: AlignmentType.CENTER,
-    }),
-  ];
-}
+    // ── Phase 1 — line scanner ────────────────────────────────────────────────
+    const lines = text.split("\n");
+    const textBuf: string[] = [];
+    let i = 0;
 
-function buildCopyrightPage(content: string): Paragraph[] {
-  if (!content) return [];
-  const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
-  return [
-    new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(3.5), after: 0 } }),
-    ...lines.map(line => new Paragraph({
-      children: [run(line, { size: SZ_SM })],
-      spacing: { after: 80 },
-    })),
-  ];
-}
+    while (i < lines.length) {
+      const line = lines[i] ?? "";
 
-function buildDedicationPage(content: string): Paragraph[] {
-  if (!content) return [];
-  const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
-  return [
-    new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(1.5), after: 0 } }),
-    ...lines.map(line => new Paragraph({
-      children: [run(line, { italics: true })],
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 160 },
-    })),
-  ];
-}
+      // Detect CALLOUT in any of its stored formats:
+      //   > CALLOUT: Title           (multiline, >-prefixed — what Quill/Reed saves)
+      //   CALLOUT: Title             (bare, no >)
+      //   CALLOUT: Title > > Para    (inline single-line)
+      // Match CALLOUT: with optional > prefix and optional ** bold markers around the keyword
+      // Handles: "CALLOUT: Title", "> CALLOUT: Title", "> **CALLOUT: Title**"
+      const calloutMatch = line.match(/^>*\s*\*{0,2}CALLOUT:\s*(.+?)(?:\*+)?\s*$/i);
 
-function buildTocPage(chapters: Array<{ title: string }>): Paragraph[] {
-  return [
-    new Paragraph({
-      children: [run("Contents", { size: SZ_CH, bold: true })],
-      heading: HeadingLevel.HEADING_1,
-      spacing: { before: convertInchesToTwip(0.5), after: 480 },
-    }),
-    ...chapters.map(ch => new Paragraph({
-      children: [run(ch.title)],
-      spacing: { after: 160 },
-    })),
-  ];
-}
+      if (!calloutMatch) {
+        textBuf.push(line);
+        i++;
+        continue;
+      }
 
-// ── Chapter builder ───────────────────────────────────────────────────────────
-function buildChapter(title: string, body: string): Array<Paragraph | Table> {
-  const bareTitle = title.replace(/^Chapter\s+\d+:\s*/i, "").trim();
-  const numMatch  = title.match(/^(Introduction|Chapter\s+\d+|Closing|Conclusion|Epilogue|Prologue|Foreword|Preface|Afterword)/i);
-  const label     = numMatch?.[0] ?? null;
+      // Flush buffered regular text before emitting the callout box
+      flushBuffer(textBuf);
 
-  const header: Array<Paragraph | Table> = [
-    pageBreakPara(),
-    ...(label ? [new Paragraph({
-      children: [run(label.toUpperCase(), { allCaps: true, size: 20 })],
-      spacing: { before: convertInchesToTwip(0.75), after: 160 },
-    })] : [new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(0.75), after: 0 } })]),
-    new Paragraph({
-      children: [run(bareTitle || title, { size: SZ_CH, bold: true })],
-      heading: HeadingLevel.HEADING_1,
-      spacing: { before: 80, after: 480 },
-    }),
-  ];
+      const rest = (calloutMatch[1] ?? "").trim();
 
-  const { bodyItems } = parseChapterContent(body);
-  return [...header, ...bodyItems];
-}
+      if (/>\s*>/.test(rest) || (rest.includes(">") && !/^[^>]*$/.test(rest))) {
+        // ── Inline format: CALLOUT: Title > > Para 1 > > Para 2 ────────────
+        const parts = rest.split(/\s*>\s*>\s*|\s+>\s+/).filter(p => p.trim());
+        const title = (parts[0] ?? "").replace(/^>+\s*/, "").trim();
+        const contentParas = parts
+          .slice(1)
+          .map(p => p.replace(/^>+\s*/, "").trim())
+          .filter(Boolean)
+          .map(p => bodyPara(p));
+        items.push(blankPara());
+        items.push(buildCalloutBox(title, contentParas));
+        items.push(blankPara());
+        i++;
+      } else {
+        // ── Multiline format: > CALLOUT: Title / > Para 1 / > Para 2 ───────
+        // Each content paragraph is on its own "> text" line.
+        // Bare ">" lines are separators — skip them.
+        // Stop when we reach the next CALLOUT or a non->-non-empty line.
+        const title = rest.replace(/^>+\s*/, "").trim();
+        const contentParas: Paragraph[] = [];
+        i++;
+        while (i < lines.length) {
+          const next = (lines[i] ?? "").trim();
+          if (/^>*\s*CALLOUT:/i.test(next)) break;          // next callout starts
+          if (/^>/.test(next)) {
+            const stripped = next.replace(/^>+\s*/, "").trim();
+            if (stripped) contentParas.push(bodyPara(stripped));
+            i++;
+          } else if (next === "") {
+            i++;                                              // blank separator
+          } else {
+            break;                                            // back to regular text
+          }
+        }
+        items.push(blankPara());
+        items.push(buildCalloutBox(title, contentParas));
+        items.push(blankPara());
+      }
+    }
 
-// ── Back matter section ───────────────────────────────────────────────────────
-function buildBackSection(heading: string, content: string): Array<Paragraph | Table> {
-  if (!content) return [];
-  return [
-    pageBreakPara(),
-    new Paragraph({
-      children: [run(heading, { size: SZ_CH, bold: true })],
-      heading: HeadingLevel.HEADING_1,
-      spacing: { before: convertInchesToTwip(0.5), after: 480 },
-    }),
-    ...renderBlocks(content),
-  ];
-}
+    // Flush any remaining regular text
+    flushBuffer(textBuf);
 
-// ── Main export ───────────────────────────────────────────────────────────────
-export interface ManuscriptInput {
-  title: string;
-  subtitle?: string | null;
-  author?: string | null;
-  typesetContent: string;
-  chapters: Array<{ title: string; body: string }>;
-}
+    return { bodyItems: items };
+  }
 
-export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
-  const { title, subtitle, chapters } = input;
-  const ts = parseTypeset(input.typesetContent);
+  // ── Front matter builders ───────────────────────────────────────────────────
+  function buildTitlePage(t: string, sub: string | null | undefined, aut: string): Paragraph[] {
+    return [
+      new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(1.5), after: 0 } }),
+      new Paragraph({
+        children: [run(t, { size: SZ_BOOK, bold: true })],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 240 },
+      }),
+      ...(sub ? [new Paragraph({
+        children: [run(sub, { size: SZ_SUB, italics: true })],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 960 },
+      })] : [new Paragraph({ children: [run("")], spacing: { after: 960 } })]),
+      new Paragraph({
+        children: [run(aut)],
+        alignment: AlignmentType.CENTER,
+      }),
+    ];
+  }
 
-  // Resolve author name from title page content or fallback
+  function buildCopyrightPage(content: string): Paragraph[] {
+    if (!content) return [];
+    const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
+    return [
+      new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(3.5), after: 0 } }),
+      ...lines.map(line => new Paragraph({
+        children: [run(line, { size: SZ_SM })],
+        spacing: { after: 80 },
+      })),
+    ];
+  }
+
+  function buildDedicationPage(content: string): Paragraph[] {
+    if (!content) return [];
+    const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
+    return [
+      new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(1.5), after: 0 } }),
+      ...lines.map(line => new Paragraph({
+        children: [run(line, { italics: true })],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 160 },
+      })),
+    ];
+  }
+
+  function buildTocPage(chs: Array<{ title: string }>): Paragraph[] {
+    return [
+      new Paragraph({
+        children: [run("Contents", { size: SZ_CH, bold: true })],
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: convertInchesToTwip(0.5), after: 480 },
+      }),
+      ...chs.map(ch => new Paragraph({
+        children: [run(ch.title)],
+        spacing: { after: 160 },
+      })),
+    ];
+  }
+
+  // ── Chapter builder ─────────────────────────────────────────────────────────
+  function buildChapter(chTitle: string, body: string): Array<Paragraph | Table> {
+    const bareTitle = chTitle.replace(/^Chapter\s+\d+:\s*/i, "").trim();
+    const numMatch  = chTitle.match(/^(Introduction|Chapter\s+\d+|Closing|Conclusion|Epilogue|Prologue|Foreword|Preface|Afterword)/i);
+    const label     = numMatch?.[0] ?? null;
+
+    const header: Array<Paragraph | Table> = [
+      pageBreakPara(),
+      ...(label ? [new Paragraph({
+        children: [run(label.toUpperCase(), { allCaps: true, size: 20 })],
+        spacing: { before: convertInchesToTwip(0.75), after: 160 },
+      })] : [new Paragraph({ children: [run("")], spacing: { before: convertInchesToTwip(0.75), after: 0 } })]),
+      new Paragraph({
+        children: [run(bareTitle || chTitle, { size: SZ_CH, bold: true })],
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 80, after: 480 },
+      }),
+    ];
+
+    const { bodyItems } = parseChapterContent(body);
+    return [...header, ...bodyItems];
+  }
+
+  // ── Back matter section ─────────────────────────────────────────────────────
+  function buildBackSection(heading: string, content: string): Array<Paragraph | Table> {
+    if (!content) return [];
+    return [
+      pageBreakPara(),
+      new Paragraph({
+        children: [run(heading, { size: SZ_CH, bold: true })],
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: convertInchesToTwip(0.5), after: 480 },
+      }),
+      ...renderBlocks(content),
+    ];
+  }
+
+  // ── Resolve author name ─────────────────────────────────────────────────────
   let author = input.author ?? "Author";
   if (ts.titlePage) {
     const tpLines = ts.titlePage.split("\n").map(l => l.trim()).filter(Boolean);
     if (tpLines.length >= 2) author = tpLines[tpLines.length - 1] ?? author;
   }
 
+  // ── Assemble document ───────────────────────────────────────────────────────
   const allChildren: Array<Paragraph | Table> = [
     ...buildTitlePage(title, subtitle, author),
     pageBreakPara(),

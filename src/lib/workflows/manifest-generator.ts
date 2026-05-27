@@ -66,17 +66,23 @@ export async function generateManifest(bookId: string): Promise<{ success: boole
     },
   });
 
+  // Per-artifact cap: keep titles + opening content to avoid context overflow.
+  // With 50–90 artifacts, uncapped content easily exceeds 300k tokens.
+  // 3000 chars ≈ ~750 tokens — enough to capture the thesis and key evidence.
+  const CAP = 3000;
+  const cap = (text: string) => text.length > CAP ? text.slice(0, CAP) + "\n…[truncated for manifest]" : text;
+
   // Build source material sections
   const researchSections = (researchStage?.artifacts ?? [])
-    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== SCOUT: ${a.title ?? "Research Dossier"} ===\n${t}` : null; })
+    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== SCOUT: ${a.title ?? "Research Dossier"} ===\n${cap(t)}` : null; })
     .filter(Boolean).join("\n\n");
 
   const externalSections = (externalStage?.artifacts ?? [])
-    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== CHRONICLE: ${a.title ?? "External Stories"} ===\n${t}` : null; })
+    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== CHRONICLE: ${a.title ?? "External Stories"} ===\n${cap(t)}` : null; })
     .filter(Boolean).join("\n\n");
 
   const personalSections = (personalStage?.artifacts ?? [])
-    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== PERSONAL: ${a.title ?? "Personal Stories"} ===\n${t}` : null; })
+    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== PERSONAL: ${a.title ?? "Personal Stories"} ===\n${cap(t)}` : null; })
     .filter(Boolean).join("\n\n");
 
   const meta = book.metadataJson && typeof book.metadataJson === "object" ? book.metadataJson as Record<string, unknown> : {};

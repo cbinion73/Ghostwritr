@@ -26,6 +26,35 @@ interface ChronicleStoriesPanelProps {
 
 // ── Outline parser (shared logic) ────────────────────────────────────────────
 
+/**
+ * Returns true for titles that are structural outline metadata, NOT content chapters.
+ * Mirrors the same filter in scout-research-panel.tsx.
+ */
+function isStructuralMetadata(title: string): boolean {
+  const t = title.trim();
+  if (/\d[\d,]*\s+words?$/i.test(t)) return true;
+  if (/^section\s+[ivxlcdm\d]+/i.test(t)) return true;
+  if (/structural\s+(outline|logic|summary|framework|overview)/i.test(t)) return true;
+  if (/word\s+count/i.test(t)) return true;
+  if (/visual\s+reference/i.test(t)) return true;
+  if (/^(title|subtitle|working\s+title|book\s+title)$/i.test(t)) return true;
+  if (/^(front\s+matter|back\s+matter|end\s+matter)$/i.test(t)) return true;
+  if (/^(table\s+of\s+contents|toc)$/i.test(t)) return true;
+  if (/^(full\s+structural\s+outline)$/i.test(t)) return true;
+  if (/^(epilogue|glossary|appendix|bibliography|references|index|endnotes?|footnotes?)\b/i.test(t)) return true;
+  if (/^(acknowledgments?|about\s+the\s+author|foreword|preface|dedication|colophon|afterword)\b/i.test(t)) return true;
+  if (t === t.toUpperCase() && t.length > 3 && !/^CHAPTER\s+\d+/i.test(t) && /[A-Z]/.test(t)) return true;
+  if (/^\d+(\.\d+)?$/.test(t)) return true;
+
+  // Positive allowlist gate: only titles that look like real narrative chapters pass.
+  // Catches "Big question: ...", "Pillars: ...", "Full Book Outline", "PART 1: ...",
+  // and any other mixed-case section-header entries that slip past the blacklist above.
+  const REAL_CHAPTER_RE = /^(introduction|epilogue|prologue|conclusion|closing|afterword|foreword|preface|chapter\s+\d+)/i;
+  if (!REAL_CHAPTER_RE.test(t)) return true;
+
+  return false;
+}
+
 function parseChaptersFromOutline(outline: string): Array<{ title: string; excerpt: string }> {
   if (!outline.trim()) return [];
   const lines = outline.split("\n");
@@ -35,15 +64,15 @@ function parseChaptersFromOutline(outline: string): Array<{ title: string; excer
     const line = lines[i].trim();
     if (/^#{1,3}\s/.test(line)) {
       const title = line.replace(/^#{1,3}\s+/, "").trim();
-      if (title) chapters.push({ title, startLine: i });
+      if (title && !isStructuralMetadata(title)) chapters.push({ title, startLine: i });
       continue;
     }
     const boldMatch = line.match(/^\*\*(.{3,80})\*\*\s*$/);
-    if (boldMatch && /chapter|part|act|\d/i.test(boldMatch[1])) {
+    if (boldMatch && /chapter|part|act|\d/i.test(boldMatch[1]) && !isStructuralMetadata(boldMatch[1])) {
       chapters.push({ title: boldMatch[1], startLine: i });
       continue;
     }
-    if (/^Chapter\s+\d+/i.test(line)) {
+    if (/^Chapter\s+\d+/i.test(line) && !isStructuralMetadata(line)) {
       chapters.push({ title: line, startLine: i });
       continue;
     }
@@ -94,7 +123,8 @@ export function ChronicleStoriesPanel({
   // ── Init: parse outline + restore saved progress ──────────────────────────
   useEffect(() => {
     if (!outlineContent) { setNoOutline(true); return; }
-    const parsed = parseChaptersFromOutline(outlineContent);
+    const parsed = parseChaptersFromOutline(outlineContent)
+      .filter((ch) => ch.title.trim().toLowerCase() !== bookTitle.trim().toLowerCase());
     if (parsed.length === 0) { setNoOutline(true); return; }
 
     const initial: StoryChapter[] = parsed.map((ch, i) => ({

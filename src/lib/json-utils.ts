@@ -1,6 +1,8 @@
 export function parseStoredJson<T>(value: unknown, fallback: T): T {
-  if (value && typeof value === "object") {
-    return value as T;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    // Shallow-merge with fallback so fields added after a profile was saved
+    // still get their default values rather than coming back as undefined.
+    return { ...fallback, ...(value as object) } as T;
   }
 
   return fallback;

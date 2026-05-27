@@ -262,12 +262,35 @@ export function AgentChatPanel({
             const artEnd = accumulated.indexOf("</ARTIFACT>");
             if (artStart !== -1 && artEnd !== -1) {
               const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
+              let parsed: ArtifactDraft | null = null;
+
+              // First try standard JSON.parse
               try {
-                const parsed = JSON.parse(jsonStr) as ArtifactDraft;
+                parsed = JSON.parse(jsonStr) as ArtifactDraft;
+              } catch { /* fall through to manual extraction */ }
+
+              // Fallback: manually extract fields — handles unescaped newlines in content
+              // (common in large artifacts like Reed's 10-section editorial review)
+              if (!parsed) {
+                const typeMatch  = jsonStr.match(/"type"\s*:\s*"([^"]+)"/);
+                const titleMatch = jsonStr.match(/"title"\s*:\s*"([^"]+)"/);
+                const contentMatch = jsonStr.match(/"content"\s*:\s*"([\s\S]+?)"\s*\}\s*$/);
+                if (typeMatch && titleMatch && contentMatch?.[1]) {
+                  parsed = {
+                    type: typeMatch[1],
+                    title: titleMatch[1],
+                    content: contentMatch[1]
+                      .replace(/\\n/g, "\n")
+                      .replace(/\\"/g, '"')
+                      .replace(/\\\\/g, "\\")
+                      .replace(/\\t/g, "\t"),
+                  };
+                }
+              }
+
+              if (parsed) {
                 setArtifact(parsed);
                 latestParsedArtifact = parsed;
-              } catch {
-                // invalid JSON in artifact, ignore
               }
             }
 

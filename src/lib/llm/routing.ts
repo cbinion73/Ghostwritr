@@ -9,11 +9,13 @@
  *   LLM_RESEARCH_EXTRACT=anthropic:claude-opus-4-6
  *
  * Cost Optimization Philosophy:
- *   - Opus (most capable, ~$0.60/1000 tokens): final-editor:polish only (high ROI, touches all chapters)
- *   - Sonnet (fast, cost-effective, ~$0.018/1000 tokens): prose generation (extract, author, enrich)
- *   - Haiku (fastest, ~$0.005/1000 tokens): quality verification, fact-checking, detail review
- *   - GPT-5.4 (web search capable): comprehensive research generation with live web context
- *   - Gemini: long-context grounding + market analysis
+ *   - Opus (most capable): final-editor:polish only — highest ROI, touches all chapters
+ *   - Sonnet: prose generation requiring quality (chapters, outline, stories, external-stories)
+ *   - Haiku: classification + verification tasks (manifest, research verifier)
+ *   - GPT-5.4: research agent 1 (web search + synthesis)
+ *   - GPT-5.4-mini: typeset + launch listing (web search capability, not reasoning depth)
+ *   - GPT-4o-mini: structured formatting passes, voice-guard, post-production templates
+ *   - GPT-5.4-mini: typeset, launch listing, market analysis (web search, moderate reasoning)
  *
  * Expected cost per book (50 chapters):
  *   - Outline (Phase 1, 2, 3): $0.05 (Haiku structural planning)
@@ -122,17 +124,17 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "chapter-draft:author": "anthropic:claude-sonnet-4-6",
   "chapter-draft:revise": "anthropic:claude-sonnet-4-6",
 
-  // --- Voice Guard: GPT-5 as the different-family critic ---
-  "voice-guard:critic": "openai:gpt-5",
+  // --- Voice Guard: gpt-4o-mini — pattern recognition task, doesn't need flagship reasoning ---
+  "voice-guard:critic": "openai:gpt-4o-mini",
 
   // --- Setup & Voice Blending: Sonnet for cost-effective preview generation + persona suggestions ---
   "setup:voice-blending": "anthropic:claude-sonnet-4-6",
 
   // --- Other stages (will be wired in later) ---
   "promise:author": "anthropic:claude-sonnet-4-6",
-  "promise:structured": "openai:gpt-5",
+  "promise:structured": "openai:gpt-4o-mini",
   "audience:author": "anthropic:claude-sonnet-4-6",
-  "audience:structured": "openai:gpt-5",
+  "audience:structured": "openai:gpt-4o-mini",
   "outline:phase-1": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
   "outline:phase-2": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
   "outline:phase-3": "anthropic:claude-sonnet-4-6", // Requires full context + Knowledge Base integration
@@ -140,13 +142,13 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "personal-stories:interview": "anthropic:claude-sonnet-4-6",
   "fiction:planner": "anthropic:claude-sonnet-4-6",
   "fiction:draft": "anthropic:claude-sonnet-4-6",
-  "market-analysis:research": "google:gemini-2.5-flash",
+  "market-analysis:research": "openai:gpt-5.4-mini",  // needs live web search for comp titles, category velocity, search trends
   "length-adjustment:author": "anthropic:claude-sonnet-4-6",
   "final-editor:assess": "anthropic:claude-sonnet-4-6",  // full manuscript audit — analytical, Sonnet sufficient
   "final-editor:polish": "anthropic:claude-opus-4-6",    // prose revision of specific chapters — Opus quality justified
-  "manifest:generate": "anthropic:claude-sonnet-4-6",
-  "typeset:plan": "openai:gpt-5.4",  // web search for current KDP/B&N specs
-  "launch:listing":   "openai:gpt-5.4",        // web search for current KDP categories/keyword trends
+  "manifest:generate": "anthropic:claude-haiku-4-5-20251001",  // classification task — Haiku is sufficient, ~4x cheaper than Sonnet
+  "typeset:plan": "openai:gpt-5.4-mini",  // web search for current KDP/B&N specs — search capability matters, not reasoning depth
+  "launch:listing":   "openai:gpt-5.4-mini",   // web search for current KDP categories/keyword trends
   "press:kit":        "openai:gpt-4o-mini",    // post-production: cost-optimized, no heavy reasoning needed
   "social:campaign":  "openai:gpt-4o-mini",
   "audio:prep":       "openai:gpt-4o-mini",

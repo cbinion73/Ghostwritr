@@ -115,12 +115,19 @@ Produce the full manifest now, covering every chapter in the outline. Use exact 
     create: { bookId, stageKey: "MANIFEST", status: StageStatus.IN_PROGRESS },
   });
 
-  // Call LLM
+  // Call LLM — try Haiku first, fall back to gpt-4o-mini if unavailable or failing
   const persona = getAgentForStage("MANIFEST");
-  const model = await getModelForRole(persona.stageRole);
-  if (!model) return { success: false, error: "No LLM available for manifest generation." };
-
   const { HumanMessage, SystemMessage } = await import("@langchain/core/messages");
+
+  // Resolve model: primary = Haiku, fallback = gpt-4o-mini
+  const primaryModel = await getModelForRole(persona.stageRole);
+  const fallbackModel = primaryModel ? null : await getModelForRole("press:kit"); // openai:gpt-4o-mini
+
+  const model = primaryModel ?? fallbackModel;
+  if (!model) {
+    return { success: false, error: "No LLM available (checked ANTHROPIC_API_KEY and OPENAI_API_KEY — both missing or invalid)." };
+  }
+
   const messages = [
     new SystemMessage(persona.systemPrompt),
     new HumanMessage(userMessage),
@@ -142,7 +149,10 @@ Produce the full manifest now, covering every chapter in the outline. Use exact 
     }
   } catch (err) {
     await db.bookStage.update({ where: { id: manifestStage.id }, data: { status: StageStatus.NOT_STARTED } });
-    return { success: false, error: err instanceof Error ? err.message : "Generation failed" };
+    const detail = err instanceof Error ? err.message : "Generation failed";
+    // If primary succeeded but gave empty content, that's handled below.
+    // Here we surface the real error so it's visible in the UI.
+    return { success: false, error: `LLM call failed: ${detail}` };
   }
 
   if (!manifestContent.trim()) {

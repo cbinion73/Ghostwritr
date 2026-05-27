@@ -148,10 +148,13 @@ export async function POST(
       },
     });
 
-    // Advance: mark next stage IN_PROGRESS to trigger autonomous run
+    // Advance: mark next stage IN_PROGRESS to trigger autonomous run.
+    // EDITING is exempt — Reed commits individual chapter revisions one at a time;
+    // we stay on EDITING until the author is done with all chapters and manually
+    // advances to TYPESET.
     const stageOrder = getWorkflowStageKeys(book.workflowType);
     const currentIdx = stageOrder.indexOf(stageKey);
-    const nextStageKey = currentIdx >= 0 && currentIdx < stageOrder.length - 1
+    const nextStageKey = stageKey !== "EDITING" && currentIdx >= 0 && currentIdx < stageOrder.length - 1
       ? stageOrder[currentIdx + 1]
       : null;
 

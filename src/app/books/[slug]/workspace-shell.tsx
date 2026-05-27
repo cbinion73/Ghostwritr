@@ -8,6 +8,7 @@ import type { StageGroup } from "@/lib/ui/stage-tokens";
 import { StageNav } from "./stage-nav";
 import { AgentChatPanel } from "./agent-chat-panel";
 import { ChapterDraftBmadPanel } from "./chapter-draft-bmad-panel";
+import { EditingBmadPanel } from "./editing-bmad-panel";
 import { ScoutResearchPanel } from "./scout-research-panel";
 import { ChronicleStoriesPanel } from "./chronicle-stories-panel";
 import { ManifestPanel } from "./manifest-panel";
@@ -170,24 +171,17 @@ export function WorkspaceShell({
           }}
         />
 
-        {/* EDITING (Reed) — always mounted so conversation state survives navigation */}
+        {/* EDITING (Reed) — auto-loop panel, edits each chapter in sequence */}
         {(() => {
           const editingStage = stages.find((s) => s.key === "EDITING");
           if (!editingStage || editingStage.locked) return null;
           return (
             <div style={{ display: selectedKey === "EDITING" ? "flex" : "none", flex: 1, overflow: "hidden" }}>
-              <AgentChatPanel
+              <EditingBmadPanel
                 slug={slug}
-                stageKey="EDITING"
-                stageLabel={editingStage.label}
-                stageRoute={editingStage.route}
                 status={editingStage.status}
-                artifactCount={editingStage.artifactCount}
                 bookTitle={bookTitle}
-                committedContent={editingStage.committedContent}
                 onStageAdvance={advanceTo}
-                dossierMode={false}
-                persistChat={true}
               />
             </div>
           );

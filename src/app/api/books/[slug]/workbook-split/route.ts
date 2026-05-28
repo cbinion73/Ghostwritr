@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { ActorType } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getModelForRole } from "@/lib/llm/routing";
-import { HumanMessage } from "@langchain/core/messages";
 
 // GET — returns all CHAPTER_DRAFT chapters with their current content
 export async function GET(
@@ -62,63 +60,77 @@ export async function POST(
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  // Use typeset:plan (gpt-5.4-mini) or fall back to manifest:generate (Haiku) for this classification task
-  const model = await getModelForRole("manifest:generate", { maxOutputTokens: 16000 });
-  if (!model) {
-    return NextResponse.json({ error: "No LLM model available" }, { status: 503 });
-  }
+  // ── Programmatic split — no LLM needed, no timeout risk ───────────────────
+  // Exercises are consistently marked with ### Exercise:, ### Reflection Questions,
+  // Author's Workbench, and - [ ] checklist blocks. Find the earliest marker and
+  // split there. Fast, deterministic, handles any chapter size.
 
-  const prompt = `You are splitting a nonfiction book chapter into two products.
+  function splitChapterProgrammatically(content: string): { bookProse: string; workbookSection: string } {
+    const lines = content.split("\n");
+    let splitLine = -1;
 
-BOOK PROSE: The complete teaching content — narrative, case studies, frameworks, examples. Remove all exercises, checklists (- [ ] items), reflection questions, and Author's Workbench sections. If the chapter ends abruptly after removal, add a brief closing sentence to land the chapter cleanly.
+    // Markers that signal the start of workbook content
+    const workbookMarkers = [
+      /^###\s+(Exercise|Reflection\s+Questions?|Author['']s\s+Workbench|Diagnostic|Self-Assessment|Workbench)/i,
+      /^##\s+(Exercise|Reflection\s+Questions?|Author['']s\s+Workbench|Diagnostic|Self-Assessment)/i,
+    ];
 
-WORKBOOK SECTION: The practical tools only — diagnostic checklists (- [ ] items), exercises (### Exercise:), reflection questions (### Reflection Questions), Author's Workbench sections. If the chapter contains tools, start with "## ${chapterTitle}" as a header, then a one-sentence bridge ("Use the exercises below as you read this chapter."), then the extracted tools verbatim.
+    // Also detect a block of checklist items (3+ consecutive - [ ] lines)
+    let checklistRunStart = -1;
+    let checklistRunCount = 0;
 
-CRITICAL: If the chapter contains NO exercises, checklists, reflection questions, or workbench sections, return an empty string "" for workbookSection. Do NOT invent exercises. Do NOT return a stub with just a header and no tools.
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
 
-Return ONLY valid JSON, no other text:
-{"bookProse":"...","workbookSection":""}
+      // Named marker found
+      if (workbookMarkers.some((rx) => rx.test(line.trim()))) {
+        // Walk back past any preceding --- separator
+        let start = i;
+        if (start > 0 && /^---+\s*$/.test(lines[start - 1]?.trim() ?? "")) start--;
+        splitLine = start;
+        break;
+      }
 
-CHAPTER TITLE: ${chapterTitle}
-
-CHAPTER CONTENT:
-${chapterContent}`;
-
-  let rawResponse: string;
-  try {
-    const result = await model.invoke([new HumanMessage(prompt)]);
-    rawResponse = typeof result.content === "string"
-      ? result.content
-      : Array.isArray(result.content)
-        ? result.content.map((c) => (typeof c === "string" ? c : ("text" in c ? c.text : ""))).join("")
-        : "";
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "LLM error";
-    return NextResponse.json({ error: msg }, { status: 500 });
-  }
-
-  // Strip markdown code fences if present
-  const cleaned = rawResponse
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```\s*$/, "")
-    .trim();
-
-  let bookProse: string;
-  let workbookSection: string;
-  try {
-    const parsed = JSON.parse(cleaned) as { bookProse: string; workbookSection: string };
-    bookProse = parsed.bookProse ?? "";
-    workbookSection = parsed.workbookSection ?? "";
-  } catch {
-    // Try to extract with regex as fallback
-    const proseMatch = cleaned.match(/"bookProse"\s*:\s*"([\s\S]+?)(?:",\s*"workbookSection"|"\s*\})/);
-    const wbMatch = cleaned.match(/"workbookSection"\s*:\s*"([\s\S]+?)"\s*\}/);
-    if (!proseMatch?.[1] || !wbMatch?.[1]) {
-      return NextResponse.json({ error: "Failed to parse LLM JSON response" }, { status: 500 });
+      // Track checklist runs
+      if (/^\s*-\s+\[[ x]\]/.test(line)) {
+        if (checklistRunStart === -1) checklistRunStart = i;
+        checklistRunCount++;
+        if (checklistRunCount >= 3 && splitLine === -1) {
+          // Walk back past any preceding --- separator
+          let start = checklistRunStart;
+          if (start > 0 && /^---+\s*$/.test(lines[start - 1]?.trim() ?? "")) start--;
+          splitLine = start;
+          break;
+        }
+      } else {
+        checklistRunStart = -1;
+        checklistRunCount = 0;
+      }
     }
-    bookProse = proseMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-    workbookSection = wbMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+
+    if (splitLine === -1) {
+      // No workbook markers found — entire content is book prose
+      return { bookProse: content.trimEnd(), workbookSection: "" };
+    }
+
+    const bookLines = lines.slice(0, splitLine);
+    const wbLines = lines.slice(splitLine);
+
+    // Trim trailing whitespace/separators from book prose
+    while (bookLines.length > 0 && /^\s*$|^---+\s*$/.test(bookLines[bookLines.length - 1] ?? "")) {
+      bookLines.pop();
+    }
+
+    const bookProse = bookLines.join("\n").trimEnd();
+    const rawWorkbook = wbLines.join("\n").trim();
+    const workbookSection = rawWorkbook
+      ? `## ${chapterTitle}\n\nUse the exercises below as you work through this chapter.\n\n${rawWorkbook}`
+      : "";
+
+    return { bookProse, workbookSection };
   }
+
+  const { bookProse, workbookSection } = splitChapterProgrammatically(chapterContent);
 
   const wordCount = bookProse.trim().split(/\s+/).filter(Boolean).length;
   if (wordCount <= 200) {

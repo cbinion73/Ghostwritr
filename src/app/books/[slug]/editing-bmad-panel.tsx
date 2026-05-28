@@ -396,6 +396,7 @@ Produce the complete revised chapter as a MANUSCRIPT_REVISION artifact. Same voi
         body: JSON.stringify({
           stageKey: "EDITING",
           skipContext: true,
+          polishMode: true,
           messages: [{ role: "user", content: prompt }],
           chapterContext: chapter.title,
         }),

@@ -254,6 +254,12 @@ const WORKBOOK_WORKFLOW: WorkflowDefinition = {
       description: "Workbook exercises, checklists, and reflection questions extracted from the parent book.",
     },
     {
+      key: "WORKBOOK_DESIGN" as StageKey,
+      label: "Workbook Design",
+      href: (slug) => `/books/${slug}/workbook-design`,
+      description: "Sage enriches raw exercises into a standalone learning companion with context, instructions, and reflection prompts.",
+    },
+    {
       key: StageKey.TYPESET,
       label: "Typeset",
       href: (slug) => `/books/${slug}/typeset`,

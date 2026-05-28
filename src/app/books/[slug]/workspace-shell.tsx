@@ -13,6 +13,7 @@ import { ScoutResearchPanel } from "./scout-research-panel";
 import { ChronicleStoriesPanel } from "./chronicle-stories-panel";
 import { ManifestPanel } from "./manifest-panel";
 import { WorkbookSplitPanel } from "./workbook-split-panel";
+import { WorkbookDesignPanel } from "./workbook-design-panel";
 import { CostPaceBar } from "./cost-pace-bar";
 
 export type WorkspaceStage = {
@@ -189,6 +190,18 @@ export function WorkspaceShell({
           );
         })()}
 
+        {/* WORKBOOK_DESIGN (Sage) — auto-loop enrichment panel */}
+        {(() => {
+          const WD_KEY = "WORKBOOK_DESIGN" as StageKey;
+          const wdStage = stages.find((s) => s.key === WD_KEY);
+          if (!wdStage || wdStage.locked) return null;
+          return (
+            <div style={{ display: selectedKey === WD_KEY ? "flex" : "none", flex: 1, overflow: "hidden" }}>
+              <WorkbookDesignPanel slug={slug} />
+            </div>
+          );
+        })()}
+
         {/* TYPESET — workbook split first, then Folio agent chat */}
         {(() => {
           const typesetStage = stages.find((s) => s.key === "TYPESET");
@@ -222,7 +235,7 @@ export function WorkspaceShell({
         })()}
 
         {/* All other panels — only rendered when selected */}
-        {selectedKey !== "EDITING" && selectedKey !== "TYPESET" && (
+        {selectedKey !== "EDITING" && selectedKey !== "TYPESET" && selectedKey !== ("WORKBOOK_DESIGN" as StageKey) && (
           selectedStage && (selectedStage.key === "CHAPTER_DRAFT" || selectedStage.key === "FICTION_DRAFT") ? (
             <ChapterDraftBmadPanel
               slug={slug}
@@ -289,6 +302,7 @@ const NAV_SHORTCUTS: Array<{ key: string; label: string }> = [
   { key: "EXTERNAL_STORIES", label: "Stories"   },
   { key: "MANIFEST",         label: "Manifest"  },
   { key: "CHAPTER_DRAFT",    label: "Draft"     },
+  { key: "WORKBOOK_DESIGN",  label: "Workbook"  },
   { key: "EDITING",          label: "Edit"      },
   { key: "TYPESET",          label: "Typeset"   },
   // Post-production launch tools — unlock after Typeset

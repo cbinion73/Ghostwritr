@@ -113,6 +113,14 @@ export const STAGE_TOKENS: readonly StageToken[] = [
     description: "Framework-aware chapter drafting with voice critic",
   },
   {
+    key: "WORKBOOK_DESIGN" as StageKey,
+    number: 11.5,
+    label: "Workbook Design",
+    route: (slug) => `/books/${slug}/workbook-design`,
+    group: "production",
+    description: "Sage enriches chapters into a standalone learning companion",
+  },
+  {
     key: "EDITING",
     number: 12,
     label: "Editing & Typeset",

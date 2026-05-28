@@ -263,34 +263,46 @@ After the artifact, write your "## Reed's Editorial Summary" — 3–6 specific 
           prev.map((c) => c.key === chapter.key ? { ...c, status: "editing", editedContent: undefined } : c)
         );
 
-        try {
-          const result = await editChapter(chapter, abort);
+        let result = null;
+        let lastErr: string | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
           if (abort.signal.aborted) break;
-
-          if (result) {
-            const { editedContent, summaryNotes } = result;
-            const editArtifactId = await saveEdit(chapter, editedContent, summaryNotes);
+          if (attempt > 0) {
+            // Brief pause before retry
+            await new Promise<void>((r) => setTimeout(r, 2000 * attempt));
             setChapters((prev) =>
-              prev.map((c) =>
-                c.key === chapter.key
-                  ? { ...c, status: "review", editedContent, summaryNotes, editArtifactId: editArtifactId ?? undefined }
-                  : c
-              )
-            );
-          } else {
-            setChapters((prev) =>
-              prev.map((c) => c.key === chapter.key ? { ...c, status: "error", errorMsg: "No content produced" } : c)
+              prev.map((c) => c.key === chapter.key ? { ...c, status: "editing", editedContent: undefined } : c)
             );
           }
-        } catch (err) {
-          if (abort.signal.aborted) break;
-          const msg = err instanceof Error ? err.message : "Error";
+          try {
+            result = await editChapter(chapter, abort);
+            if (result) break; // success — exit retry loop
+            lastErr = "No content produced";
+          } catch (err) {
+            if (abort.signal.aborted) break;
+            lastErr = err instanceof Error ? err.message : "Error";
+          }
+        }
+
+        if (abort.signal.aborted) break;
+
+        if (result) {
+          const { editedContent, summaryNotes } = result;
+          const editArtifactId = await saveEdit(chapter, editedContent, summaryNotes);
           setChapters((prev) =>
-            prev.map((c) => c.key === chapter.key ? { ...c, status: "error", errorMsg: msg } : c)
+            prev.map((c) =>
+              c.key === chapter.key
+                ? { ...c, status: "review", editedContent, summaryNotes, editArtifactId: editArtifactId ?? undefined }
+                : c
+            )
+          );
+        } else {
+          setChapters((prev) =>
+            prev.map((c) => c.key === chapter.key ? { ...c, status: "error", errorMsg: lastErr ?? "Failed after 3 attempts" } : c)
           );
         }
 
-        await new Promise<void>((r) => setTimeout(r, 200));
+        await new Promise<void>((r) => setTimeout(r, 500));
       }
     } finally {
       runningRef.current = false;

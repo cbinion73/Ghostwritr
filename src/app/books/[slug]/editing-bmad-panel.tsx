@@ -134,6 +134,7 @@ After the artifact, write your "## Reed's Editorial Summary" — 3–6 specific 
       body: JSON.stringify({
         stageKey: "EDITING",
         skipContext: true,
+        polishMode: true,
         messages: [{ role: "user", content: prompt }],
         chapterContext: chapter.title,
       }),
@@ -177,12 +178,12 @@ After the artifact, write your "## Reed's Editorial Summary" — 3–6 specific 
       const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
       try {
         const parsed = JSON.parse(jsonStr) as { content: string };
-        if (parsed.content && parsed.content.length > 50) extractedContent = parsed.content;
+        if (parsed.content && parsed.content.split(/\s+/).length > 100) extractedContent = parsed.content;
       } catch {
         const m = jsonStr.match(/"content"\s*:\s*"([\s\S]+)"\s*\}\s*$/);
         if (m?.[1]) {
           const raw = m[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
-          if (raw.length > 50) extractedContent = raw;
+          if (raw.split(/\s+/).length > 100) extractedContent = raw;
         }
       }
     }
@@ -192,7 +193,7 @@ After the artifact, write your "## Reed's Editorial Summary" — 3–6 specific 
       const summaryIdx = accumulated.indexOf("## Reed's Editorial Summary");
       const prose = (summaryIdx !== -1 ? accumulated.slice(0, summaryIdx) : accumulated)
         .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-      if (prose.length > 50) extractedContent = prose;
+      if (prose.split(/\s+/).length > 100) extractedContent = prose;
     }
 
     if (!extractedContent) return null;
@@ -435,20 +436,21 @@ Produce the complete revised chapter as a MANUSCRIPT_REVISION artifact. Same voi
         const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
         try {
           const parsed = JSON.parse(jsonStr) as { content: string };
-          if (parsed.content?.length > 50) newContent = parsed.content;
+          if (parsed.content && parsed.content.split(/\s+/).length > 100) newContent = parsed.content;
         } catch {
           const m = jsonStr.match(/"content"\s*:\s*"([\s\S]+)"\s*\}\s*$/);
           if (m?.[1]) {
             const raw = m[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
-            if (raw.length > 50) newContent = raw;
+            if (raw.split(/\s+/).length > 100) newContent = raw;
           }
         }
       }
 
       if (!newContent) {
         const summaryIdx = accumulated.indexOf("## Reed's Editorial Summary");
-        newContent = (summaryIdx !== -1 ? accumulated.slice(0, summaryIdx) : accumulated)
-          .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim() || null;
+        const fallback = (summaryIdx !== -1 ? accumulated.slice(0, summaryIdx) : accumulated)
+          .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
+        if (fallback.split(/\s+/).length > 100) newContent = fallback;
       }
 
       const summaryMatch = accumulated.match(/## Reed's Editorial Summary[\s\S]*/);

@@ -157,7 +157,9 @@ export async function POST(
   await db.artifact.update({ where: { id: artifact.id }, data: { currentVersionId: version.id } });
 
   // Also PATCH the source CHAPTER_DRAFT artifact so downstream (TYPESET) gets polished prose
-  if (sourceDraftId) {
+  // Guard: only patch if content is valid prose (> 200 words) to prevent error messages overwriting chapters
+  const wordCount = editedContent.trim().split(/\s+/).filter(Boolean).length;
+  if (sourceDraftId && wordCount > 200) {
     const sourceDraft = await db.artifact.findFirst({
       where: { id: sourceDraftId, bookId: book.id },
       select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
@@ -239,8 +241,9 @@ export async function PATCH(
     },
   });
 
-  // Patch source draft too
-  if (sourceDraftId) {
+  // Patch source draft too — only if content is valid prose (> 200 words)
+  const patchWordCount = editedContent.trim().split(/\s+/).filter(Boolean).length;
+  if (sourceDraftId && patchWordCount > 200) {
     const sourceDraft = await db.artifact.findFirst({
       where: { id: sourceDraftId, bookId: book.id },
       select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },

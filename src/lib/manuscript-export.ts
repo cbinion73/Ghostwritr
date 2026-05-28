@@ -6,6 +6,8 @@ import { join } from "path";
 import { ArtifactType, BookWorkflowType } from "@prisma/client";
 import { z } from "zod";
 
+import { db } from "@/lib/db";
+
 import {
   ChapterDraftBundleSchema,
   ChapterReviewBundleSchema,
@@ -148,10 +150,64 @@ export async function buildManuscriptExportPayload(slug: string): Promise<Manusc
     ParagraphOutlineSchema,
   );
 
+  // ── New-style books: no OUTLINE_EXPANSION — load chapters directly from stage ──
   if (!outline) {
-    throw new Error("Committed paragraph-level Outline is required before manuscript export.");
+    const chapterStage = await db.bookStage.findUnique({
+      where: { bookId_stageKey: { bookId: book.id, stageKey: "CHAPTER_DRAFT" } },
+      select: {
+        artifacts: {
+          select: {
+            id: true,
+            title: true,
+            metadataJson: true,
+            versions: {
+              select: { contentText: true },
+              orderBy: { versionNumber: "desc" },
+              take: 1,
+            },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    const rawChapters = chapterStage?.artifacts ?? [];
+    const draftedChapters = rawChapters.filter(
+      (a) => (a.versions[0]?.contentText?.trim().length ?? 0) > 0,
+    );
+
+    if (draftedChapters.length === 0) {
+      throw new Error("No chapter drafts exist yet. Finish drafting chapters before exporting the manuscript.");
+    }
+
+    const chapters = draftedChapters.map((a, idx) => {
+      const meta = a.metadataJson as Record<string, string> | null;
+      const chapterKey = meta?.chapterKey ?? `ch-${idx + 1}`;
+      const text = a.versions[0]?.contentText ?? "";
+      return {
+        chapterKey,
+        chapterLabel: a.title ?? `Chapter ${idx + 1}`,
+        sectionTitle: "",
+        wordCount: countWords(text),
+        reviewSummary: null,
+        chapterText: text,
+      };
+    });
+
+    return {
+      title: book.titleWorking ?? "Untitled Book",
+      subtitle: book.subtitle ?? null,
+      totalWords: chapters.reduce((sum, c) => sum + c.wordCount, 0),
+      chapterCount: chapters.length,
+      draftedChapterCount: chapters.length,
+      trimSize: publishingPackage?.trimSize ?? null,
+      frontMatter: publishingPackage?.frontMatter ?? [],
+      backMatter: publishingPackage?.backMatter ?? [],
+      chapters,
+    };
   }
 
+  // ── Legacy books: load chapters via outline chapter IDs ───────────────────────
   const chapters = await Promise.all(
     outline.sections.flatMap((section) =>
       section.chapters.map(async (chapter) => {

@@ -139,25 +139,46 @@ export async function generateBibliography(
   bookId: string,
   bookTitle: string,
 ): Promise<{ citations: string[]; html: string }> {
-  // 1. Load RESEARCH artifacts
-  const researchStage = await db.bookStage.findUnique({
-    where: { bookId_stageKey: { bookId, stageKey: "RESEARCH" } },
-    select: {
-      artifacts: {
-        select: {
-          title: true,
-          versions: {
-            select: { contentText: true },
-            orderBy: { versionNumber: "desc" },
-            take: 1,
+  // 1. Load RESEARCH and EXTERNAL_STORIES artifacts (both contain citable sources)
+  const [researchStage, chronicleStage] = await Promise.all([
+    db.bookStage.findUnique({
+      where: { bookId_stageKey: { bookId, stageKey: "RESEARCH" } },
+      select: {
+        artifacts: {
+          select: {
+            title: true,
+            versions: {
+              select: { contentText: true },
+              orderBy: { versionNumber: "desc" },
+              take: 1,
+            },
           },
+          orderBy: { createdAt: "asc" },
         },
-        orderBy: { createdAt: "asc" },
       },
-    },
-  });
+    }),
+    db.bookStage.findUnique({
+      where: { bookId_stageKey: { bookId, stageKey: "EXTERNAL_STORIES" } },
+      select: {
+        artifacts: {
+          select: {
+            title: true,
+            versions: {
+              select: { contentText: true },
+              orderBy: { versionNumber: "desc" },
+              take: 1,
+            },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    }),
+  ]);
 
-  const artifacts = researchStage?.artifacts ?? [];
+  const artifacts = [
+    ...(researchStage?.artifacts ?? []),
+    ...(chronicleStage?.artifacts ?? []),
+  ];
   if (artifacts.length === 0) {
     return { citations: [], html: buildBibliographyHtml(bookTitle, []) };
   }

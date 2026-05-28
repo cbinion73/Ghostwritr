@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import type { StageKey } from "@prisma/client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -31,8 +32,11 @@ export function WorkbookSplitPanel({ slug, bookTitle, onStageAdvance, onSkip }: 
   const [chapters, setChapters] = useState<SplitChapter[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [companionSlug, setCompanionSlug] = useState<string | null>(null);
   type ExpandedState = { key: string; mode: "book" | "workbook" } | null;
   const [expanded, setExpanded] = useState<ExpandedState>(null);
+  const router = useRouter();
 
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -227,6 +231,41 @@ export function WorkbookSplitPanel({ slug, bookTitle, onStageAdvance, onSkip }: 
     URL.revokeObjectURL(url);
   }, [chapters, bookTitle]);
 
+  // ── Create companion workbook book ───────────────────────────────────────
+  const createCompanion = useCallback(async () => {
+    const sections = chapters
+      .filter((c) => c.status === "approved" && c.workbookSection)
+      .map((c) => ({
+        chapterKey: c.key,
+        chapterTitle: c.title,
+        workbookSection: c.workbookSection!,
+      }));
+
+    if (sections.length === 0) return;
+
+    setIsCreating(true);
+    try {
+      const res = await fetch(`/api/books/${slug}/workbook-split/companion`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workbookSections: sections }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` })) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+
+      const data = await res.json() as { companionSlug: string };
+      setCompanionSlug(data.companionSlug);
+      router.push(`/books/${data.companionSlug}`);
+    } catch (err) {
+      console.error("Failed to create companion workbook:", err);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [chapters, slug, router]);
+
   // ── Commit all and advance to next stage ─────────────────────────────────
   const commitAll = useCallback(async () => {
     if (onStageAdvance) {
@@ -285,15 +324,30 @@ export function WorkbookSplitPanel({ slug, bookTitle, onStageAdvance, onSkip }: 
             {approvedCount > 0 && ` · ${approvedCount} approved`}
           </div>
 
-          {allApproved && (
+          {allApproved && !companionSlug && (
             <>
-              <button style={downloadBtnStyle} onClick={downloadWorkbook}>
-                ↓ Download Workbook
+              <button style={downloadBtnStyle} onClick={downloadWorkbook} title="Download as Markdown file">
+                ↓ .md
+              </button>
+              <button
+                style={createCompanionBtnStyle}
+                onClick={() => void createCompanion()}
+                disabled={isCreating}
+              >
+                {isCreating ? "Creating…" : "Create Companion Workbook →"}
               </button>
               <button style={commitBtnStyle} onClick={() => void commitAll()}>
                 Commit → continue
               </button>
             </>
+          )}
+          {companionSlug && (
+            <span style={companionCreatedStyle}>
+              ✓ Companion workbook created —{" "}
+              <a href={`/books/${companionSlug}`} style={companionLinkStyle}>
+                Open it →
+              </a>
+            </span>
           )}
 
           {!isRunning && hasErrors && (
@@ -658,4 +712,21 @@ const emptyStateStyle: React.CSSProperties = {
   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
   height: "100%", color: "#4a3e33", fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
   textAlign: "center", padding: "40px",
+};
+
+const createCompanionBtnStyle: React.CSSProperties = {
+  padding: "7px 16px", borderRadius: "7px", border: "none",
+  background: "#4a7c59", color: "#fff", fontSize: "12px",
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  cursor: "pointer", whiteSpace: "nowrap", fontWeight: 600,
+};
+
+const companionCreatedStyle: React.CSSProperties = {
+  fontSize: "12px", color: "#4a7c59", fontWeight: 600,
+  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  whiteSpace: "nowrap",
+};
+
+const companionLinkStyle: React.CSSProperties = {
+  color: "#4a7c59", textDecoration: "underline", cursor: "pointer",
 };

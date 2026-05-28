@@ -17,6 +17,7 @@ enum BookStatus {
 enum BookWorkflowType {
   NONFICTION
   FICTION
+  WORKBOOK
 }
 
 enum StageKey {
@@ -300,10 +301,13 @@ model Book {
   workflowType BookWorkflowType @default(NONFICTION)
   metadataJson Json       @default("{}")
   ownerUserId  String?    @db.Uuid
+  parentBookId String?    @db.Uuid
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   owner           User?            @relation(fields: [ownerUserId], references: [id])
+  parentBook      Book?            @relation("CompanionBooks", fields: [parentBookId], references: [id])
+  companions      Book[]           @relation("CompanionBooks")
   stages          BookStage[]
   artifacts       Artifact[]
   decisions       Decision[]

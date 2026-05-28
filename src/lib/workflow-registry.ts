@@ -243,9 +243,59 @@ const FICTION_WORKFLOW: WorkflowDefinition = {
   ],
 };
 
+const WORKBOOK_WORKFLOW: WorkflowDefinition = {
+  type: BookWorkflowType.WORKBOOK,
+  label: "Workbook",
+  stages: [
+    {
+      key: StageKey.CHAPTER_DRAFT,
+      label: "Chapter Draft",
+      href: (slug) => `/books/${slug}/chapter-draft`,
+      description: "Workbook exercises, checklists, and reflection questions extracted from the parent book.",
+    },
+    {
+      key: StageKey.TYPESET,
+      label: "Typeset",
+      href: (slug) => `/books/${slug}/typeset`,
+      description: "KDP and B&N Press formatting, ISBN, front matter, and cover brief.",
+    },
+    {
+      key: StageKey.LAUNCH_LISTING,
+      label: "Launch Listing",
+      href: (slug) => `/books/${slug}/launch-listing`,
+      description: "Amazon/KDP retail copy, keywords, and category strategy.",
+    },
+    {
+      key: StageKey.PRESS_KIT,
+      label: "Press Kit",
+      href: (slug) => `/books/${slug}/press-kit`,
+      description: "Media kit, author bio, talking points, and interview Q&A.",
+    },
+    {
+      key: StageKey.SOCIAL_CAMPAIGN,
+      label: "Social Campaign",
+      href: (slug) => `/books/${slug}/social-campaign`,
+      description: "30-day launch content calendar across all platforms.",
+    },
+    {
+      key: StageKey.AUDIO_PREP,
+      label: "Audio Prep",
+      href: (slug) => `/books/${slug}/audio-prep`,
+      description: "ACX audiobook package: checklist, recording notes, pronunciation guide.",
+    },
+    {
+      key: StageKey.SPEAKING_KIT,
+      label: "Speaking Kit",
+      href: (slug) => `/books/${slug}/speaking-kit`,
+      description: "Keynote outline, speaker bio variants, one-sheet, and session descriptions.",
+    },
+  ],
+};
+
 export const WORKFLOW_REGISTRY: Record<BookWorkflowType, WorkflowDefinition> = {
   [BookWorkflowType.NONFICTION]: NONFICTION_WORKFLOW,
   [BookWorkflowType.FICTION]: FICTION_WORKFLOW,
+  [BookWorkflowType.WORKBOOK]: WORKBOOK_WORKFLOW,
 };
 
 export function getWorkflowDefinition(workflowType: BookWorkflowType) {

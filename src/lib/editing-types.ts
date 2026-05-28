@@ -217,7 +217,7 @@ export type PublishPackageSyncState = {
 
 export type ProvenanceReport = {
   generatedAt: string;
-  workflowType: "NONFICTION" | "FICTION";
+  workflowType: "NONFICTION" | "FICTION" | "WORKBOOK";
   title: string;
   artifactTrail: Array<{
     stage: string;

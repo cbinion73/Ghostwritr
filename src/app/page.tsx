@@ -2,7 +2,17 @@ import Link from "next/link";
 import { BookWorkflowType } from "@prisma/client";
 
 import { createBookAction, deleteBookAction } from "./actions";
-import { listBooks } from "@/lib/repositories/books";
+import { db } from "@/lib/db";
+
+async function listBooksWithParent() {
+  return db.book.findMany({
+    orderBy: { updatedAt: "desc" },
+    include: {
+      stages: { orderBy: { createdAt: "asc" } },
+      parentBook: { select: { titleWorking: true, slug: true } },
+    },
+  });
+}
 import { AppTopBar } from "./components/app-top-bar";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +51,7 @@ function getStatusColor(stages: Array<{ status: string }>) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function HomePage() {
-  const books = await listBooks();
+  const books = await listBooksWithParent();
 
   return (
     <div style={pageStyle}>
@@ -117,6 +127,8 @@ export default async function HomePage() {
                   ? book.metadataJson as Record<string, unknown>
                   : {};
                 const premise = typeof meta.premise === "string" ? meta.premise : null;
+                const isWorkbook = book.workflowType === BookWorkflowType.WORKBOOK;
+                const workflowLabel = isWorkbook ? "Workbook" : book.workflowType === BookWorkflowType.FICTION ? "Fiction" : "Nonfiction";
 
                 return (
                   <article key={book.id} style={cardStyle}>
@@ -128,14 +140,22 @@ export default async function HomePage() {
                         {book.subtitle && (
                           <div style={cardSubtitleStyle}>{book.subtitle}</div>
                         )}
-                        {premise && (
+                        {isWorkbook && book.parentBook && (
+                          <div style={companionBadgeStyle}>
+                            Companion workbook for{" "}
+                            <Link href={`/books/${book.parentBook.slug}`} style={companionParentLinkStyle}>
+                              {book.parentBook.titleWorking ?? "parent book"}
+                            </Link>
+                          </div>
+                        )}
+                        {premise && !isWorkbook && (
                           <div style={cardPremiseStyle}>
                             {premise.length > 120 ? premise.slice(0, 120) + "…" : premise}
                           </div>
                         )}
                       </div>
                       <div style={{ ...cardBadgeStyle, color: statusColor, borderColor: statusColor + "44" }}>
-                        {book.workflowType === BookWorkflowType.FICTION ? "Fiction" : "Nonfiction"}
+                        {workflowLabel}
                       </div>
                     </div>
 
@@ -451,4 +471,17 @@ const deleteBtnStyle: React.CSSProperties = {
   fontFamily: F,
   cursor: "pointer",
   transition: "color 150ms",
+};
+
+const companionBadgeStyle: React.CSSProperties = {
+  fontSize: "11px",
+  color: "#5a7a60",
+  fontFamily: F,
+  marginTop: "5px",
+  fontStyle: "italic",
+};
+
+const companionParentLinkStyle: React.CSSProperties = {
+  color: "#5a7a60",
+  textDecoration: "underline",
 };

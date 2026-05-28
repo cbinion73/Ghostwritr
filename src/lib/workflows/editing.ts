@@ -166,7 +166,7 @@ const PublishingPackageSchema = z.object({
 
 const ProvenanceReportSchema = z.object({
   generatedAt: z.string(),
-  workflowType: z.enum(["NONFICTION", "FICTION"]),
+  workflowType: z.enum(["NONFICTION", "FICTION", "WORKBOOK"]),
   title: z.string(),
   artifactTrail: z.array(
     z.object({

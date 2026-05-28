@@ -70,12 +70,14 @@ export async function POST(
 
   const prompt = `You are splitting a nonfiction book chapter into two products.
 
-BOOK PROSE: The complete teaching content — narrative, case studies, frameworks, examples. Remove all exercises, checklists (- [ ] items), reflection questions, and Author's Workbench sections. End with a brief closing sentence if the chapter ends abruptly after removal.
+BOOK PROSE: The complete teaching content — narrative, case studies, frameworks, examples. Remove all exercises, checklists (- [ ] items), reflection questions, and Author's Workbench sections. If the chapter ends abruptly after removal, add a brief closing sentence to land the chapter cleanly.
 
-WORKBOOK SECTION: The practical tools only — diagnostic checklists, exercises (### Exercise:), reflection questions (### Reflection Questions), Author's Workbench sections. Start with "## ${chapterTitle}" as a header, then a one-sentence bridge ("Use the exercises below as you read this chapter."), then the tools.
+WORKBOOK SECTION: The practical tools only — diagnostic checklists (- [ ] items), exercises (### Exercise:), reflection questions (### Reflection Questions), Author's Workbench sections. If the chapter contains tools, start with "## ${chapterTitle}" as a header, then a one-sentence bridge ("Use the exercises below as you read this chapter."), then the extracted tools verbatim.
+
+CRITICAL: If the chapter contains NO exercises, checklists, reflection questions, or workbench sections, return an empty string "" for workbookSection. Do NOT invent exercises. Do NOT return a stub with just a header and no tools.
 
 Return ONLY valid JSON, no other text:
-{"bookProse":"...","workbookSection":"..."}
+{"bookProse":"...","workbookSection":""}
 
 CHAPTER TITLE: ${chapterTitle}
 

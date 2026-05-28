@@ -107,8 +107,9 @@ export function WorkbookSplitPanel({ slug, bookTitle, onStageAdvance, onSkip }: 
     }
 
     const data = await res.json() as { bookProse: string; workbookSection: string };
-    if (!data.bookProse || !data.workbookSection) return null;
-    return data;
+    if (!data.bookProse) return null;
+    // workbookSection may be empty for chapters with no exercises — that's valid
+    return { bookProse: data.bookProse, workbookSection: data.workbookSection ?? "" };
   }, [slug]);
 
   // ── Run sequentially from index ──────────────────────────────────────────
@@ -411,7 +412,8 @@ export function WorkbookSplitPanel({ slug, bookTitle, onStageAdvance, onSkip }: 
                   )}
                   {(chapter.status === "review" || chapter.status === "approved") && (
                     <div style={wordCountStyle}>
-                      Book: {bookWords.toLocaleString()} w · Workbook: {wbWords.toLocaleString()} w
+                      Book: {bookWords.toLocaleString()} w
+                      {wbWords > 0 ? ` · Workbook: ${wbWords.toLocaleString()} w` : " · No exercises"}
                     </div>
                   )}
                   {chapter.status === "error" && (

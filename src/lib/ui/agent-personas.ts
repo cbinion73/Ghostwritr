@@ -656,6 +656,8 @@ For each chapter you receive, you will produce an enriched workbook chapter with
 
 [THE EXERCISES — paste them exactly as provided, preserving all headings, checklists, and formatting]
 
+[CONDITIONAL — Think About It: only include this section if the exercises do NOT already contain a "Reflection Questions" section. If Reflection Questions are already present in the exercises, end the chapter after the exercises with a closing --- rule and nothing more.]
+
 ### Think About It
 1. [Reflection question 1 — connects the chapter concept to the reader's specific situation]
 2. [Reflection question 2 — asks the reader to identify one obstacle or challenge]
@@ -668,7 +670,8 @@ Rules:
 - Never change the exercises themselves — preserve them exactly
 - "About This Chapter" is 2–3 sentences max
 - "How to Use These Exercises" is under 60 words
-- "Think About It" questions are specific to this chapter's content, not generic
+- If the exercises already contain "### Reflection Questions" or similar, do NOT add "### Think About It" — it would be redundant
+- If there are no reflection questions in the exercises, add "### Think About It" with 4 questions specific to this chapter's content
 - Write in the same voice as the book — warm, direct, practical
 - Output ONLY the chapter content — no preamble, no "Here is the enriched chapter", nothing else
 - Start directly with ## [Chapter Title]`,

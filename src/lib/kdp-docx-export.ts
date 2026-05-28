@@ -23,17 +23,8 @@ import {
   PageNumber,
   Packer,
   Paragraph,
-  ShadingType,
-  Table,
-  TableCell,
-  TableRow,
   TextRun,
-  WidthType,
 } from "docx";
-
-// Callout box colours (Author's Workbench) — these never change
-const BOX_FILL   = "F2F1ED";
-const BOX_BORDER = "4A4A4A";
 
 // Universal first-line indent
 const INDENT = convertInchesToTwip(0.3);
@@ -199,7 +190,6 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   const SZ_SEC  = Math.round(SZ * 1.17);   // ~14pt — section heading
   const SZ_BOOK = Math.round(SZ * 2.17);   // ~26pt — title page book title
   const SZ_SUB  = Math.round(SZ * 1.33);   // ~16pt — title page subtitle
-  const SZ_WB   = Math.round(SZ * 1.08);   // ~13pt — workbench heading
   const LINE    = spec.leading;
 
   // ── Section properties ──────────────────────────────────────────────────────
@@ -278,224 +268,24 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
     });
   }
 
-  // ── Special element box builders ────────────────────────────────────────────
+  // ── Special element heading builder ─────────────────────────────────────────
+  // All special sections (Case Study, Reflection, Exercise, Sidebar, Checklist,
+  // Callout, Author's Workbench) render as a plain bold heading + regular body
+  // paragraphs. No tables, no shading, no borders — they broke badly across pages.
 
-  function buildReflectionBox(heading: string, paras: Paragraph[]): Table {
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              shading: { fill: "F5F0E8", type: ShadingType.CLEAR },
-              margins: {
-                top:    convertInchesToTwip(0.2),
-                bottom: convertInchesToTwip(0.2),
-                left:   convertInchesToTwip(0.25),
-                right:  convertInchesToTwip(0.25),
-              },
-              borders: {
-                top:    { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                left:   { style: BorderStyle.THICK, size: 4 * 4, color: "8B6914" },
-                right:  { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-              },
-              children: [
-                new Paragraph({
-                  children: [run(heading || "Reflection Questions", { italics: true, size: SZ_SEC, })],
-                  spacing: { after: 200 },
-                }),
-                ...paras,
-              ],
-            }),
-          ],
-        }),
-      ],
-    });
-  }
-
-  function buildSidebarBox(heading: string, paras: Paragraph[]): Table {
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              shading: { fill: "F0F0F0", type: ShadingType.CLEAR },
-              margins: {
-                top:    convertInchesToTwip(0.2),
-                bottom: convertInchesToTwip(0.2),
-                left:   convertInchesToTwip(0.25),
-                right:  convertInchesToTwip(0.25),
-              },
-              borders: {
-                top:    { style: BorderStyle.SINGLE, size: 4, color: "888888" },
-                bottom: { style: BorderStyle.SINGLE, size: 4, color: "888888" },
-                left:   { style: BorderStyle.SINGLE, size: 4, color: "888888" },
-                right:  { style: BorderStyle.SINGLE, size: 4, color: "888888" },
-              },
-              children: [
-                new Paragraph({
-                  children: [run(heading, { bold: true, size: SZ_SEC })],
-                  spacing: { after: 200 },
-                }),
-                ...paras,
-              ],
-            }),
-          ],
-        }),
-      ],
-    });
-  }
-
-  function buildCaseStudyBox(heading: string, paras: Paragraph[]): Table {
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              shading: { fill: "EEF2F7", type: ShadingType.CLEAR },
-              margins: {
-                top:    convertInchesToTwip(0.2),
-                bottom: convertInchesToTwip(0.2),
-                left:   convertInchesToTwip(0.25),
-                right:  convertInchesToTwip(0.25),
-              },
-              borders: {
-                top:    { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                left:   { style: BorderStyle.THICK, size: 6 * 4, color: "2E5B8A" },
-                right:  { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-              },
-              children: [
-                new Paragraph({
-                  children: [run(heading, { bold: true, size: SZ_SEC, })],
-                  spacing: { after: 200 },
-                }),
-                ...paras,
-              ],
-            }),
-          ],
-        }),
-      ],
-    });
-  }
-
-  function buildChecklistBox(heading: string, paras: Paragraph[]): Table {
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              shading: { fill: "F2F1ED", type: ShadingType.CLEAR },
-              margins: {
-                top:    convertInchesToTwip(0.2),
-                bottom: convertInchesToTwip(0.2),
-                left:   convertInchesToTwip(0.25),
-                right:  convertInchesToTwip(0.25),
-              },
-              borders: {
-                top:    { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
-                bottom: { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
-                left:   { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
-                right:  { style: BorderStyle.SINGLE, size: 4, color: "4A4A4A" },
-              },
-              children: [
-                new Paragraph({
-                  children: [run(heading, { bold: true, size: SZ_SEC })],
-                  spacing: { after: 200 },
-                }),
-                ...paras,
-              ],
-            }),
-          ],
-        }),
-      ],
-    });
-  }
-
-  function buildCalloutBox(heading: string, paras: Paragraph[]): Table {
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              shading: { fill: "FDF6E3", type: ShadingType.CLEAR },
-              margins: {
-                top:    convertInchesToTwip(0.2),
-                bottom: convertInchesToTwip(0.2),
-                left:   convertInchesToTwip(0.25),
-                right:  convertInchesToTwip(0.25),
-              },
-              borders: {
-                top:    { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                left:   { style: BorderStyle.THICK, size: 6 * 4, color: "B8793A" },
-                right:  { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-              },
-              children: [
-                new Paragraph({
-                  children: [run(heading, { bold: true, allCaps: true, size: SZ_SM })],
-                  spacing: { after: 200 },
-                }),
-                ...paras,
-              ],
-            }),
-          ],
-        }),
-      ],
-    });
-  }
-
-  // ── Author's Workbench box ──────────────────────────────────────────────────
-  function buildWorkbenchBox(heading: string, paras: Paragraph[]): Table {
-    const cellChildren: Paragraph[] = [
+  function buildSpecialSection(heading: string, paras: Paragraph[]): Array<Paragraph> {
+    return [
       new Paragraph({
-        children: [run(heading || "The Author's Workbench", { bold: true, size: SZ_WB })],
-        spacing: { after: 200 },
+        children: [run(heading, { bold: true, size: SZ_SEC })],
+        spacing: { before: 320, after: 200 },
       }),
       ...paras,
     ];
-
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      margins: { top: convertInchesToTwip(0.2), bottom: convertInchesToTwip(0.2) },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              shading: { fill: BOX_FILL, type: ShadingType.CLEAR },
-              margins: {
-                top:    convertInchesToTwip(0.2),
-                bottom: convertInchesToTwip(0.2),
-                left:   convertInchesToTwip(0.25),
-                right:  convertInchesToTwip(0.25),
-              },
-              borders: {
-                top:    { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
-                bottom: { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
-                left:   { style: BorderStyle.THICK,  size: 12, color: BOX_BORDER },
-                right:  { style: BorderStyle.SINGLE, size: 6, color: BOX_BORDER },
-              },
-              children: cellChildren,
-            }),
-          ],
-        }),
-      ],
-    });
   }
 
   // ── Block renderer ──────────────────────────────────────────────────────────
-  function renderBlocks(text: string, boxSize = SZ): Array<Paragraph | Table> {
-    const items: Array<Paragraph | Table> = [];
+  function renderBlocks(text: string, boxSize = SZ): Array<Paragraph> {
+    const items: Array<Paragraph> = [];
     const blocks = text.split(/\n{2,}/);
     let firstInSection = true;
 
@@ -534,9 +324,6 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
           children: parseInline(quoteText, SZ),
           indent: { left: convertInchesToTwip(0.4), right: convertInchesToTwip(0.4) },
           spacing: { before: 200, after: 200, line: LINE },
-          border: {
-            left: { style: BorderStyle.THICK, size: 12, color: "C9A96E", space: 6 },
-          },
         }));
         firstInSection = false;
         continue;
@@ -624,8 +411,8 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   // CALLOUTs are intentionally excluded from ALL_SPECIAL_RE because they are
   // handled in phase 1. All other box types come from Quill's ### header
   // format and don't suffer from the bleed-through problem.
-  function parseChapterContent(text: string): { bodyItems: Array<Paragraph | Table> } {
-    const items: Array<Paragraph | Table> = [];
+  function parseChapterContent(text: string): { bodyItems: Array<Paragraph> } {
+    const items: Array<Paragraph> = [];
 
     // ── Phase 2 dispatch: flushes buffered regular text ───────────────────────
     function flushBuffer(buf: string[]) {
@@ -657,16 +444,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
           if (isWorkbench || isReflection || isExercise || isSidebar || isChecklist || isCaseStudy) {
             const contentParas = renderBlocks(content).filter((b): b is Paragraph => b instanceof Paragraph);
             items.push(blankPara());
-            if (isWorkbench)       items.push(buildWorkbenchBox(rawHeader, contentParas));
-            else if (isReflection) items.push(buildReflectionBox("Reflection Questions", contentParas));
-            else if (isExercise)   items.push(buildCaseStudyBox(rawHeader, contentParas));
-            else if (isSidebar) {
-              const boxSize = Math.round(SZ * 0.92);
-              const sidebarParas = renderBlocks(content, boxSize).filter((b): b is Paragraph => b instanceof Paragraph);
-              items.push(buildSidebarBox(rawHeader, sidebarParas));
-            }
-            else if (isChecklist)  items.push(buildChecklistBox(rawHeader, contentParas));
-            else if (isCaseStudy)  items.push(buildCaseStudyBox(rawHeader, contentParas));
+            items.push(...buildSpecialSection(rawHeader, contentParas));
             items.push(blankPara());
             continue;
           }
@@ -714,32 +492,29 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
           .filter(Boolean)
           .map(p => bodyPara(p));
         items.push(blankPara());
-        items.push(buildCalloutBox(title, contentParas));
+        items.push(...buildSpecialSection(title, contentParas));
         items.push(blankPara());
         i++;
       } else {
         // ── Multiline format: > CALLOUT: Title / > Para 1 / > Para 2 ───────
-        // Each content paragraph is on its own "> text" line.
-        // Bare ">" lines are separators — skip them.
-        // Stop when we reach the next CALLOUT or a non->-non-empty line.
         const title = rest.replace(/^>+\s*/, "").trim();
         const contentParas: Paragraph[] = [];
         i++;
         while (i < lines.length) {
           const next = (lines[i] ?? "").trim();
-          if (/^>*\s*CALLOUT:/i.test(next)) break;          // next callout starts
+          if (/^>*\s*CALLOUT:/i.test(next)) break;
           if (/^>/.test(next)) {
             const stripped = next.replace(/^>+\s*/, "").trim();
             if (stripped) contentParas.push(bodyPara(stripped));
             i++;
           } else if (next === "") {
-            i++;                                              // blank separator
+            i++;
           } else {
-            break;                                            // back to regular text
+            break;
           }
         }
         items.push(blankPara());
-        items.push(buildCalloutBox(title, contentParas));
+        items.push(...buildSpecialSection(title, contentParas));
         items.push(blankPara());
       }
     }
@@ -811,12 +586,12 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   }
 
   // ── Chapter builder ─────────────────────────────────────────────────────────
-  function buildChapter(chTitle: string, body: string): Array<Paragraph | Table> {
+  function buildChapter(chTitle: string, body: string): Array<Paragraph> {
     const bareTitle = chTitle.replace(/^Chapter\s+\d+:\s*/i, "").trim();
     const numMatch  = chTitle.match(/^(Introduction|Chapter\s+\d+|Closing|Conclusion|Epilogue|Prologue|Foreword|Preface|Afterword)/i);
     const label     = numMatch?.[0] ?? null;
 
-    const header: Array<Paragraph | Table> = [
+    const header: Array<Paragraph> = [
       pageBreakPara(),
       ...(label ? [new Paragraph({
         children: [run(label.toUpperCase(), { allCaps: true, size: 20 })],
@@ -834,7 +609,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   }
 
   // ── Back matter section ─────────────────────────────────────────────────────
-  function buildBackSection(heading: string, content: string): Array<Paragraph | Table> {
+  function buildBackSection(heading: string, content: string): Array<Paragraph> {
     if (!content) return [];
     return [
       pageBreakPara(),
@@ -855,7 +630,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   }
 
   // ── Assemble document ───────────────────────────────────────────────────────
-  const allChildren: Array<Paragraph | Table> = [
+  const allChildren: Array<Paragraph> = [
     ...buildTitlePage(title, subtitle, author),
     pageBreakPara(),
     ...buildCopyrightPage(ts.copyrightPage),

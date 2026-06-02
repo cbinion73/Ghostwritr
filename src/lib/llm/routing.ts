@@ -125,7 +125,7 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "chapter-draft:revise": "anthropic:claude-sonnet-4-6",
 
   // --- Voice Guard: gpt-4o-mini — pattern recognition task, doesn't need flagship reasoning ---
-  "voice-guard:critic": "openai:gpt-4o-mini",
+  "voice-guard:critic": "anthropic:claude-haiku-4-5-20251001",
 
   // --- Setup & Voice Blending: Sonnet for cost-effective preview generation + persona suggestions ---
   "setup:voice-blending": "anthropic:claude-sonnet-4-6",
@@ -145,7 +145,7 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "market-analysis:research": "openai:gpt-5.4-mini",  // needs live web search for comp titles, category velocity, search trends
   "length-adjustment:author": "anthropic:claude-sonnet-4-6",
   "final-editor:assess": "anthropic:claude-sonnet-4-6",  // full manuscript audit — analytical, Sonnet sufficient
-  "final-editor:polish": "anthropic:claude-opus-4-6",    // prose revision of specific chapters — Opus quality justified
+  "final-editor:polish": "anthropic:claude-opus-4-8",    // prose revision of specific chapters — Opus quality justified
   "manifest:generate": "anthropic:claude-haiku-4-5-20251001",  // classification task — Haiku is sufficient, ~4x cheaper than Sonnet
   "typeset:plan": "openai:gpt-5.4-mini",  // web search for current KDP/B&N specs — search capability matters, not reasoning depth
   "launch:listing":   "openai:gpt-5.4-mini",   // web search for current KDP categories/keyword trends

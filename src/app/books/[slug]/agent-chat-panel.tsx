@@ -185,9 +185,18 @@ export function AgentChatPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, artifactCount, stageKey]);
 
-  // Auto-scroll to bottom when messages change
+  const userScrolledUpRef = useRef(false);
+
+  const handleThreadScroll = () => {
+    const el = threadRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUpRef.current = distanceFromBottom > 80;
+  };
+
+  // Auto-scroll to bottom when messages change, unless user scrolled up to read
   useEffect(() => {
-    if (threadRef.current) {
+    if (threadRef.current && !userScrolledUpRef.current) {
       threadRef.current.scrollTop = threadRef.current.scrollHeight;
     }
   }, [messages]);
@@ -196,6 +205,7 @@ export function AgentChatPanel({
     const text = (overrideText ?? draft).trim();
     if (!text || isSending) return;
 
+    userScrolledUpRef.current = false;
     const userMsg: ChatMessage = { role: "user", content: text };
     const snapshotMessages = [...messages, userMsg];
     setMessages([...snapshotMessages, { role: "agent", content: "", streaming: true }]);
@@ -720,7 +730,7 @@ export function AgentChatPanel({
       )}
 
       {/* Message thread */}
-      <div ref={threadRef} style={threadStyle}>
+      <div ref={threadRef} style={threadStyle} onScroll={handleThreadScroll}>
         {messages.filter((m): m is ChatMessage => m !== undefined).map((msg, i) => (
           <div
             key={i}

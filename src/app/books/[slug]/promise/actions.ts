@@ -164,7 +164,7 @@ export async function submitPromiseMessage(slug: string, formData: FormData) {
     })
     .finally(() => {
       markWorkflowComplete(book.id);
-      revalidatePath(`/books/${slug}/promise`);
+      revalidatePath(`/books/${slug}`);
     });
 }
 
@@ -180,12 +180,12 @@ export async function seedPromiseWorkspace(slug: string) {
     content: sampleDirection,
   });
   await runPromiseWorkflow(slug, sampleDirection);
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function commitPromiseStage(slug: string) {
   await commitPromiseWorkflow(slug);
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/outline`);
   revalidatePath(`/books/${slug}/dashboard`);
   redirect(`/books/${slug}/outline`);
@@ -238,7 +238,7 @@ export async function approvePromisePhaseAction(
     },
   });
 
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
   return phaseApprovals;
 }
 
@@ -287,7 +287,7 @@ export async function rejectPromisePhaseAction(
     },
   });
 
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
   return phaseApprovals;
 }
 
@@ -314,7 +314,7 @@ export async function togglePromiseReferenceMaterial(
     },
   });
 
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/files`);
 }
 
@@ -359,7 +359,7 @@ export async function savePromiseStatement(slug: string, statement: string) {
     },
   });
 
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function refinePomiseWithAI(
@@ -515,7 +515,7 @@ export async function autoGeneratePersonasAction(slug: string) {
     });
 
     console.log("[autoGeneratePersonasAction] Personas saved successfully");
-    revalidatePath(`/books/${slug}/promise`);
+    revalidatePath(`/books/${slug}`);
     return personas;
   } catch (error) {
     console.error("[autoGeneratePersonasAction] Error:", error);
@@ -564,7 +564,7 @@ export async function generateMarketAnalysisAction(
     });
 
     console.log("[generateMarketAnalysisAction] Market report saved successfully");
-    revalidatePath(`/books/${slug}/promise`);
+    revalidatePath(`/books/${slug}`);
     return marketReport;
   } catch (error) {
     console.error("[generateMarketAnalysisAction] Error:", error);
@@ -735,7 +735,7 @@ export async function refinePromiseToExcellence(
     }
 
     refinementLog.push(`\n✅ Artifact generation complete after ${iterationCount} iterations`);
-    revalidatePath(`/books/${slug}/promise`);
+    revalidatePath(`/books/${slug}`);
 
     return {
       success: true,
@@ -777,7 +777,7 @@ export async function saveValidatedPersonas(slug: string) {
       contentJson: workspace.personas,
     });
 
-    revalidatePath(`/books/${slug}/promise`);
+    revalidatePath(`/books/${slug}`);
 
     return { success: true, message: 'Personas saved successfully' };
   } catch (error) {
@@ -1086,7 +1086,7 @@ export async function generatePositioningRecommendationsAction(
       contentText: normalizedRecommendations.summary,
     });
 
-    revalidatePath(`/books/${slug}/promise`);
+    revalidatePath(`/books/${slug}`);
     return normalizedRecommendations;
   } catch (error) {
     console.error("[generatePositioningRecommendationsAction] Error:", error);
@@ -1173,7 +1173,7 @@ export async function saveTitleSubtitleFinalizationAction(
     },
   });
 
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
   return titleSubtitleFinalization;
 }
 
@@ -1208,7 +1208,7 @@ export async function compileBookPromiseReportAction(
       contentText: report.documentMarkdown,
     });
 
-    revalidatePath(`/books/${slug}/promise`);
+    revalidatePath(`/books/${slug}`);
     return report;
   } catch (error) {
     console.error("[compileBookPromiseReportAction] Error:", error);
@@ -1282,7 +1282,7 @@ export async function saveBookPromiseReportAction(
     },
   });
 
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
   return report;
 }
 

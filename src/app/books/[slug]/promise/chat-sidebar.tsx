@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { PromiseComposer } from "./promise-composer";
+import { PromiseWorkflowWatcher } from "./promise-workflow-watcher";
 import type { PromiseMessage } from "@/lib/promise-types";
 
 interface ChatSidebarProps {
@@ -27,6 +28,7 @@ export function ChatSidebar({
 
   return (
     <div style={{ ...styles.container, ...(localCollapsed ? styles.containerCollapsed : {}) }}>
+      <PromiseWorkflowWatcher slug={slug} />
       <div style={styles.sidebar}>
         {/* Header */}
         <div style={styles.header}>

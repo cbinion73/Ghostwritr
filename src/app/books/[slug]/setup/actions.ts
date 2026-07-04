@@ -256,6 +256,7 @@ async function processSaveBookSetup(slug: string, formData: FormData) {
     voiceTone,
     chapterFormat: chapterFormat.length > 0 ? chapterFormat : undefined,
     readerLevel,
+    researchLens: String(formData.get("researchLens") ?? "general").trim() || "general",
   });
 }
 

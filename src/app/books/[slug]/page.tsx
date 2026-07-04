@@ -22,6 +22,7 @@ import { ExternalStoriesContent } from "./external-stories/external-stories-cont
 import { PersonalStoriesContent } from "./personal-stories/personal-stories-content";
 import { BookSetupDetailContent } from "./setup/book-setup-detail-content";
 import { EditingDetailContent } from "./editing/editing-detail-content";
+import { TypesetDetailContent } from "./typeset/typeset-detail-content";
 import { FictionStageDetailContent } from "./fiction-stage-detail-content";
 import { getOvernightState } from "@/lib/workflows/overnight-build";
 
@@ -178,6 +179,10 @@ export default async function BookWorkspacePage({
       <EditingDetailContent slug={slug} query={query} />
     ) : null;
 
+  const typesetStage = stages.find((s) => s.key === "TYPESET");
+  const typesetDetail =
+    typesetStage && !typesetStage.locked ? <TypesetDetailContent slug={slug} /> : null;
+
   const storySetupStage = stages.find((s) => s.key === "STORY_SETUP");
   const storySetupDetail =
     storySetupStage && !storySetupStage.locked ? (
@@ -237,6 +242,7 @@ export default async function BookWorkspacePage({
         personalStoriesDetail={personalStoriesDetail}
         bookSetupDetail={bookSetupDetail}
         editingDetail={editingDetail}
+        typesetDetail={typesetDetail}
         storySetupDetail={storySetupDetail}
         storyCoreDetail={storyCoreDetail}
         worldCastDetail={worldCastDetail}

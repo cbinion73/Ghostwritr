@@ -18,6 +18,7 @@ import { TargetMetricsFields } from "./target-metrics";
 import { VoiceBlendSection } from "./voice-blend-section";
 
 import { getBookSetupWorkspace } from "@/lib/workflows/book-setup";
+import { RESEARCH_LENS_OPTIONS } from "@/lib/research-lenses";
 
 export async function BookSetupDetailContent({ slug }: { slug: string }) {
   const workspace = await getBookSetupWorkspace(slug);
@@ -142,6 +143,26 @@ export async function BookSetupDetailContent({ slug }: { slug: string }) {
                 </label>
               ))}
             </div>
+
+            <label className="form-field">
+              <span className="field-label">Research Lens</span>
+              <select
+                className="editor-input"
+                defaultValue={workspace.profile.researchLens ?? "general"}
+                name="researchLens"
+              >
+                {RESEARCH_LENS_OPTIONS.map((lens) => (
+                  <option key={lens.key} value={lens.key}>
+                    {lens.label}
+                  </option>
+                ))}
+              </select>
+              <span className="muted" style={{ fontSize: "12px", marginTop: 4 }}>
+                Shapes how Research and External Stories search and rank sources for this
+                genre — e.g. Biblical/Theological prioritizes commentaries, lexicons, and
+                peer-reviewed scholarship over blogs, and flags over-claimed anecdotes.
+              </span>
+            </label>
 
             <label className="form-field">
               <span className="field-label">Base Story Format</span>

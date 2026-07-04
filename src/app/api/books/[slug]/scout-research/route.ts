@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
+import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
+import { normalizeBookSetupProfile } from "@/lib/book-setup-types";
+import { buildLensQueries, resolveResearchLens } from "@/lib/research-lenses";
 import { getModelForRole, resolveModelSpec } from "@/lib/llm/routing";
 import { parseModelSpec } from "@/lib/llm/providers";
 import { logLLMCall } from "@/lib/llm/call-log";
@@ -75,13 +78,23 @@ export async function POST(
     ));
   }
 
+  // Per-book research lens (from Book Setup) shapes query templates and
+  // source-tier rules — e.g. Biblical/Theological searches commentaries and
+  // word studies instead of "statistics data survey".
+  const committedSetup = await getCommittedBookSetup(book.id);
+  const setupProfile = normalizeBookSetupProfile(committedSetup?.contentJson);
+  const lens = resolveResearchLens(setupProfile?.researchLens);
+
   // Single-chapter mode: use provided chapterTitle as the sole topic
   // Multi-chapter / conversational mode: extract topics from outline
   const topics = chapterTitle
     ? [chapterTitle]
     : extractChapterTopics(outlineText, book.titleWorking ?? "book");
   const userFocus = chapterTitle ? null : extractUserQueryFocus(messages);
-  const queries = buildClaimBasedQueries(topics, userFocus, bookSubject);
+  const queries =
+    lens.key === "general"
+      ? buildClaimBasedQueries(topics, userFocus, bookSubject)
+      : buildLensQueries(lens, topics, userFocus, bookSubject);
 
   let searchContext = "";
   try {
@@ -116,6 +129,7 @@ CITATION FORMAT:
 - Training knowledge claims: label as (Training knowledge — verify before publishing)
 - Unverifiable claims: "Unverified — check before using"
 - Prefer Tier 1 and Tier 2 sources for core claims.
+${lens.tierRules ? `\n${lens.tierRules}\n` : ""}${lens.directives ? `\n${lens.directives}\n` : ""}
 
 ARTIFACT PRODUCTION:
 <ARTIFACT>

@@ -59,6 +59,8 @@ interface WorkspaceShellProps {
   bookSetupDetail?: React.ReactNode;
   /** Server-rendered Editing room content, mounted when EDITING is selected. */
   editingDetail?: React.ReactNode;
+  /** Server-rendered Typeset & Publish room content, mounted when TYPESET is selected. */
+  typesetDetail?: React.ReactNode;
   /** Server-rendered Story Setup room content, mounted when STORY_SETUP is selected. */
   storySetupDetail?: React.ReactNode;
   /** Server-rendered Story Core room content, mounted when STORY_CORE is selected. */
@@ -92,6 +94,7 @@ export function WorkspaceShell({
   personalStoriesDetail = null,
   bookSetupDetail = null,
   editingDetail = null,
+  typesetDetail = null,
   storySetupDetail = null,
   storyCoreDetail = null,
   worldCastDetail = null,
@@ -272,7 +275,10 @@ export function WorkspaceShell({
           );
         })()}
 
-        {/* TYPESET — workbook split first, then Folio agent chat */}
+        {/* TYPESET — workbook split first, then the real Export & Publishing
+            Pipeline (deterministic: validation, chapter readiness, typeset/
+            publish packages). This is where the final document actually
+            gets produced — Editing stays purely editorial. */}
         {(() => {
           const typesetStage = stages.find((s) => s.key === "TYPESET");
           if (!typesetStage || typesetStage.locked) return null;
@@ -286,19 +292,21 @@ export function WorkspaceShell({
                   onSkip={() => setTypesetMode("folio")}
                 />
               ) : (
-                <AgentChatPanel
-                  slug={slug}
-                  stageKey="TYPESET"
-                  stageLabel={typesetStage.label}
-                  stageRoute={typesetStage.route}
-                  status={typesetStage.status}
-                  artifactCount={typesetStage.artifactCount}
-                  bookTitle={bookTitle}
-                  committedContent={typesetStage.committedContent}
-                  onStageAdvance={advanceTo}
-                  dossierMode={false}
-                  persistChat={true}
-                />
+                typesetDetail ?? (
+                  <AgentChatPanel
+                    slug={slug}
+                    stageKey="TYPESET"
+                    stageLabel={typesetStage.label}
+                    stageRoute={typesetStage.route}
+                    status={typesetStage.status}
+                    artifactCount={typesetStage.artifactCount}
+                    bookTitle={bookTitle}
+                    committedContent={typesetStage.committedContent}
+                    onStageAdvance={advanceTo}
+                    dossierMode={false}
+                    persistChat={true}
+                  />
+                )
               )}
             </div>
           );

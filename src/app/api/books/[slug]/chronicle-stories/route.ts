@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
+import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
+import { normalizeBookSetupProfile } from "@/lib/book-setup-types";
+import { resolveResearchLens } from "@/lib/research-lenses";
 import { getModelForRole, resolveModelSpec } from "@/lib/llm/routing";
 import { parseModelSpec } from "@/lib/llm/providers";
 import { logLLMCall } from "@/lib/llm/call-log";
@@ -75,6 +78,13 @@ export async function POST(
     ));
   }
 
+  // Per-book research lens (from Book Setup) adds genre-specific story
+  // sourcing rules — e.g. Biblical/Theological favors testimonies and
+  // documented church-history figures over business cases.
+  const committedSetup = await getCommittedBookSetup(book.id);
+  const setupProfile = normalizeBookSetupProfile(committedSetup?.contentJson);
+  const lens = resolveResearchLens(setupProfile?.researchLens);
+
   // Single-chapter mode: focus all searches on the specified chapter
   const topics = chapterTitle
     ? [chapterTitle]
@@ -117,6 +127,7 @@ VERIFICATION FORMAT:
 - Stories from training knowledge: label as (Training knowledge — verify before publishing)
 - Unverifiable stories: label as "Unverified — do not use without independent confirmation"
 - Prefer Tier 1 and Tier 2 sources. Tier 3 for color only.
+${lens.storyGuidance ? `\n${lens.storyGuidance}\n` : ""}
 
 ARTIFACT PRODUCTION:
 <ARTIFACT>

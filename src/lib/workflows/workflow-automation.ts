@@ -320,12 +320,14 @@ async function runNonfictionAutopilot(
       label: "Outline",
       detail: "Outline is still an approval boundary. Commit the full outline before autopilot continues.",
     },
-    {
-      key: StageKey.PERSONAL_STORIES,
-      label: "Personal Stories",
-      detail: "Personal Stories is the last human-sourced boundary before chapter drafting.",
-    },
   ];
+  // Personal Stories is NOT a boundary here — unlike Research and External
+  // Stories, it has no background worker (it's a human interview), so it
+  // can never be "launched" by autopilot. Gating everything else behind it
+  // would idle Research/External Stories while the author is mid-interview
+  // for no reason. It's still a hard requirement before Chapter Draft can
+  // run (checked just before that stage, below) — the interview simply
+  // happens in parallel with material gathering instead of blocking it.
 
   for (const boundary of strategicBoundaryStages) {
     const currentStage = await stage(boundary.key);
@@ -365,10 +367,34 @@ async function runNonfictionAutopilot(
     },
   ];
 
+  // Research and External Stories are mutually independent (neither appears
+  // in the other's stale-dependency set — see workflow-dependencies.ts) and
+  // both only depend on Base Story. Running them one at a time roughly
+  // doubles the wall-clock this book spends gathering material for no
+  // quality reason, so when either is ready to launch, launch its sibling
+  // in the same tick too instead of waiting a full round-trip.
+  const PARALLEL_MATERIAL_STAGES = new Set<StageKey>([StageKey.RESEARCH, StageKey.EXTERNAL_STORIES]);
+
   for (const item of backgroundStages) {
     const currentStage = await stage(item.key);
     if (currentStage?.status === StageStatus.COMMITTED) {
       continue;
+    }
+
+    // Chapter Draft has no autopilot boundary check of its own — Personal
+    // Stories used to gate the whole pipeline instead, which meant Research
+    // and External Stories couldn't even start until the author finished a
+    // conversational interview that has nothing to do with them. Gate only
+    // here, right before the stage that actually requires it.
+    if (item.key === StageKey.CHAPTER_DRAFT) {
+      const personalStoriesStage = await stage(StageKey.PERSONAL_STORIES);
+      if (personalStoriesStage?.status !== StageStatus.COMMITTED) {
+        return {
+          status: "manual",
+          title: "Waiting on Personal Stories",
+          detail: "Personal Stories is the last human-sourced boundary before chapter drafting. Research and External Stories can keep running in the meantime.",
+        };
+      }
     }
 
     if (mode === "assisted" && currentStage?.status !== StageStatus.READY_FOR_REVIEW) {
@@ -445,10 +471,40 @@ async function runNonfictionAutopilot(
     }
 
     await item.enqueue();
+    const launchedLabels = [item.label];
+
+    // Fire the sibling material stage concurrently if it's also ready to
+    // start — both are fire-and-forget background workers, so there's no
+    // reason to wait a full round-trip before launching the second one.
+    if (PARALLEL_MATERIAL_STAGES.has(item.key)) {
+      const sibling = backgroundStages.find(
+        (candidate) => PARALLEL_MATERIAL_STAGES.has(candidate.key) && candidate.key !== item.key,
+      );
+      if (sibling) {
+        const siblingStage = await stage(sibling.key);
+        const siblingHasActiveRun = siblingStage
+          ? await getActiveWorkflowRunForStage(book.id, sibling.key)
+          : null;
+        if (
+          siblingStage &&
+          siblingStage.status !== StageStatus.COMMITTED &&
+          siblingStage.status !== StageStatus.READY_FOR_REVIEW &&
+          siblingStage.status !== StageStatus.BLOCKED &&
+          !siblingHasActiveRun
+        ) {
+          await sibling.enqueue();
+          launchedLabels.push(sibling.label);
+        }
+      }
+    }
+
     return {
       status: "launched",
-      title: `${item.label} launched`,
-      detail: "Autopilot queued the next background stage and will continue after the worker finishes.",
+      title: `${launchedLabels.join(" + ")} launched`,
+      detail:
+        launchedLabels.length > 1
+          ? "Autopilot queued both independent material stages concurrently and will continue after they finish."
+          : "Autopilot queued the next background stage and will continue after the worker finishes.",
     };
   }
 

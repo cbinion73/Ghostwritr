@@ -42,6 +42,13 @@ export type BookSetupProfile = {
   voiceTone?: string;           // qualitative voice description: "warm, conversational, plainspoken with occasional wit"
   chapterFormat?: string[];     // ["reflection-questions", "exercises", "sidebars", "checklists", "case-studies", "callout-boxes"]
   readerLevel?: "casual" | "practitioner" | "professional" | "expert";
+
+  /**
+   * Research lens — genre profile that shapes Scout's search queries and
+   * source-tier rules (and Chronicle's story sourcing). Keys defined in
+   * src/lib/research-lenses.ts; "general" is the balanced default.
+   */
+  researchLens?: string;
 };
 
 export const DEFAULT_BOOK_SETUP_PROFILE: BookSetupProfile = {
@@ -61,4 +68,19 @@ export const DEFAULT_BOOK_SETUP_PROFILE: BookSetupProfile = {
   provenanceTrackingEnabled: true,
   marketingHandoffEnabled: true,
   notesToSystem: [],
+  researchLens: "general",
 };
+
+/**
+ * Committed BOOK_SETUP_PROFILE artifacts come in two shapes: the structured
+ * profile (settings form / seeded default) and a markdown {text} blob
+ * (Blueprint chat commits). Shallow-merging over defaults gives consumers
+ * the full profile shape either way, and backfills fields added after older
+ * profiles were saved.
+ */
+export function normalizeBookSetupProfile(value: unknown): BookSetupProfile | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return { ...DEFAULT_BOOK_SETUP_PROFILE, ...(value as Partial<BookSetupProfile>) };
+}

@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import {
   applyManuscriptRevision,
   assembleManuscript,
@@ -15,7 +13,6 @@ import {
   sendEditingMessage,
   updateEditorialPreferences,
 } from "./actions";
-import { EditingExportMenu } from "./export-menu";
 
 import { BookWorkflowType } from "@prisma/client";
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
@@ -198,14 +195,9 @@ export async function EditingDetailContent({
                 Commit Editing Stage
               </button>
             </form>
-            <Link className="btn" href={`/books/${slug}/publish`}>
-              Open Publish
-            </Link>
-            <EditingExportMenu
-              slug={slug}
-              title={workspace.book.titleWorking ?? "manuscript"}
-              disabled={!workspace.manuscriptAssembly}
-            />
+            <a className="btn" href={`/books/${slug}?stage=TYPESET`}>
+              Open Typeset →
+            </a>
           </div>
         </section>
 

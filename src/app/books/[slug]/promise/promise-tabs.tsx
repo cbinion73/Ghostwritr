@@ -64,7 +64,7 @@ interface PromiseTabsProps {
   messages?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
-function formatTokenCount(value?: number): string {
+function formatTokenCount(value?: number | null): string {
   return typeof value === "number" ? value.toLocaleString() : "—";
 }
 

@@ -4,27 +4,27 @@ export type PromiseMessage = {
 };
 
 export type PromiseTokenUsage = {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  cacheReadInputTokens?: number;
-  cacheWriteInputTokens?: number;
-  reasoningTokens?: number;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+  cacheReadInputTokens?: number | null;
+  cacheWriteInputTokens?: number | null;
+  reasoningTokens?: number | null;
 };
 
 export type WorkflowGroundingMetadata = {
-  previousPhases?: string[];
-  kbSources?: string[];
-  audienceSignals?: string[];
+  previousPhases?: string[] | null;
+  kbSources?: string[] | null;
+  audienceSignals?: string[] | null;
 };
 
 export type PromiseArtifactMetadata = {
-  createdAt?: string;
-  updatedAt?: string;
-  model?: string;
-  grounding?: WorkflowGroundingMetadata;
-  tokenUsage?: PromiseTokenUsage;
-};
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  model?: string | null;
+  grounding?: WorkflowGroundingMetadata | null;
+  tokenUsage?: PromiseTokenUsage | null;
+} | null;
 
 export type PromiseBrief = {
   workingTitle: string;

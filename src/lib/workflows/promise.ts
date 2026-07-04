@@ -65,24 +65,30 @@ const PromiseBriefSchema = z.object({
   stakes: z.string(),
   tone: z.array(z.string()).default([]),
   openQuestions: z.array(z.string()).default([]),
+  // OpenAI strict structured-output mode requires every property in every
+  // nested object schema to appear in `required` — .optional() drops a key
+  // from `required` and the API rejects the schema outright ("'required' is
+  // required to be supplied and to be an array including every key in
+  // properties"). .nullable() keeps the key required while still letting
+  // the model return null when there's nothing to report.
   metadata: z.object({
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    model: z.string().optional(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    model: z.string().nullable(),
     grounding: z.object({
-      previousPhases: z.array(z.string()).optional(),
-      kbSources: z.array(z.string()).optional(),
-      audienceSignals: z.array(z.string()).optional(),
-    }).optional(),
+      previousPhases: z.array(z.string()).nullable(),
+      kbSources: z.array(z.string()).nullable(),
+      audienceSignals: z.array(z.string()).nullable(),
+    }).nullable(),
     tokenUsage: z.object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      cacheReadInputTokens: z.number().optional(),
-      cacheWriteInputTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    }).optional(),
-  }).optional(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+      totalTokens: z.number().nullable(),
+      cacheReadInputTokens: z.number().nullable(),
+      cacheWriteInputTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+    }).nullable(),
+  }).nullable(),
 });
 
 const PromiseScorecardSchema = z.object({
@@ -262,24 +268,30 @@ const MarketReportSchema = z.object({
     conditions: z.array(z.string()).default([]),
     nextSteps: z.array(z.string()).default([]),
   }),
+  // OpenAI strict structured-output mode requires every property in every
+  // nested object schema to appear in `required` — .optional() drops a key
+  // from `required` and the API rejects the schema outright ("'required' is
+  // required to be supplied and to be an array including every key in
+  // properties"). .nullable() keeps the key required while still letting
+  // the model return null when there's nothing to report.
   metadata: z.object({
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    model: z.string().optional(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    model: z.string().nullable(),
     grounding: z.object({
-      previousPhases: z.array(z.string()).optional(),
-      kbSources: z.array(z.string()).optional(),
-      audienceSignals: z.array(z.string()).optional(),
-    }).optional(),
+      previousPhases: z.array(z.string()).nullable(),
+      kbSources: z.array(z.string()).nullable(),
+      audienceSignals: z.array(z.string()).nullable(),
+    }).nullable(),
     tokenUsage: z.object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      cacheReadInputTokens: z.number().optional(),
-      cacheWriteInputTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    }).optional(),
-  }).optional(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+      totalTokens: z.number().nullable(),
+      cacheReadInputTokens: z.number().nullable(),
+      cacheWriteInputTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+    }).nullable(),
+  }).nullable(),
 });
 
 const PositioningRecommendationsSchema = z.object({
@@ -373,24 +385,30 @@ const PositioningRecommendationsSchema = z.object({
     goNoGoGates: z.array(z.string()).default([]),
     contingencyPlanning: z.array(z.string()).default([]),
   }),
+  // OpenAI strict structured-output mode requires every property in every
+  // nested object schema to appear in `required` — .optional() drops a key
+  // from `required` and the API rejects the schema outright ("'required' is
+  // required to be supplied and to be an array including every key in
+  // properties"). .nullable() keeps the key required while still letting
+  // the model return null when there's nothing to report.
   metadata: z.object({
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    model: z.string().optional(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    model: z.string().nullable(),
     grounding: z.object({
-      previousPhases: z.array(z.string()).optional(),
-      kbSources: z.array(z.string()).optional(),
-      audienceSignals: z.array(z.string()).optional(),
-    }).optional(),
+      previousPhases: z.array(z.string()).nullable(),
+      kbSources: z.array(z.string()).nullable(),
+      audienceSignals: z.array(z.string()).nullable(),
+    }).nullable(),
     tokenUsage: z.object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      cacheReadInputTokens: z.number().optional(),
-      cacheWriteInputTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    }).optional(),
-  }).optional(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+      totalTokens: z.number().nullable(),
+      cacheReadInputTokens: z.number().nullable(),
+      cacheWriteInputTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+    }).nullable(),
+  }).nullable(),
 });
 
 const TitleSubtitleFinalizationSchema = z.object({
@@ -408,24 +426,30 @@ const TitleSubtitleFinalizationSchema = z.object({
       whyItCouldWork: z.string(),
     }),
   ).default([]),
+  // OpenAI strict structured-output mode requires every property in every
+  // nested object schema to appear in `required` — .optional() drops a key
+  // from `required` and the API rejects the schema outright ("'required' is
+  // required to be supplied and to be an array including every key in
+  // properties"). .nullable() keeps the key required while still letting
+  // the model return null when there's nothing to report.
   metadata: z.object({
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    model: z.string().optional(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    model: z.string().nullable(),
     grounding: z.object({
-      previousPhases: z.array(z.string()).optional(),
-      kbSources: z.array(z.string()).optional(),
-      audienceSignals: z.array(z.string()).optional(),
-    }).optional(),
+      previousPhases: z.array(z.string()).nullable(),
+      kbSources: z.array(z.string()).nullable(),
+      audienceSignals: z.array(z.string()).nullable(),
+    }).nullable(),
     tokenUsage: z.object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      cacheReadInputTokens: z.number().optional(),
-      cacheWriteInputTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    }).optional(),
-  }).optional(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+      totalTokens: z.number().nullable(),
+      cacheReadInputTokens: z.number().nullable(),
+      cacheWriteInputTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+    }).nullable(),
+  }).nullable(),
 });
 
 const BookPromiseReportSchema = z.object({
@@ -441,24 +465,30 @@ const BookPromiseReportSchema = z.object({
   rationale: z.string(),
   nextSteps: z.array(z.string()).default([]),
   documentMarkdown: z.string(),
+  // OpenAI strict structured-output mode requires every property in every
+  // nested object schema to appear in `required` — .optional() drops a key
+  // from `required` and the API rejects the schema outright ("'required' is
+  // required to be supplied and to be an array including every key in
+  // properties"). .nullable() keeps the key required while still letting
+  // the model return null when there's nothing to report.
   metadata: z.object({
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    model: z.string().optional(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    model: z.string().nullable(),
     grounding: z.object({
-      previousPhases: z.array(z.string()).optional(),
-      kbSources: z.array(z.string()).optional(),
-      audienceSignals: z.array(z.string()).optional(),
-    }).optional(),
+      previousPhases: z.array(z.string()).nullable(),
+      kbSources: z.array(z.string()).nullable(),
+      audienceSignals: z.array(z.string()).nullable(),
+    }).nullable(),
     tokenUsage: z.object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      cacheReadInputTokens: z.number().optional(),
-      cacheWriteInputTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    }).optional(),
-  }).optional(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+      totalTokens: z.number().nullable(),
+      cacheReadInputTokens: z.number().nullable(),
+      cacheWriteInputTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+    }).nullable(),
+  }).nullable(),
 });
 
 const AudienceResearchPhase1Schema = z.object({
@@ -609,24 +639,30 @@ const CoreTruthsArtifactSchema = z.object({
     whatStaysSame: z.string(),
   }),
   completeTruth: z.string(),
+  // OpenAI strict structured-output mode requires every property in every
+  // nested object schema to appear in `required` — .optional() drops a key
+  // from `required` and the API rejects the schema outright ("'required' is
+  // required to be supplied and to be an array including every key in
+  // properties"). .nullable() keeps the key required while still letting
+  // the model return null when there's nothing to report.
   metadata: z.object({
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    model: z.string().optional(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    model: z.string().nullable(),
     grounding: z.object({
-      previousPhases: z.array(z.string()).optional(),
-      kbSources: z.array(z.string()).optional(),
-      audienceSignals: z.array(z.string()).optional(),
-    }).optional(),
+      previousPhases: z.array(z.string()).nullable(),
+      kbSources: z.array(z.string()).nullable(),
+      audienceSignals: z.array(z.string()).nullable(),
+    }).nullable(),
     tokenUsage: z.object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      cacheReadInputTokens: z.number().optional(),
-      cacheWriteInputTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    }).optional(),
-  }).optional(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+      totalTokens: z.number().nullable(),
+      cacheReadInputTokens: z.number().nullable(),
+      cacheWriteInputTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+    }).nullable(),
+  }).nullable(),
   legacyTruths: z.array(
     z.object({
       truth: z.string(),
@@ -735,24 +771,30 @@ const TransformationArcSchema = z.object({
 
 const TransformationArtifactSchema = z.object({
   arc: TransformationArcSchema,
+  // OpenAI strict structured-output mode requires every property in every
+  // nested object schema to appear in `required` — .optional() drops a key
+  // from `required` and the API rejects the schema outright ("'required' is
+  // required to be supplied and to be an array including every key in
+  // properties"). .nullable() keeps the key required while still letting
+  // the model return null when there's nothing to report.
   metadata: z.object({
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    model: z.string().optional(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    model: z.string().nullable(),
     grounding: z.object({
-      previousPhases: z.array(z.string()).optional(),
-      kbSources: z.array(z.string()).optional(),
-      audienceSignals: z.array(z.string()).optional(),
-    }).optional(),
+      previousPhases: z.array(z.string()).nullable(),
+      kbSources: z.array(z.string()).nullable(),
+      audienceSignals: z.array(z.string()).nullable(),
+    }).nullable(),
     tokenUsage: z.object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-      totalTokens: z.number().optional(),
-      cacheReadInputTokens: z.number().optional(),
-      cacheWriteInputTokens: z.number().optional(),
-      reasoningTokens: z.number().optional(),
-    }).optional(),
-  }).optional(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+      totalTokens: z.number().nullable(),
+      cacheReadInputTokens: z.number().nullable(),
+      cacheWriteInputTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+    }).nullable(),
+  }).nullable(),
 });
 
 type PromiseWorkflowState = {
@@ -2013,12 +2055,12 @@ function mergeArtifactMetadata(
 ): PromiseArtifactMetadata {
   return {
     ...(metadata ?? {}),
-    ...updates,
+    ...(updates ?? {}),
     grounding: {
       ...(metadata?.grounding ?? {}),
-      ...(updates.grounding ?? {}),
+      ...(updates?.grounding ?? {}),
     },
-    tokenUsage: updates.tokenUsage ?? metadata?.tokenUsage,
+    tokenUsage: updates?.tokenUsage ?? metadata?.tokenUsage,
   };
 }
 

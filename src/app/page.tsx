@@ -14,6 +14,7 @@ async function listBooksWithParent() {
   });
 }
 import { AppTopBar } from "./components/app-top-bar";
+import { Bookshelf, type ShelfBook } from "./bookshelf";
 
 export const dynamic = "force-dynamic";
 
@@ -48,10 +49,34 @@ function getStatusColor(stages: Array<{ status: string }>) {
   return "#6f6256";
 }
 
+type BookWithStages = Awaited<ReturnType<typeof listBooksWithParent>>[number];
+
+function toShelfBook(book: BookWithStages): ShelfBook {
+  const stages = book.stages.map((s) => ({
+    stageKey: String(s.stageKey),
+    status: String(s.status),
+  }));
+  const isWorkbook = book.workflowType === BookWorkflowType.WORKBOOK;
+  return {
+    slug: book.slug,
+    title: book.titleWorking ?? "Untitled Book",
+    subtitle: book.subtitle,
+    workflowLabel: isWorkbook
+      ? "Workbook"
+      : book.workflowType === BookWorkflowType.FICTION
+        ? "Fiction"
+        : "Nonfiction",
+    pct: getProgress(stages),
+    activeLabel: getActiveStageLabel(stages),
+  };
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function HomePage() {
-  const books = await listBooksWithParent();
+  const allBooks = await listBooksWithParent();
+  const books = allBooks.filter((b) => !b.isArchived);
+  const archivedBooks = allBooks.filter((b) => b.isArchived);
 
   return (
     <div style={pageStyle}>
@@ -105,89 +130,19 @@ export default async function HomePage() {
             <div style={panelLabelStyle}>LIBRARY</div>
             <div style={libraryTitleStyle}>
               {books.length} book{books.length !== 1 ? "s" : ""}
+              {archivedBooks.length > 0 ? ` · ${archivedBooks.length} archived` : ""}
             </div>
           </div>
 
-          {books.length === 0 ? (
+          {books.length === 0 && archivedBooks.length === 0 ? (
             <div style={emptyStyle}>
               No books yet — create your first one.
             </div>
           ) : (
-            <div style={cardGridStyle}>
-              {books.map((book) => {
-                const stages = book.stages.map((s) => ({
-                  stageKey: String(s.stageKey),
-                  status: String(s.status),
-                }));
-                const pct = getProgress(stages);
-                const activeLabel = getActiveStageLabel(stages);
-                const statusColor = getStatusColor(stages);
-                const studioHref = `/books/${book.slug}`;
-                const meta = book.metadataJson && typeof book.metadataJson === "object"
-                  ? book.metadataJson as Record<string, unknown>
-                  : {};
-                const premise = typeof meta.premise === "string" ? meta.premise : null;
-                const isWorkbook = book.workflowType === BookWorkflowType.WORKBOOK;
-                const workflowLabel = isWorkbook ? "Workbook" : book.workflowType === BookWorkflowType.FICTION ? "Fiction" : "Nonfiction";
-
-                return (
-                  <article key={book.id} style={cardStyle}>
-                    <div style={cardTopStyle}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={cardTitleStyle}>
-                          {book.titleWorking ?? "Untitled Book"}
-                        </div>
-                        {book.subtitle && (
-                          <div style={cardSubtitleStyle}>{book.subtitle}</div>
-                        )}
-                        {isWorkbook && book.parentBook && (
-                          <div style={companionBadgeStyle}>
-                            Companion workbook for{" "}
-                            <Link href={`/books/${book.parentBook.slug}`} style={companionParentLinkStyle}>
-                              {book.parentBook.titleWorking ?? "parent book"}
-                            </Link>
-                          </div>
-                        )}
-                        {premise && !isWorkbook && (
-                          <div style={cardPremiseStyle}>
-                            {premise.length > 120 ? premise.slice(0, 120) + "…" : premise}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ ...cardBadgeStyle, color: statusColor, borderColor: statusColor + "44" }}>
-                        {workflowLabel}
-                      </div>
-                    </div>
-
-                    {/* Progress */}
-                    <div style={progressRowStyle}>
-                      <div style={progressTrackStyle}>
-                        <div style={{ ...progressFillStyle, width: `${pct}%`, background: statusColor }} />
-                      </div>
-                      <span style={{ ...progressLabelStyle, color: statusColor }}>
-                        {pct}%
-                      </span>
-                      <span style={stageLabelStyle}>
-                        {activeLabel}
-                      </span>
-                    </div>
-
-                    {/* Actions */}
-                    <div style={cardFooterStyle}>
-                      <Link href={studioHref} style={openBtnStyle}>
-                        Open Book Studio →
-                      </Link>
-                      <form action={deleteBookAction} style={{ display: "inline" }}>
-                        <input name="slug" type="hidden" value={book.slug} />
-                        <button type="submit" style={deleteBtnStyle} title="Delete this book">
-                          Delete
-                        </button>
-                      </form>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+            <Bookshelf
+              books={books.map(toShelfBook)}
+              archived={archivedBooks.map(toShelfBook)}
+            />
           )}
         </main>
       </div>

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { BookWorkflowType } from "@prisma/client";
 
 import { cloneBookBySlug, createBookFromTitle, deleteBookBySlug } from "@/lib/repositories/books";
+import { db } from "@/lib/db";
 import { getDefaultBookWorkspaceHref } from "@/lib/workflow-registry";
 
 function parseWorkflowType(value: FormDataEntryValue | null) {
@@ -60,6 +61,26 @@ export async function createBookAndBrainstormAction(formData: FormData) {
 
   revalidatePath("/");
   redirect(`/books/${book.slug}`);
+}
+
+export async function archiveBookAction(formData: FormData) {
+  const slug = String(formData.get("slug") ?? "").trim();
+  if (!slug) return;
+  await db.book.update({
+    where: { slug },
+    data: { isArchived: true, archivedAt: new Date() },
+  });
+  revalidatePath("/");
+}
+
+export async function restoreBookAction(formData: FormData) {
+  const slug = String(formData.get("slug") ?? "").trim();
+  if (!slug) return;
+  await db.book.update({
+    where: { slug },
+    data: { isArchived: false, archivedAt: null },
+  });
+  revalidatePath("/");
 }
 
 export async function deleteBookAction(formData: FormData) {

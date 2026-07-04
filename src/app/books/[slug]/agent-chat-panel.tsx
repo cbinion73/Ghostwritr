@@ -552,16 +552,28 @@ export function AgentChatPanel({
     void send("Please draft the artifact for this stage now.");
   };
 
-  const handleCommitArtifact = async () => {
+  const handleCommitArtifact = async (force = false): Promise<void> => {
     if (!artifact) return;
     try {
       const res = await fetch(`/api/books/${slug}/agent-chat/commit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stageKey, artifact }),
+        body: JSON.stringify({ stageKey, artifact, force }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { error?: string };
+        const body = await res.json().catch(() => ({})) as {
+          error?: string;
+          gate?: { overridable?: boolean };
+        };
+        // An enforced gate (e.g. Market Viability below 70/100) can be
+        // overridden by an explicit human decision — offer that here.
+        if (res.status === 422 && body.gate?.overridable && !force) {
+          const override = window.confirm(
+            `${body.error ?? "This stage is below its quality gate."}\n\nCommit anyway?`,
+          );
+          if (override) return handleCommitArtifact(true);
+          return;
+        }
         throw new Error(body.error ?? `${res.status}`);
       }
       const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };

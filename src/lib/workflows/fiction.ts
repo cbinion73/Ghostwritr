@@ -203,15 +203,6 @@ const FictionAdversarialCriticSchema = z.object({
 
 type FictionAdversarialCriticResult = z.infer<typeof FictionAdversarialCriticSchema>;
 
-function trimTextToWordLimit(text: string, maximumWords: number) {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length <= maximumWords) {
-    return text.trim();
-  }
-
-  return words.slice(0, maximumWords).join(" ").trim();
-}
-
 function sanitizeFictionDraftProse(text: string) {
   return text
     .replace(/\bmeta commentary\b/gi, "")
@@ -242,7 +233,6 @@ async function getVoiceGuardCriticModel() {
     temperature: 0.1,
     maxOutputTokens: 4000,
     timeoutMs: 30000,
-    maxRetries: 0,
   });
 }
 
@@ -387,59 +377,19 @@ function buildDeterministicSceneParagraph(scene: ScenePlanChapter["scenes"][numb
 
 function forceFictionChapterTowardTarget(
   chapterDraft: FictionDraftChapter,
-  chapterPlan: ScenePlanChapter,
-  plotBlueprintChapter: PlotBlueprintChapterBeat | null,
+  _chapterPlan: ScenePlanChapter,
+  _plotBlueprintChapter: PlotBlueprintChapterBeat | null,
 ) {
-  const targetWords = chapterPlan.targetWords;
-  const minWords = Math.max(250, Math.round(targetWords * 0.82));
-  const maxWords = Math.round(targetWords * 1.18);
-  let text = sanitizeFictionDraftProse(chapterDraft.text);
-  let currentWordCount = countWords(text);
-
-  if (currentWordCount < minWords) {
-    const sceneParagraphs = chapterPlan.scenes.map((scene, index) =>
-      buildDeterministicSceneParagraph(scene, chapterPlan.title, index),
-    );
-    text = [text, ...sceneParagraphs].filter(Boolean).join("\n\n");
-    currentWordCount = countWords(text);
-
-    let sceneIndex = 0;
-    while (currentWordCount < minWords) {
-      const scene = chapterPlan.scenes[sceneIndex % Math.max(1, chapterPlan.scenes.length)];
-      const supplement = sanitizeFictionDraftProse(
-        `${scene.objective} ${scene.conflict} ${scene.reveal} ${plotBlueprintChapter?.conflict ?? chapterPlan.summary}`,
-      );
-      text = `${text}\n\n${supplement}`.trim();
-      currentWordCount = countWords(text);
-      sceneIndex += 1;
-      if (sceneIndex > Math.max(1, chapterPlan.scenes.length) * 10) {
-        break;
-      }
-    }
-
-    if (currentWordCount < minWords) {
-      const anchorScene = chapterPlan.scenes[0];
-      const gapWords = minWords - currentWordCount;
-      const topOffParagraph = sanitizeFictionDraftProse(
-        [
-          `${anchorScene?.title ?? chapterPlan.title} keeps tightening because ${anchorScene?.conflict ?? chapterPlan.summary}.`,
-          `${anchorScene?.reveal ?? plotBlueprintChapter?.turn ?? chapterPlan.summary} changes what the protagonist can still hide from herself.`,
-          `${plotBlueprintChapter?.hook ?? chapterPlan.summary} leaves the chapter ending on live pressure instead of summary.`,
-        ].join(" "),
-      );
-      const repeats = Math.max(1, Math.ceil(gapWords / Math.max(1, countWords(topOffParagraph))));
-      text = [text, ...Array.from({ length: repeats }, () => topOffParagraph)].filter(Boolean).join("\n\n");
-      currentWordCount = countWords(text);
-    }
-  }
-
-  if (currentWordCount > maxWords) {
-    text = trimTextToWordLimit(text, maxWords);
-  }
+  // Never pad a short chapter with repeated template paragraphs or hard-trim
+  // an over-length one mid-scene — corrupted prose in a committed manuscript
+  // is strictly worse than a length miss. Out-of-band chapters keep their real
+  // prose; the quality assessor's "Length fit" signal (and needsRevision)
+  // reports the miss so the repair loop / author can fix it with real writing.
+  const text = sanitizeFictionDraftProse(chapterDraft.text);
 
   return {
     ...chapterDraft,
-    text: sanitizeFictionDraftProse(text),
+    text,
     wordCount: countWords(text),
   };
 }
@@ -905,7 +855,6 @@ async function getPlannerModel() {
     temperature: 0.35,
     maxOutputTokens: 8000,
     timeoutMs: 45000,
-    maxRetries: 0,
   });
 }
 
@@ -914,7 +863,6 @@ async function getDraftModel() {
     temperature: 0.6,
     maxOutputTokens: 12000,
     timeoutMs: 60000,
-    maxRetries: 0,
   });
 }
 
@@ -1790,7 +1738,7 @@ export async function repairWeakFictionDraftChaptersWorkflow(bookSlug: string, l
     await generateFictionDraftChapterWorkflow(bookSlug, chapterNumber);
   }
 
-  await commitFictionStageWorkflow(bookSlug, StageKey.FICTION_DRAFT);
+  await commitFictionStageWorkflow(bookSlug, StageKey.FICTION_DRAFT, { requireQualityPass: true });
 
   return {
     repairedChapterNumbers: weakChapterNumbers,
@@ -1885,7 +1833,11 @@ export async function saveFictionStageWorkflow(bookSlug: string, stageKey: Stage
   return parsed.data;
 }
 
-export async function commitFictionStageWorkflow(bookSlug: string, stageKey: StageKey) {
+export async function commitFictionStageWorkflow(
+  bookSlug: string,
+  stageKey: StageKey,
+  options?: { requireQualityPass?: boolean },
+) {
   const book = await getBookBySlugOrThrow(bookSlug);
   assertFictionWorkflow(book);
 
@@ -1907,6 +1859,20 @@ export async function commitFictionStageWorkflow(bookSlug: string, stageKey: Sta
       throw new Error(
         `Draft is incomplete. ${draftMetrics.draftedChapters}/${draftMetrics.plannedChapters} chapters have prose. Generate the missing chapters before commit.`,
       );
+    }
+
+    // Automated commits (autopilot, auto-repair) must not ship chapters whose
+    // revision passes were exhausted without passing quality. A human clicking
+    // Commit in the Studio remains the explicit override (no flag set).
+    if (options?.requireQualityPass) {
+      const weakChapterNumbers = (latestDraft?.chapters ?? [])
+        .filter((chapter) => chapter.text.trim().length > 0 && chapter.quality?.needsRevision)
+        .map((chapter) => chapter.chapterNumber);
+      if (weakChapterNumbers.length > 0) {
+        throw new Error(
+          `Draft has ${weakChapterNumbers.length} chapter(s) still flagged for revision (chapter ${weakChapterNumbers.join(", ")}). Repair them or commit manually to override.`,
+        );
+      }
     }
   }
 

@@ -679,6 +679,14 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same voice, sa
     if (!revisePrompt.trim() || revisingKey) return;
     setRevisingKey(chapter.key);
 
+    // Remember this instruction in the book's craft ledger so future chapter
+    // generations honor it too — fire and forget, never blocks the revision.
+    void fetch(`/api/books/${slug}/craft-notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction: revisePrompt, source: "chapter-revision" }),
+    }).catch(() => {});
+
     const prompt = `Revise the chapter "${chapter.title}" based on these instructions:
 
 ${revisePrompt}

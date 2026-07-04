@@ -73,6 +73,10 @@ export default async function MarketAnalysisStagePage({
               <button className="btn btn-primary" type="submit">
                 {isCommitted ? "Recommit Upstream Bundle" : "Commit Upstream Bundle"}
               </button>
+              {/* Explicit human override for the 70/100 (3.5/5) viability gate. */}
+              <button className="btn" type="submit" name="force" value="true" style={{ marginLeft: 8 }}>
+                Commit Anyway
+              </button>
             </form>
           </div>
         </section>

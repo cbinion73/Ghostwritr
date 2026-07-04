@@ -44,3 +44,9 @@ db-snapshots/
 
 # Local secrets — never commit
 .env
+
+# Runtime output — never commit
+/data/
+tsconfig.tsbuildinfo
+/bibliography-*.html
+/bibliography-*.docx

@@ -15,6 +15,8 @@ interface ArtifactDraft {
 interface CommitBody {
   stageKey: StageKey;
   artifact: ArtifactDraft;
+  /** Explicit human override for enforced gates (e.g. Market Viability). */
+  force?: boolean;
 }
 
 // Map stage key to a reasonable ArtifactType, falling back to BOOK_SETUP_PROFILE
@@ -61,6 +63,43 @@ export async function POST(
 
   if (!stageKey || !artifact) {
     return NextResponse.json({ error: "Missing stageKey or artifact" }, { status: 400 });
+  }
+
+  // Market Viability is documented as a hard gate (3.5/5 ≡ 70/100). Enforce it
+  // at commit instead of advisory-only; `force: true` is the explicit human
+  // override for shipping past a below-gate score on purpose.
+  if (stageKey === "MARKET_ANALYSIS" && !body.force) {
+    try {
+      const { getPromiseWorkspace } = await import("@/lib/workflows/promise");
+      const { createValidationScores } = await import("@/lib/validation/promise-validator");
+      const workspace = await getPromiseWorkspace(slug);
+      const scores = createValidationScores(
+        workspace.promiseBrief,
+        workspace.personas,
+        workspace.market,
+        { comparableBooks: workspace.market?.comparisonTitles?.map((t) => t.title) ?? [] },
+      );
+      const marketScore = scores.marketViability.score;
+      if (marketScore < 70) {
+        return NextResponse.json(
+          {
+            error: `Market viability is ${marketScore}/100 — below the 70/100 (3.5/5) hard gate. ${scores.marketViability.feedback.join(" ")} Strengthen the market work in the Promise stage, or commit again with the override to proceed anyway.`,
+            gate: {
+              stageKey,
+              score: marketScore,
+              threshold: 70,
+              feedback: scores.marketViability.feedback,
+              overridable: true,
+            },
+          },
+          { status: 422 },
+        );
+      }
+    } catch (gateError) {
+      // Gate scoring must never brick commits when promise data is unreadable —
+      // log and let the commit proceed rather than hard-failing the author.
+      console.warn("[commit] market viability gate scoring failed:", gateError);
+    }
   }
 
   const artifactType = STAGE_ARTIFACT_TYPE[stageKey] ?? ArtifactType.BOOK_SETUP_PROFILE;

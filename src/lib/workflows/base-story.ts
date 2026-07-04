@@ -115,7 +115,6 @@ async function getChatModel() {
     temperature: 0.3,
     maxOutputTokens: 8000,
     timeoutMs: 20000,
-    maxRetries: 0,
   });
 }
 

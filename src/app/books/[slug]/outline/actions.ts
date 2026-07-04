@@ -179,7 +179,6 @@ async function maybeGeneratePhaseThreeReply(input: {
     temperature: 0.2,
     maxOutputTokens: 500,
     timeoutMs: 30000,
-    maxRetries: 0,
   });
 
   if (!model) {

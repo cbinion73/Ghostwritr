@@ -585,6 +585,20 @@ export async function POST(
 
   // Extract brief metadata written at book creation time and from BOOK_SETUP commit
   const meta = book.metadataJson && typeof book.metadataJson === "object" ? book.metadataJson as Record<string, unknown> : {};
+
+  // Craft ledger — accumulated author feedback from prior revisions. Injected
+  // into every stage conversation so "stop doing X" said once stays honored.
+  const craftLedgerNotes =
+    meta.craftLedger && typeof meta.craftLedger === "object" && Array.isArray((meta.craftLedger as { notes?: unknown }).notes)
+      ? ((meta.craftLedger as { notes: Array<{ instruction?: unknown }> }).notes)
+          .map((note) => (typeof note.instruction === "string" ? note.instruction : null))
+          .filter((value): value is string => Boolean(value))
+          .slice(0, 15)
+      : [];
+  const craftNotesContext =
+    craftLedgerNotes.length > 0
+      ? `\n\nAUTHOR CRAFT NOTES (standing instructions accumulated from the author's prior revision feedback — honor every one of these in everything you write):\n${craftLedgerNotes.map((note) => `- ${note}`).join("\n")}`
+      : "";
   // Voice blend: prefer the structured weighted blend; fall back to plain reference notes
   type PersonaBlendEntry = { personaName?: string; percentInfluence?: number; traits?: string[] };
   const blendEntries = Array.isArray(meta.writerPersonaBlend)
@@ -631,7 +645,7 @@ When asked to "draft the artifact" or "produce the artifact for this stage", out
 {"type":"[STAGE_KEY]","title":"...","content":"..."}
 </ARTIFACT>
 
-The "content" field should be the full artifact text (can be multi-paragraph prose, JSON, or structured markdown). Keep the ARTIFACT block at the end of your response.${sameStageContext}${priorContext}${sourceDocContext}
+The "content" field should be the full artifact text (can be multi-paragraph prose, JSON, or structured markdown). Keep the ARTIFACT block at the end of your response.${sameStageContext}${priorContext}${sourceDocContext}${craftNotesContext}
 
 PROSE VOICE RULES — these apply to every word you write. No exceptions.
 - NO EM-DASHES. Not a single one. Replace every (--) and every (--) with a comma, colon, semicolon, or period. If you catch yourself about to write one, stop and restructure the sentence.

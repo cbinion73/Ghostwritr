@@ -174,12 +174,26 @@ async function tryCommitThenGenerate(
   bookSlug: string,
   stageKey: StageKey,
 ) {
+  // Autopilot commits are unattended, so they must not ship draft chapters
+  // still flagged needsRevision — only a human clicking Commit can override.
   try {
-    await commitFictionStageWorkflow(bookSlug, stageKey);
+    await commitFictionStageWorkflow(bookSlug, stageKey, { requireQualityPass: true });
     return { advanced: true, generated: false };
-  } catch {
+  } catch (error) {
+    // A quality hold means prose exists but chapters are flagged — repair the
+    // weak chapters instead of regenerating the whole stage from scratch.
+    // (repairWeak... re-commits with the same gate; if chapters stay weak it
+    // throws and autopilot surfaces the block instead of shipping them.)
+    if (
+      stageKey === StageKey.FICTION_DRAFT &&
+      error instanceof Error &&
+      error.message.includes("flagged for revision")
+    ) {
+      await repairWeakFictionDraftChaptersWorkflow(bookSlug, 3);
+      return { advanced: true, generated: true };
+    }
     await generateFictionStageWorkflow(bookSlug, stageKey);
-    await commitFictionStageWorkflow(bookSlug, stageKey);
+    await commitFictionStageWorkflow(bookSlug, stageKey, { requireQualityPass: true });
     return { advanced: true, generated: true };
   }
 }
@@ -238,7 +252,7 @@ async function runFictionAutopilot(
 
       const result =
         mode === "assisted"
-          ? (await commitFictionStageWorkflow(bookSlug, stageKey), { advanced: true, generated: false })
+          ? (await commitFictionStageWorkflow(bookSlug, stageKey, { requireQualityPass: true }), { advanced: true, generated: false })
           : await tryCommitThenGenerate(bookSlug, stageKey);
       advancedStages.push(
         `${stageKey.replace(/_/g, " ")}${result.generated ? " generated and committed" : " committed"}`,
@@ -465,6 +479,23 @@ async function runNonfictionAutopilot(
           status: "waiting",
           title: `${item.label} still needs material`,
           detail: "Autopilot committed every available dossier, but some chapters still do not have enough output to finish the stage.",
+        };
+      }
+      const heldForRevision =
+        commitResult &&
+        typeof commitResult === "object" &&
+        "needsRevisionChapterKeys" in commitResult &&
+        Array.isArray((commitResult as { needsRevisionChapterKeys?: unknown }).needsRevisionChapterKeys)
+          ? (commitResult as { needsRevisionChapterKeys: string[] }).needsRevisionChapterKeys
+          : [];
+      if (heldForRevision.length > 0) {
+        // Bulk commit held back quality-flagged chapters instead of shipping
+        // them — run the repair loop on them rather than stalling.
+        await repairWeakChapterDraftsWorkflow(bookSlug, Math.min(3, heldForRevision.length));
+        return {
+          status: "launched",
+          title: `${item.label} weak chapters being repaired`,
+          detail: `Autopilot committed every clean chapter and is repairing ${heldForRevision.length} chapter(s) still flagged for revision instead of committing them as-is.`,
         };
       }
       continue;

@@ -20,6 +20,8 @@ import {
   parseArtifactWithSchema,
   parseMetadataRecord,
 } from "../artifact-schemas";
+import { db } from "../db";
+import { getCraftNotes } from "../craft-ledger";
 import { getModelForRole } from "../llm/routing";
 import { buildCachedSystemBlocks } from "../llm/providers";
 import type { BaseStoryBundle, BaseStoryChapter } from "../base-story-types";
@@ -81,6 +83,12 @@ import {
 type ChapterContext = {
   section: SectionParagraphPlan;
   chapter: ChapterParagraphPlan;
+  /** This chapter's section of the committed Chapter Manifest (pattern/arc/
+   * source-assignment guidance), when one exists. */
+  manifestGuidance?: string | null;
+  /** Book-level craft ledger — the author's accumulated revision feedback,
+   * injected into every draft/revise call so it persists across chapters. */
+  craftNotes?: string[];
 };
 
 type ChapterWordTarget = {
@@ -186,7 +194,6 @@ async function getAuthorModel() {
     temperature: 0.45,
     maxOutputTokens: 16000,
     timeoutMs: 30000,
-    maxRetries: 0,
   });
 }
 
@@ -196,7 +203,6 @@ async function getReviewerModel() {
     temperature: 0.2,
     maxOutputTokens: 8000,
     timeoutMs: 30000,
-    maxRetries: 0,
   });
 }
 
@@ -205,7 +211,6 @@ async function getVoiceGuardCriticModel() {
     temperature: 0.1,
     maxOutputTokens: 5000,
     timeoutMs: 30000,
-    maxRetries: 0,
   });
 }
 
@@ -253,12 +258,62 @@ async function getCommittedPersonalStoriesEncyclopedia(bookId: string) {
   return null;
 }
 
+/**
+ * Pull one chapter's section out of the committed Chapter Manifest markdown
+ * (sections start at `## <heading>`). Fuzzy title match in both directions so
+ * "Chapter 3: The Wedge" matches a "## The Wedge" heading and vice versa.
+ */
+function extractManifestChapterGuidance(manifestText: string | null, chapterTitle: string) {
+  if (!manifestText?.trim()) return null;
+  const normalizedTitle = chapterTitle.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalizedTitle) return null;
+
+  const sections = manifestText.split(/\n(?=## )/);
+  for (const section of sections) {
+    const headingLine = section.split("\n", 1)[0] ?? "";
+    if (!headingLine.startsWith("## ")) continue;
+    const normalizedHeading = headingLine
+      .slice(3)
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (
+      normalizedHeading &&
+      (normalizedHeading.includes(normalizedTitle) || normalizedTitle.includes(normalizedHeading))
+    ) {
+      return section.trim().slice(0, 1500);
+    }
+  }
+  return null;
+}
+
+async function getCommittedManifestText(bookId: string) {
+  const artifact = await db.artifact.findFirst({
+    where: {
+      bookId,
+      artifactType: ArtifactType.CHAPTER_MANIFEST,
+      status: { in: [ArtifactStatus.COMMITTED, ArtifactStatus.REVIEW_READY] },
+    },
+    include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
+  });
+  const version = artifact?.versions[0];
+  if (!version) return null;
+  if (typeof version.contentText === "string" && version.contentText.trim()) {
+    return version.contentText;
+  }
+  const json = version.contentJson as { text?: unknown } | null;
+  return typeof json?.text === "string" ? json.text : null;
+}
+
 async function getDraftInputs(bookId: string) {
   const promiseVersion = await getCommittedPromiseBrief(bookId);
   const paragraphOutlineVersion = await getCommittedOutlineExpansion(bookId);
   const bookSetupVersion = await getCommittedBookSetup(bookId);
   const baseStory = await getCommittedBaseStoryBundle(bookId);
   const personalStories = await getCommittedPersonalStoriesEncyclopedia(bookId);
+  const manifestText = await getCommittedManifestText(bookId);
+  const craftNotes = await getCraftNotes(bookId);
 
   const promise = parseArtifactWithSchema(promiseVersion?.contentJson, PromiseBriefSchema);
   const bookSetup = parseArtifactWithSchema(bookSetupVersion?.contentJson, BookSetupProfileSchema);
@@ -286,7 +341,12 @@ async function getDraftInputs(bookId: string) {
   }
 
   const chapterContexts = paragraphOutline.sections.flatMap((section) =>
-    section.chapters.map((chapter) => ({ section, chapter })),
+    section.chapters.map((chapter) => ({
+      section,
+      chapter,
+      manifestGuidance: extractManifestChapterGuidance(manifestText, chapter.chapterTitle),
+      craftNotes,
+    })),
   );
 
   const readinessChecks = await Promise.all(
@@ -1035,6 +1095,13 @@ function buildAuthorInputPacket(
       description: context.chapter.chapterDescription,
       paragraphs: context.chapter.paragraphs,
     },
+    // The committed Chapter Manifest's guidance for this chapter (opening
+    // pattern, narrative arc, which sources to lean on) — follow it when
+    // deciding how to weave the material below.
+    manifestGuidance: context.manifestGuidance ?? null,
+    // Standing author feedback accumulated from prior revisions — every one
+    // of these must be honored in the prose.
+    authorCraftNotes: context.craftNotes ?? [],
     chapterTarget,
     research: research
       ? {
@@ -1171,62 +1238,20 @@ function forceDraftTowardTarget(
     return draft;
   }
 
-  const normalizedParagraphs = context.chapter.paragraphs.map((paragraph, index) => {
-    const existing = draft.paragraphs[index];
-    const targetWords = Math.max(140, Math.round(paragraph.wordCountTarget || 0));
-    const prose = existing?.prose?.trim().length
-      ? trimToWordLimit(
-          sanitizeDraftProse(existing.prose),
-          Math.max(targetWords, Math.round(targetWords * 1.08)),
-        )
-      : buildDeterministicParagraphProse({
-          paragraph,
-          paragraphIndex: index,
-          targetWords,
-          chapterTitle: context.chapter.chapterTitle,
-        });
-
-    return {
-      id: paragraph.id,
-      topicSentence: paragraph.topicSentence,
-      prose,
-      sourceNotes: existing?.sourceNotes ?? [],
-    };
-  });
-
-  let bodyText = normalizedParagraphs.map((paragraph) => paragraph.prose).join("\n\n");
-  let chapterText = [sanitizeDraftProse(draft.openingHook), bodyText].filter(Boolean).join("\n\n");
-  let currentWordCount = countWords(chapterText);
-
-  if (currentWordCount < chapterTarget.minimumWords) {
-    let paragraphIndex = 0;
-    while (currentWordCount < chapterTarget.minimumWords) {
-      const current = normalizedParagraphs[paragraphIndex % normalizedParagraphs.length];
-      const blueprint = context.chapter.paragraphs[paragraphIndex % context.chapter.paragraphs.length];
-      const supplement = toSentence(
-        `${blueprint.purpose} That is where ${context.chapter.chapterTitle.toLowerCase()} stops being abstract and starts creating practical consequence for the reader.`,
-      );
-      current.prose = sanitizeDraftProse(`${current.prose} ${supplement}`);
-      bodyText = normalizedParagraphs.map((paragraph) => paragraph.prose).join("\n\n");
-      chapterText = [sanitizeDraftProse(draft.openingHook), bodyText].filter(Boolean).join("\n\n");
-      currentWordCount = countWords(chapterText);
-      paragraphIndex += 1;
-      if (paragraphIndex > normalizedParagraphs.length * 12) {
-        break;
-      }
-    }
-  }
-
-  if (currentWordCount > chapterTarget.maximumWords) {
-    const words = chapterText.split(/\s+/).filter(Boolean);
-    chapterText = words.slice(0, chapterTarget.maximumWords).join(" ").trim();
-    currentWordCount = countWords(chapterText);
-  }
-
+  // Never substitute template prose for missing paragraphs, pad with repeated
+  // filler sentences, or hard-truncate to the word band — corrupted prose in a
+  // committed manuscript is strictly worse than a length miss. The quality
+  // assessor's "Length fit" / "Paragraph coverage" signals (and needsRevision)
+  // report the miss so the repair loop / author can fix it with real writing.
+  void context;
   return {
     ...draft,
-    chapterText: sanitizeDraftProse(chapterText),
-    paragraphs: normalizedParagraphs,
+    openingHook: sanitizeDraftProse(draft.openingHook),
+    chapterText: sanitizeDraftProse(draft.chapterText),
+    paragraphs: draft.paragraphs.map((paragraph) => ({
+      ...paragraph,
+      prose: sanitizeDraftProse(paragraph.prose),
+    })),
   };
 }
 
@@ -1654,6 +1679,8 @@ Hard rules:
 - write polished nonfiction prose, not bullet summaries
 - use the paragraph topic sentences as the structural spine
 - use research, external stories, personal stories, and base-story thread only where they genuinely strengthen the chapter
+- if manifestGuidance is present, honor its opening pattern, narrative arc, and source assignments for this chapter — it is the author-approved plan for how this chapter weaves its material
+- if authorCraftNotes is present, treat every note as a standing rule from the author — these are corrections they already had to make once, and repeating a corrected mistake is the fastest way to lose their trust
 - do not mechanically mention every input
 - aim for the chapter target range if one is provided
 - if the chapter risks being too short, deepen explanation, examples, and analysis instead of padding
@@ -1867,6 +1894,7 @@ Hard rules:
 - the dominant persona is ${framework.dominantPersona}; the revised chapter should walk these beats in order (do not label them — let the prose embody the progression):
 ${frameworkSlots}
 - if research, outside stories, personal stories, or the base-story thread are available, make sure the revision uses the strongest ones intentionally rather than leaving them idle
+- if authorCraftNotes is present, treat every note as a standing rule from the author — these are corrections they already had to make once; apply them throughout the revision
 - make each paragraph earn itself by moving from assertion into consequence, interpretation, or real-world implication
 - keep sourceUsage accurate: carry the input draft's researchItemIds/externalStoryItemIds forward, adding or removing ids only when the revision actually adds or drops that material
       `,
@@ -2524,6 +2552,7 @@ export async function commitAllChapterDraftsWorkflow(bookSlug: string) {
 
   const committedChapterKeys: string[] = [];
   const missingChapterKeys: string[] = [];
+  const needsRevisionChapterKeys: string[] = [];
 
   for (const context of chapterContexts) {
     const draftVersions = await getChapterArtifactVersions(
@@ -2538,7 +2567,16 @@ export async function commitAllChapterDraftsWorkflow(bookSlug: string) {
       continue;
     }
 
+    // A chapter whose revision passes were exhausted still carries
+    // needsRevision — bulk commit must not silently ship it. It stays
+    // uncommitted and reported; the author can repair it or commit it
+    // individually (an explicit human override) via commitChapterDraftWorkflow.
     if (latestVersion.lifecycleState !== ArtifactStatus.COMMITTED) {
+      const latestDraft = parseArtifactWithSchema(latestVersion.contentJson, ChapterDraftBundleSchema);
+      if (latestDraft?.quality?.needsRevision) {
+        needsRevisionChapterKeys.push(context.chapter.chapterId);
+        continue;
+      }
       await commitChapterDraft(book.id, context.chapter.chapterId);
     }
 
@@ -2547,28 +2585,37 @@ export async function commitAllChapterDraftsWorkflow(bookSlug: string) {
 
   const metadata = parseMetadataRecord(stage?.metadataJson);
   const now = new Date().toISOString();
+  const blockedCount = missingChapterKeys.length + needsRevisionChapterKeys.length;
+  const holdSummary = [
+    missingChapterKeys.length > 0 ? `${missingChapterKeys.length} still missing` : null,
+    needsRevisionChapterKeys.length > 0
+      ? `${needsRevisionChapterKeys.length} held for revision (${needsRevisionChapterKeys.join(", ")})`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
 
   await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
-    status:
-      missingChapterKeys.length === 0 ? StageStatus.COMMITTED : StageStatus.READY_FOR_REVIEW,
-    committedAt: missingChapterKeys.length === 0 ? new Date() : undefined,
+    status: blockedCount === 0 ? StageStatus.COMMITTED : StageStatus.READY_FOR_REVIEW,
+    committedAt: blockedCount === 0 ? new Date() : undefined,
     metadataJson: {
       ...metadata,
-      automationStatus: missingChapterKeys.length === 0 ? "committed" : "ready_for_review",
+      automationStatus: blockedCount === 0 ? "committed" : "ready_for_review",
       currentAction:
-        missingChapterKeys.length === 0
+        blockedCount === 0
           ? "All chapter drafts committed"
-          : `Committed ${committedChapterKeys.length} chapter drafts. ${missingChapterKeys.length} still missing.`,
+          : `Committed ${committedChapterKeys.length} chapter drafts. ${holdSummary}.`,
       totalChapters: chapterContexts.length,
       completedChapters: committedChapterKeys.length,
+      needsRevisionChapterKeys,
       currentChapterKey: null,
       recentActivity: [
         {
           at: now,
           message:
-            missingChapterKeys.length === 0
+            blockedCount === 0
               ? "Committed all chapter drafts."
-              : `Committed all available chapter drafts. Missing: ${missingChapterKeys.join(", ")}`,
+              : `Committed all clean chapter drafts. ${holdSummary}.`,
         },
         ...(
           Array.isArray(metadata.recentActivity)
@@ -2586,6 +2633,7 @@ export async function commitAllChapterDraftsWorkflow(bookSlug: string) {
   return {
     committedChapterKeys,
     missingChapterKeys,
+    needsRevisionChapterKeys,
     totalChapters: chapterContexts.length,
   };
 }

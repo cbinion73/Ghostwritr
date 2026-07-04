@@ -137,12 +137,12 @@ export function scorePersonaMatch(
     }
   }
 
+  // The four pillars are already weighted to sum to 100 (25×4) — no divisor.
   const score = Math.round(
-    (breakdown.endUserValidation +
+    breakdown.endUserValidation +
       breakdown.painPointSpecificity +
       breakdown.promiseAlignment +
-      breakdown.buyingPower) /
-      4
+      breakdown.buyingPower
   );
 
   return {
@@ -232,12 +232,12 @@ export function scorePromiseQuality(promise: PromiseBrief): ValidationScores["pr
     feedback.push("✗ Promise doesn't clearly address a market problem");
   }
 
+  // The four pillars are already weighted to sum to 100 (25×4) — no divisor.
   const score = Math.round(
-    (breakdown.specificity +
+    breakdown.specificity +
       breakdown.differentiation +
       breakdown.credibility +
-      breakdown.problemPriority) /
-      4
+      breakdown.problemPriority
   );
 
   return {
@@ -323,9 +323,11 @@ export function scoreMarketViability(
     feedback.push("✗ Limited visibility into how to reach audience");
   }
 
+  // The four pillars are already weighted to sum to 100 (30+25+25+20) — no
+  // divisor. (A previous /4 capped this score at 25, making the 70/80-point
+  // gates structurally impossible to pass.)
   const score = Math.round(
-    (breakdown.marketSize + breakdown.comparableTitles + breakdown.differentiation + breakdown.reachability) /
-      4
+    breakdown.marketSize + breakdown.comparableTitles + breakdown.differentiation + breakdown.reachability
   );
 
   return {

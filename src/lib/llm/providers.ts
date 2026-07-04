@@ -183,7 +183,11 @@ export async function getModel(
   }
 
   const timeout = options.timeoutMs ?? 60000;
-  const maxRetries = options.maxRetries ?? 0;
+  // Transient provider failures (429/529/network blips) retry at the SDK layer
+  // with exponential backoff — a retried call costs far less than the whole-
+  // stage re-run that a hard failure triggers. Callers can still pass 0 to
+  // opt out for latency-critical interactive paths.
+  const maxRetries = options.maxRetries ?? 2;
   const temperature = options.temperature;
   const callbacks = [new CostLoggingHandler(provider, model, options.stageRole)];
 

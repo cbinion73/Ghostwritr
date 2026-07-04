@@ -69,11 +69,24 @@ const READER_JOURNEY_PHASES = [
   "Phase 5: Transformation"
 ] as const;
 
+// Which material drives the outline's structure depends on whether the book
+// actually has uploaded source documents. With a Knowledge Base, real content
+// leads; without one, the committed Promise IS the primary source — an author
+// starting from just an idea must not have their Promise work demoted to
+// "reference only" against an empty Knowledge Base.
+function outlineSourceDirective(hasKnowledgeBase: boolean) {
+  return hasKnowledgeBase
+    ? `CRITICAL: Your primary source is the ACTUAL BOOK CONTENT in the Knowledge Base section below.
+The Book Pitch, Promise, and audience data are supporting context—use them to keep the reader transformation on track, but ground the content structure in the Knowledge Base.`
+    : `CRITICAL: This book has NO Knowledge Base source documents. The committed Promise—reader problem, reader desire, core truth, and transformation arc in the book context—IS your primary source. Derive the book's big ideas and structure directly from that committed promise so the outline delivers exactly the transformation the author locked in.`;
+}
+
+const OUTLINE_SOURCE_DIRECTIVE_TOKEN = "__OUTLINE_SOURCE_DIRECTIVE__";
+
 const OUTLINE_FULL_SYSTEM_PROMPT = `
 You are the Outline-stage architect for a serious nonfiction book.
 
-CRITICAL: Your primary source is the ACTUAL BOOK CONTENT in the Knowledge Base section below.
-The Book Pitch, Promise, and audience data are REFERENCE ONLY—use them for context about reader transformation, not for content structure.
+${OUTLINE_SOURCE_DIRECTIVE_TOKEN}
 
 YOUR TASK:
 1. Read the Knowledge Base content deeply
@@ -180,7 +193,7 @@ const OUTLINE_COMPACT_RETRY_SYSTEM_PROMPT = `
 You are the Outline-stage architect for a serious nonfiction book.
 
 This phase must stay lightweight. Generate the architecture only.
-Use the actual Knowledge Base content as your primary source. The Book Pitch is reference context.
+${OUTLINE_SOURCE_DIRECTIVE_TOKEN}
 
 YOUR TASK: Discover the big ideas in the Knowledge Base and organize them into sections and chapters.
 - Each chapter = ONE big idea delivered through the reader's journey
@@ -1595,7 +1608,10 @@ async function buildOutlinePromptPayload(params: {
     knowledgeBase: {
       content: knowledgeBaseContent,
       sourceCount,
-      note: "The above is the actual book content from your Knowledge Base. Use this as the primary source for determining sections, chapters, and their descriptions.",
+      note:
+        sourceCount > 0
+          ? "The above is the actual book content from your Knowledge Base. Use this as the primary source for determining sections, chapters, and their descriptions."
+          : "No Knowledge Base source documents exist for this book. Derive the sections, chapters, and their descriptions from the committed Promise data in bookContext (reader problem, desire, core truth, transformation arc).",
     },
     currentOutline: summarizeOutlineForPrompt(
       currentOutline,
@@ -1617,7 +1633,6 @@ async function getChatModel(options?: { maxOutputTokens?: number; timeoutMs?: nu
     temperature: 0.2,
     maxOutputTokens: options?.maxOutputTokens ?? 15000,
     timeoutMs: options?.timeoutMs ?? 240000,
-    maxRetries: 0,
   });
 }
 
@@ -1662,9 +1677,16 @@ async function maybeGenerateOutline(
       instruction: input.instruction,
     });
 
+    // Resolve the source directive against whether this book actually has
+    // Knowledge Base documents (see outlineSourceDirective).
+    const systemPrompt = input.systemPrompt.replace(
+      OUTLINE_SOURCE_DIRECTIVE_TOKEN,
+      outlineSourceDirective(promptPayload.knowledgeBase.sourceCount > 0),
+    );
+
     const rawResponse = await withTimeout(
       model.invoke([
-        new SystemMessage(input.systemPrompt),
+        new SystemMessage(systemPrompt),
         new HumanMessage(JSON.stringify(promptPayload)),
       ]),
       input.timeoutMs,

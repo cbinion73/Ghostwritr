@@ -101,7 +101,6 @@ async function getChatModel() {
     temperature: 0.2,
     maxOutputTokens: 8000,
     timeoutMs: 120000,
-    maxRetries: 0,
   });
   if (!model) {
     console.error("getModelForRole returned null for outline:phase-2");

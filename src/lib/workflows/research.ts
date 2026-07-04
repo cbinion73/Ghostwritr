@@ -389,7 +389,6 @@ async function getChatModel(purpose: ResearchModelPurpose) {
     maxOutputTokens: 8000,
     timeoutMs,
     reasoningEffort: normalizedEffort,
-    maxRetries: 0,
   });
 }
 

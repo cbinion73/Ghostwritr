@@ -514,7 +514,6 @@ async function getEditorModel() {
     temperature: 0.2,
     maxOutputTokens: 4000,
     timeoutMs: 30000,
-    maxRetries: 0,
   });
 }
 

@@ -63,6 +63,7 @@ export function StageNav({
     <aside style={navStyle}>
       {/* Book title — click to edit */}
       <div style={bookTitleStyle}>
+        <div style={eyebrowStyle}>Ghostwritr · Manuscript</div>
         {editingTitle ? (
           <input
             ref={titleInputRef}
@@ -131,7 +132,10 @@ export function StageNav({
                       key={stage.key}
                       style={{
                         ...stageRowStyle,
-                        background: isSelected ? "rgba(255,255,255,0.06)" : "transparent",
+                        background: isSelected
+                          ? "linear-gradient(90deg, rgba(201,162,75,0.16), rgba(201,162,75,0))"
+                          : "transparent",
+                        borderLeft: isSelected ? "3px solid #c9a24b" : "3px solid transparent",
                         opacity: isLocked ? 0.45 : 1,
                         cursor: isLocked ? "default" : "pointer",
                       }}
@@ -158,26 +162,39 @@ export function StageNav({
   );
 }
 
+// The spine: a dark bottle-green book spine with a gilt edge — the hallway
+// of the publishing house. All colors from the globals.css palette.
 const navStyle: React.CSSProperties = {
   width: 220,
   flexShrink: 0,
-  background: "#120e0b",
-  borderRight: "1px solid rgba(255,255,255,0.05)",
+  background: "linear-gradient(105deg, #0e211a 0%, #163328 22%, #163328 88%, #0e211a 100%)",
+  borderRight: "2px solid rgba(201,162,75,0.45)",
+  boxShadow: "inset -12px 0 24px -14px rgba(0,0,0,0.55)",
   overflowY: "auto",
   display: "flex",
   flexDirection: "column",
 };
 
+const eyebrowStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+  fontSize: "9px",
+  letterSpacing: "0.16em",
+  textTransform: "uppercase",
+  color: "#c9a24b",
+  marginBottom: 8,
+};
+
 const bookTitleStyle: React.CSSProperties = {
-  padding: "16px 16px 12px",
-  borderBottom: "1px solid rgba(255,255,255,0.05)",
+  padding: "18px 16px 14px",
+  borderBottom: "1px solid rgba(223,216,196,0.14)",
 };
 
 const bookNameStyle: React.CSSProperties = {
-  fontSize: "13px",
-  fontWeight: 600,
-  color: "#d4c4b0",
-  lineHeight: 1.3,
+  fontSize: "15px",
+  fontWeight: 400,
+  fontStyle: "italic",
+  color: "#f3eedd",
+  lineHeight: 1.25,
   cursor: "text",
   borderRadius: 3,
   padding: "2px 4px",
@@ -187,7 +204,8 @@ const bookNameStyle: React.CSSProperties = {
 
 const bookSubtitleStyle: React.CSSProperties = {
   fontSize: "11px",
-  color: "#6b5a4e",
+  color: "#8fa397",
+  fontStyle: "italic",
   marginTop: 3,
   lineHeight: 1.3,
   cursor: "text",
@@ -199,25 +217,26 @@ const bookSubtitleStyle: React.CSSProperties = {
 
 const titleInputStyle: React.CSSProperties = {
   width: "100%",
-  background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.15)",
+  background: "rgba(223,216,196,0.08)",
+  border: "1px solid rgba(223,216,196,0.2)",
   borderRadius: 4,
-  color: "#d4c4b0",
-  fontSize: "13px",
-  fontWeight: 600,
+  color: "#f3eedd",
+  fontSize: "15px",
+  fontStyle: "italic",
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
   padding: "3px 6px",
   outline: "none",
-  lineHeight: 1.3,
+  lineHeight: 1.25,
 };
 
 const subtitleInputStyle: React.CSSProperties = {
   width: "100%",
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(255,255,255,0.1)",
+  background: "rgba(223,216,196,0.06)",
+  border: "1px solid rgba(223,216,196,0.14)",
   borderRadius: 4,
-  color: "#8a7a6a",
+  color: "#8fa397",
   fontSize: "11px",
+  fontStyle: "italic",
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
   padding: "3px 6px",
   outline: "none",
@@ -236,12 +255,14 @@ const groupContainerStyle: React.CSSProperties = {
 };
 
 const groupLabelStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
   fontSize: "9px",
-  letterSpacing: "0.12em",
+  letterSpacing: "0.16em",
   textTransform: "uppercase",
-  fontWeight: 700,
+  fontWeight: 500,
   marginBottom: 6,
   paddingLeft: 10,
+  opacity: 0.85,
 };
 
 const stageRowStyle: React.CSSProperties = {
@@ -264,16 +285,17 @@ const statusDotStyle: React.CSSProperties = {
 };
 
 const stageLabelStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#c4b4a0",
+  fontSize: "12.5px",
+  color: "#dcd3b0",
   flex: 1,
   lineHeight: 1.2,
 };
 
 const artifactBadgeStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
   fontSize: "10px",
-  color: "#6b5a4e",
-  background: "rgba(255,255,255,0.06)",
+  color: "#8fa397",
+  background: "rgba(223,216,196,0.08)",
   borderRadius: 3,
   padding: "1px 4px",
   flexShrink: 0,

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { StageKey, StageStatus } from "@prisma/client";
+import { ChapterLinkedNotes } from "./chapter-linked-notes";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ export function ChapterDraftBmadPanel({
   const router = useRouter();
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  type ExpandedState = { key: string; mode: "read" | "edit" | "revise" | "notes" } | null;
+  type ExpandedState = { key: string; mode: "read" | "edit" | "revise" | "notes" | "brain" } | null;
   const [expanded, setExpanded] = useState<ExpandedState>(null);
   const [editDraft, setEditDraft] = useState("");
   const [revisePrompt, setRevisePrompt] = useState("");
@@ -995,6 +996,15 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
                       >
                         ↺
                       </button>
+                      {chapter.status === "approved" && (
+                        <button
+                          style={actionBtnStyle(mode === "brain")}
+                          onClick={() => setExpanded(isExpanded && mode === "brain" ? null : { key: chapter.key, mode: "brain" })}
+                          title="Research and external stories behind this committed chapter"
+                        >
+                          🧠 Notes
+                        </button>
+                      )}
                     </>
                   )}
                   {chapter.status === "error" && (
@@ -1100,6 +1110,13 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
                   <div style={{ fontSize: "11px", color: "#8a7a6a", fontStyle: "italic" }}>
                     Use the <strong>Revise</strong> button to address these — paste the relevant bullets as your revision instructions.
                   </div>
+                </div>
+              )}
+
+              {/* BRAIN mode — the digital brain: research + external stories behind this committed chapter */}
+              {isExpanded && mode === "brain" && (
+                <div style={expandedContentStyle}>
+                  <ChapterLinkedNotes slug={slug} chapterKey={chapter.key} />
                 </div>
               )}
             </div>

@@ -1,12 +1,16 @@
-import { getPostProductionWorkspace } from "@/lib/workflows/post-production";
-import { PostProductionPageShell } from "../_post-production/page-shell";
+import { redirect } from "next/navigation";
 
-export default async function Page({
+/**
+ * Retired standalone view — PostProductionPageShell only wrapped the same
+ * AgentChatPanel the Studio already renders for this stage (it already
+ * shows the persona icon/name/tagline itself), in extra standalone-page
+ * chrome. Nothing unique to preserve; this route just redirects.
+ */
+export default async function AudioPrepPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const workspace = await getPostProductionWorkspace(slug, "AUDIO_PREP");
-  return <PostProductionPageShell workspace={workspace} />;
+  redirect(`/books/${slug}?stage=AUDIO_PREP`);
 }

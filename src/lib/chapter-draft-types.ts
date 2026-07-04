@@ -33,6 +33,10 @@ export type ChapterDraftBundle = {
     externalStories: string[];
     personalStories: string[];
     baseStory: string[];
+    /** Structured ResearchItem IDs the author actually wove into the prose. */
+    researchItemIds?: string[];
+    /** Structured ExternalStoryItem IDs the author actually wove into the prose. */
+    externalStoryItemIds?: string[];
   };
   quality: ChapterDraftQualitySummary;
 };

@@ -21,11 +21,7 @@ import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { getNextWorkflowStage } from "@/lib/workflow-registry";
 
 function revalidateFictionPaths(slug: string) {
-  revalidatePath(`/books/${slug}/story-setup`);
-  revalidatePath(`/books/${slug}/story-core`);
-  revalidatePath(`/books/${slug}/world-cast`);
-  revalidatePath(`/books/${slug}/plot-blueprint`);
-  revalidatePath(`/books/${slug}/scene-plan`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/draft`);
   revalidatePath(`/books/${slug}/editing`);
   revalidatePath(`/books/${slug}/publish`);
@@ -102,9 +98,5 @@ export async function commitFictionStageAction(slug: string, formData: FormData)
 
   const book = await getBookBySlugOrThrow(slug);
   const nextStage = getNextWorkflowStage(book.workflowType, stageKey);
-  if (nextStage) {
-    redirect(nextStage.href(slug));
-  }
-
-  redirect(`/books/${slug}/editing`);
+  redirect(`/books/${slug}?stage=${nextStage?.key ?? "EDITING"}`);
 }

@@ -20,6 +20,10 @@
  */
 
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
+import type { LLMResult } from "@langchain/core/outputs";
+import { getLLMCallContext } from "./call-context";
+import { logLLMCall } from "./call-log";
 
 export type ProviderName = "anthropic" | "openai" | "google";
 
@@ -30,6 +34,8 @@ export type ModelOptions = {
   maxRetries?: number;
   reasoningEffort?: "minimal" | "low" | "medium" | "high";
   useBatch?: boolean; // Queue for async batch API (Anthropic) — 50% cost savings, higher latency
+  /** Stage role for cost logging, e.g. "chapter-draft:author". Threaded by getModelForRole. */
+  stageRole?: string;
 };
 
 export type ModelSpec = {
@@ -40,6 +46,85 @@ export type ModelSpec = {
 function openAISupportsCustomTemperature(model: string): boolean {
   const normalized = model.trim().toLowerCase();
   return !normalized.startsWith("gpt-5");
+}
+
+/**
+ * Constructor-level callback that auto-logs every LLM call to LLMCallLog —
+ * but ONLY when an ambient LLM call context is present (i.e. inside a
+ * workflow wrapped by runWithLLMContext). API routes that log manually set
+ * no context and are therefore never double-logged.
+ *
+ * Constructor callbacks survive .withStructuredOutput() and .bind().
+ */
+class CostLoggingHandler extends BaseCallbackHandler {
+  name = "ghostwritr-cost-logging";
+  private startTimes = new Map<string, number>();
+
+  constructor(
+    private readonly provider: ProviderName,
+    private readonly model: string,
+    private readonly stageRole?: string,
+  ) {
+    super();
+  }
+
+  handleLLMStart(_llm: unknown, _prompts: string[], runId: string): void {
+    this.startTimes.set(runId, Date.now());
+  }
+
+  handleChatModelStart(_llm: unknown, _messages: unknown, runId: string): void {
+    this.startTimes.set(runId, Date.now());
+  }
+
+  handleLLMEnd(output: LLMResult, runId: string): void {
+    const startedAt = this.startTimes.get(runId);
+    this.startTimes.delete(runId);
+    const context = getLLMCallContext();
+    if (!context) return;
+
+    try {
+      const generation = output.generations?.[0]?.[0] as
+        | { message?: { usage_metadata?: Record<string, unknown> } }
+        | undefined;
+      const usage = generation?.message?.usage_metadata as
+        | {
+            input_tokens?: number;
+            output_tokens?: number;
+            input_token_details?: { cache_creation?: number; cache_read?: number };
+          }
+        | undefined;
+      const tokenUsage = (output.llmOutput?.tokenUsage ?? {}) as {
+        promptTokens?: number;
+        completionTokens?: number;
+      };
+
+      const promptTokens = usage?.input_tokens ?? tokenUsage.promptTokens ?? 0;
+      const completionTokens = usage?.output_tokens ?? tokenUsage.completionTokens ?? 0;
+      if (promptTokens === 0 && completionTokens === 0) return;
+
+      void logLLMCall({
+        bookId: context.bookId,
+        bookSlug: context.bookSlug,
+        bookTitle: context.bookTitle,
+        stageKey: context.stageKey,
+        workflowRunId: context.workflowRunId,
+        stageRole: this.stageRole ?? "unknown",
+        provider: this.provider,
+        model: this.model,
+        promptTokens,
+        completionTokens,
+        cacheCreationTokens: usage?.input_token_details?.cache_creation ?? 0,
+        cacheReadTokens: usage?.input_token_details?.cache_read ?? 0,
+        durationMs: startedAt ? Date.now() - startedAt : 0,
+      }).catch(() => {});
+    } catch {
+      // Logging must never break a workflow.
+    }
+  }
+
+  handleLLMError(_err: unknown, runId: string): void {
+    this.startTimes.delete(runId);
+  }
 }
 
 export function parseModelSpec(spec: string): ModelSpec {
@@ -100,6 +185,7 @@ export async function getModel(
   const timeout = options.timeoutMs ?? 60000;
   const maxRetries = options.maxRetries ?? 0;
   const temperature = options.temperature;
+  const callbacks = [new CostLoggingHandler(provider, model, options.stageRole)];
 
   if (provider === "anthropic") {
     const mod = await import("@langchain/anthropic").catch(() => null);
@@ -114,6 +200,7 @@ export async function getModel(
       temperature: temperature ?? 0.4,
       maxTokens: options.maxOutputTokens ?? 8192,
       maxRetries,
+      callbacks,
       // Anthropic SDK uses seconds for some fields and ms for others; LC normalizes.
       // timeout is on the underlying HTTP client.
       clientOptions: { timeout },
@@ -127,6 +214,7 @@ export async function getModel(
       model,
       timeout,
       maxRetries,
+      callbacks,
     };
     if (openAISupportsCustomTemperature(model)) {
       init.temperature = temperature ?? 0.2;
@@ -153,10 +241,52 @@ export async function getModel(
       temperature: temperature ?? 0.4,
       maxOutputTokens: options.maxOutputTokens ?? 8192,
       maxRetries,
+      callbacks,
     }) as unknown as BaseChatModel;
   }
 
   return null;
+}
+
+// ── Prompt caching ───────────────────────────────────────────────────────────
+
+export type CacheTtl = "5m" | "1h";
+
+type CachedTextBlock = {
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral"; ttl?: CacheTtl };
+};
+
+/**
+ * Build system-message content blocks with an Anthropic prompt-cache
+ * breakpoint after the shared context. Use as:
+ *
+ *   new SystemMessage({ content: buildCachedSystemBlocks(template, sharedJson, "1h") })
+ *
+ * The static template and the run-stable shared context become the cached
+ * prefix (billed 1.25x on first write, 0.10x on every subsequent read within
+ * the TTL); the varying per-item content stays in the HumanMessage.
+ *
+ * Anthropic ignores cache_control below the model's minimum cacheable prefix
+ * (2,048 tokens for Sonnet, 4,096 for Opus/Haiku) — harmless, just uncached.
+ * OpenAI/Google models ignore the field entirely.
+ */
+export function buildCachedSystemBlocks(
+  staticPrompt: string,
+  sharedContext?: string,
+  ttl: CacheTtl = "5m",
+): CachedTextBlock[] {
+  const cacheControl: CachedTextBlock["cache_control"] =
+    ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+
+  if (sharedContext && sharedContext.trim().length > 0) {
+    return [
+      { type: "text", text: staticPrompt },
+      { type: "text", text: sharedContext, cache_control: cacheControl },
+    ];
+  }
+  return [{ type: "text", text: staticPrompt, cache_control: cacheControl }];
 }
 
 /**

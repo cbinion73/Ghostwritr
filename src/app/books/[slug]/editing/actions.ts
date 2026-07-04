@@ -25,13 +25,13 @@ import { expandUnderTargetFictionDraftChaptersWorkflow } from "@/lib/workflows/f
 
 export async function assembleManuscript(slug: string) {
   await assembleManuscriptWorkflow(slug);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
 export async function commitEditingStage(slug: string) {
   await commitEditingStageWorkflow(slug);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
@@ -41,7 +41,7 @@ export async function generateEditorialAssessment(slug: string, formData: FormDa
   >[1];
   const chapterKey = String(formData.get("chapterKey") ?? "").trim() || null;
   await generateEditorialAssessmentWorkflow(slug, mode, chapterKey);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function generateManuscriptRevision(slug: string, formData: FormData) {
@@ -58,7 +58,7 @@ export async function generateManuscriptRevision(slug: string, formData: FormDat
     brief,
     selectedChapterKeys,
   });
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function applyManuscriptRevision(slug: string, formData: FormData) {
@@ -67,7 +67,7 @@ export async function applyManuscriptRevision(slug: string, formData: FormData) 
     return;
   }
   await applyManuscriptRevisionWorkflow(slug, revisionVersionId);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
@@ -77,19 +77,19 @@ export async function rejectManuscriptRevision(slug: string, formData: FormData)
     return;
   }
   await rejectManuscriptRevisionWorkflow(slug, revisionVersionId);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function sendEditingMessage(slug: string, formData: FormData) {
   const message = String(formData.get("message") ?? "");
   const chapterKey = String(formData.get("chapterKey") ?? "").trim() || null;
   await sendEditingMessageWorkflow(slug, message, chapterKey);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function generateSuggestedRevisionFromConversation(slug: string) {
   await generateSuggestedRevisionFromConversationWorkflow(slug);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function updateEditorialPreferences(slug: string, formData: FormData) {
@@ -99,13 +99,13 @@ export async function updateEditorialPreferences(slug: string, formData: FormDat
     preferTighterProse: String(formData.get("preferTighterProse") ?? "") === "on",
     preferBolderCuts: String(formData.get("preferBolderCuts") ?? "") === "on",
   });
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function generateEditorialRevisionPlan(slug: string, formData: FormData) {
   const chapterKey = String(formData.get("chapterKey") ?? "").trim() || null;
   await generateEditorialRevisionPlanWorkflow(slug, chapterKey);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function executeEditorialRevisionPlan(slug: string, formData: FormData) {
@@ -115,7 +115,7 @@ export async function executeEditorialRevisionPlan(slug: string, formData: FormD
     limit,
     autoApply,
   });
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
@@ -131,14 +131,14 @@ export async function runFullEditorialLoop(slug: string, formData: FormData) {
     autoApply,
     commitAfter,
   });
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/publish`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
 export async function refreshPublishingPackage(slug: string) {
   await preparePublishingPackageWorkflow(slug);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/publish`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
@@ -163,7 +163,7 @@ export async function expandDraftTowardTarget(slug: string, formData: FormData) 
 
   revalidatePath(`/books/${slug}/chapter-draft`);
   revalidatePath(`/books/${slug}/draft`);
-  revalidatePath(`/books/${slug}/editing`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/publish`);
   revalidatePath(`/books/${slug}/dashboard`);
 }

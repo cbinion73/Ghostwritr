@@ -292,7 +292,7 @@ export async function generateOutline(slug: string, formData: FormData) {
   });
   await resetOutlineApprovalsAfterPhaseChange(slug, "sectionsChapters");
 
-  revalidatePath(`/books/${slug}/outline`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function commentOnOutlineItem(slug: string, formData: FormData) {
@@ -311,7 +311,7 @@ export async function commentOnOutlineItem(slug: string, formData: FormData) {
   });
   await resetOutlineApprovalsAfterPhaseChange(slug, "sectionsChapters");
 
-  revalidatePath(`/books/${slug}/outline`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function commitOutlineStage(slug: string) {
@@ -336,16 +336,14 @@ export async function commitOutlineStage(slug: string) {
       },
     },
   });
-  revalidatePath(`/books/${slug}/outline`);
-  revalidatePath(`/books/${slug}/outline/paragraphs`);
-  redirect(`/books/${slug}/outline?phase=chapter-breakdowns`);
+  revalidatePath(`/books/${slug}`);
+  redirect(`/books/${slug}?stage=OUTLINE&phase=chapter-breakdowns`);
 }
 
 export async function generateParagraphOutlineFromOutline(slug: string) {
   await runParagraphOutlineWorkflow(slug);
   await resetOutlineApprovalsAfterPhaseChange(slug, "chapterBreakdowns");
-  revalidatePath(`/books/${slug}/outline`);
-  revalidatePath(`/books/${slug}/outline/paragraphs`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function commentOnParagraphOutlineFromOutline(
@@ -369,8 +367,7 @@ export async function commentOnParagraphOutlineFromOutline(
   });
   await resetOutlineApprovalsAfterPhaseChange(slug, "chapterBreakdowns");
 
-  revalidatePath(`/books/${slug}/outline`);
-  revalidatePath(`/books/${slug}/outline/paragraphs`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function commitParagraphOutlineFromOutline(slug: string) {
@@ -396,24 +393,23 @@ export async function commitParagraphOutlineFromOutline(slug: string) {
     startedAt: stage?.startedAt ?? new Date(),
     metadataJson: asJsonValue(nextMetadata),
   });
-  revalidatePath(`/books/${slug}/outline`);
-  revalidatePath(`/books/${slug}/outline/paragraphs`);
-  redirect(`/books/${slug}/outline?phase=full-toc`);
+  revalidatePath(`/books/${slug}`);
+  redirect(`/books/${slug}?stage=OUTLINE&phase=full-toc`);
 }
 
 export async function generateOutlineToc(slug: string) {
   await generateOutlineTocArtifactWorkflow(slug);
-  revalidatePath(`/books/${slug}/outline`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function approveOutlinePhase(slug: string, phase: OutlinePhaseId) {
   await setOutlinePhaseApproval(slug, phase, "approved");
-  revalidatePath(`/books/${slug}/outline`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function requestOutlinePhaseChanges(slug: string, phase: OutlinePhaseId) {
   await setOutlinePhaseApproval(slug, phase, "pending");
-  revalidatePath(`/books/${slug}/outline`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function sendOutlinePhaseMessage(
@@ -479,7 +475,7 @@ export async function sendOutlinePhaseMessage(
         },
       ]);
 
-      revalidatePath(`/books/${slug}/outline`);
+      revalidatePath(`/books/${slug}`);
       revalidatePath(`/books/${slug}/base-story`);
 
       return {
@@ -512,7 +508,7 @@ export async function sendOutlinePhaseMessage(
         },
       ]);
 
-      revalidatePath(`/books/${slug}/outline`);
+      revalidatePath(`/books/${slug}`);
       revalidatePath(`/books/${slug}/base-story`);
 
       return {
@@ -535,7 +531,7 @@ export async function sendOutlinePhaseMessage(
         },
       ]);
 
-      revalidatePath(`/books/${slug}/outline`);
+      revalidatePath(`/books/${slug}`);
       revalidatePath(`/books/${slug}/base-story`);
 
       return {
@@ -556,7 +552,7 @@ export async function sendOutlinePhaseMessage(
       },
     ]);
 
-    revalidatePath(`/books/${slug}/outline`);
+    revalidatePath(`/books/${slug}`);
     revalidatePath(`/books/${slug}/base-story`);
 
     return {
@@ -583,7 +579,7 @@ export async function sendOutlinePhaseMessage(
       },
     ]);
 
-    revalidatePath(`/books/${slug}/outline`);
+    revalidatePath(`/books/${slug}`);
 
     return {
       messages: chats[phase],
@@ -617,7 +613,7 @@ export async function finalizeOutlinePackage(slug: string) {
   });
 
   await finalizeOutlineWorkflow(slug);
-  revalidatePath(`/books/${slug}/outline`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/base-story`);
   revalidatePath(`/books/${slug}/research`);
   revalidatePath(`/books/${slug}/external-stories`);
@@ -693,7 +689,7 @@ export async function regenerateChapterBreakdown(slug: string, chapterId: string
     await resetOutlineApprovalsAfterPhaseChange(slug, "chapterBreakdowns");
 
     console.log(`[regenerateChapterBreakdown] Revalidating path`);
-    revalidatePath(`/books/${slug}/outline`);
+    revalidatePath(`/books/${slug}`);
 
     console.log(`[regenerateChapterBreakdown] Complete`);
   } catch (error) {

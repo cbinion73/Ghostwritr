@@ -81,6 +81,6 @@ export function normalizeBaseStoryBundle(bundle: BaseStoryBundle | null): BaseSt
   return {
     ...bundle,
     bookMovement: normalizeMovement(bundle.bookMovement, buildDefaultBookMovement(bundle)),
-    chapters: bundle.chapters.map(normalizeBaseStoryChapter),
+    chapters: (bundle.chapters ?? []).map(normalizeBaseStoryChapter),
   };
 }

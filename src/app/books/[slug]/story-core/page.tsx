@@ -1,10 +1,15 @@
-import { StageKey } from "@prisma/client";
+import { redirect } from "next/navigation";
 
-import { renderFictionStagePage } from "../fiction-stage-page";
-
-export default function StoryCorePage(props: {
+/**
+ * Retired standalone view — Story Core now lives inside the Book Studio
+ * (see fiction-stage-detail-content.tsx, rendered as the STORY_CORE slot).
+ * This route only preserves old links.
+ */
+export default async function StoryCorePage({
+  params,
+}: {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  return renderFictionStagePage(props, StageKey.STORY_CORE);
+  const { slug } = await params;
+  redirect(`/books/${slug}?stage=STORY_CORE`);
 }

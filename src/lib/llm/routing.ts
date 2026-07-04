@@ -191,10 +191,12 @@ export async function getModelForRole(
 ): Promise<BaseChatModel | null> {
   // Apply per-role output token ceiling unless caller already specified one
   const roleMaxTokens = ROLE_OUTPUT_TOKENS[role];
-  const resolvedOptions: ModelOptions =
-    roleMaxTokens && !options.maxOutputTokens
+  const resolvedOptions: ModelOptions = {
+    ...(roleMaxTokens && !options.maxOutputTokens
       ? { ...options, maxOutputTokens: roleMaxTokens }
-      : options;
+      : options),
+    stageRole: options.stageRole ?? role,
+  };
 
   const primary = await getModel(resolveModelSpec(role), resolvedOptions);
   if (primary) return primary;

@@ -19,5 +19,6 @@ export default async function ParagraphOutlinePage({
     nextQuery.set("targetId", query.targetId);
   }
 
-  redirect(`/books/${slug}/outline?${nextQuery.toString()}`);
+  nextQuery.set("stage", "OUTLINE");
+  redirect(`/books/${slug}?${nextQuery.toString()}`);
 }

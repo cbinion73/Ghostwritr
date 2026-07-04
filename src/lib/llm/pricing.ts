@@ -13,6 +13,9 @@ export interface ModelPricing {
 
 const PRICING_TABLE: { match: string; pricing: ModelPricing }[] = [
   // ── Anthropic ─────────────────────────────────────────────────────────
+  // NOTE: matching is first-hit substring — keep more-specific entries above
+  // their generic fallbacks (e.g. opus-4-8 before opus-4).
+  { match: "claude-opus-4-8",     pricing: { inputPer1M:  5.00, outputPer1M: 25.00, label: "Claude Opus 4.8",     provider: "anthropic" } },
   { match: "claude-opus-4",       pricing: { inputPer1M: 15.00, outputPer1M: 75.00, label: "Claude Opus 4",       provider: "anthropic" } },
   { match: "claude-opus",         pricing: { inputPer1M: 15.00, outputPer1M: 75.00, label: "Claude Opus",         provider: "anthropic" } },
   { match: "claude-sonnet-4-5",   pricing: { inputPer1M:  3.00, outputPer1M: 15.00, label: "Claude Sonnet 4.5",   provider: "anthropic" } },
@@ -20,6 +23,7 @@ const PRICING_TABLE: { match: string; pricing: ModelPricing }[] = [
   { match: "claude-3-5-sonnet",   pricing: { inputPer1M:  3.00, outputPer1M: 15.00, label: "Claude 3.5 Sonnet",   provider: "anthropic" } },
   { match: "claude-sonnet-4-6",   pricing: { inputPer1M:  3.00, outputPer1M: 15.00, label: "Claude Sonnet 4.6",   provider: "anthropic" } },
   { match: "claude-sonnet",       pricing: { inputPer1M:  3.00, outputPer1M: 15.00, label: "Claude Sonnet",       provider: "anthropic" } },
+  { match: "claude-haiku-4-5",    pricing: { inputPer1M:  1.00, outputPer1M:  5.00, label: "Claude Haiku 4.5",    provider: "anthropic" } },
   { match: "claude-3-5-haiku",    pricing: { inputPer1M:  0.80, outputPer1M:  4.00, label: "Claude 3.5 Haiku",    provider: "anthropic" } },
   { match: "claude-haiku",        pricing: { inputPer1M:  0.80, outputPer1M:  4.00, label: "Claude Haiku",        provider: "anthropic" } },
   // ── OpenAI ────────────────────────────────────────────────────────────
@@ -53,11 +57,32 @@ export function getModelPricing(modelSpec: string): ModelPricing {
   };
 }
 
+export type CacheTokenBreakdown = {
+  /** Tokens written to the prompt cache this call (billed at 1.25x input rate). */
+  cacheCreationTokens?: number;
+  /** Tokens read from the prompt cache this call (billed at 0.10x input rate). */
+  cacheReadTokens?: number;
+};
+
+/**
+ * promptTokens is the TOTAL input token count (uncached + cache-creation +
+ * cache-read), matching LangChain's usage_metadata.input_tokens. The cache
+ * breakdown re-prices the cached portions; without it this degrades to the
+ * plain input rate.
+ */
 export function estimateCostUsd(
   modelSpec: string,
   promptTokens: number,
   completionTokens: number,
+  cache: CacheTokenBreakdown = {},
 ): number {
   const p = getModelPricing(modelSpec);
-  return (promptTokens / 1_000_000) * p.inputPer1M + (completionTokens / 1_000_000) * p.outputPer1M;
+  const creation = cache.cacheCreationTokens ?? 0;
+  const read = cache.cacheReadTokens ?? 0;
+  const uncached = Math.max(0, promptTokens - creation - read);
+  const inputCost =
+    (uncached / 1_000_000) * p.inputPer1M +
+    (creation / 1_000_000) * p.inputPer1M * 1.25 +
+    (read / 1_000_000) * p.inputPer1M * 0.1;
+  return inputCost + (completionTokens / 1_000_000) * p.outputPer1M;
 }

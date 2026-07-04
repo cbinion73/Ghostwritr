@@ -19,8 +19,10 @@ export type LLMCallInput = {
   stageRole:    string;
   provider:     string;
   model:        string;
-  promptTokens:     number;
+  promptTokens:     number;   // TOTAL input tokens (uncached + cache creation + cache read)
   completionTokens: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?:     number;
   durationMs:   number;
 };
 
@@ -39,6 +41,8 @@ interface CostLogEntry {
   promptTokens:     number;
   completionTokens: number;
   totalTokens:      number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?:     number;
   costUsd:          number;
   durationMs:       number;
 }
@@ -69,7 +73,12 @@ export function readCostLog(): CostLogEntry[] {
 
 export async function logLLMCall(input: LLMCallInput): Promise<void> {
   const totalTokens = input.promptTokens + input.completionTokens;
-  const costUsd     = estimateCostUsd(input.model, input.promptTokens, input.completionTokens);
+  const cacheCreationTokens = input.cacheCreationTokens ?? 0;
+  const cacheReadTokens     = input.cacheReadTokens ?? 0;
+  const costUsd = estimateCostUsd(input.model, input.promptTokens, input.completionTokens, {
+    cacheCreationTokens,
+    cacheReadTokens,
+  });
 
   // 1. Database
   await db.lLMCallLog.create({
@@ -82,6 +91,8 @@ export async function logLLMCall(input: LLMCallInput): Promise<void> {
       promptTokens:     input.promptTokens,
       completionTokens: input.completionTokens,
       totalTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
       costUsd,
       durationMs:       input.durationMs,
     },
@@ -99,6 +110,8 @@ export async function logLLMCall(input: LLMCallInput): Promise<void> {
     promptTokens:     input.promptTokens,
     completionTokens: input.completionTokens,
     totalTokens,
+    cacheCreationTokens,
+    cacheReadTokens,
     costUsd,
     durationMs:       input.durationMs,
   });

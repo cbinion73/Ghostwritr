@@ -17,7 +17,6 @@ interface SaveDraftBody {
 const STAGE_ARTIFACT_TYPE: Partial<Record<StageKey, ArtifactType>> = {
   BOOK_SETUP: ArtifactType.BOOK_SETUP_PROFILE,
   PROMISE: ArtifactType.PROMISE_BRIEF,
-  AUDIENCE: ArtifactType.AUDIENCE_RESEARCH,
   MARKET_ANALYSIS: ArtifactType.MARKET_REPORT,
   STORY_SETUP: ArtifactType.STORY_SETUP_PROFILE,
   STORY_CORE: ArtifactType.STORY_CORE_BIBLE,

@@ -153,8 +153,7 @@ export async function POST(
   // EDITING builds its own targeted context (manuscript + outline) in the block below —
   // the generic prior-stage build would load and then discard all those queries for nothing.
   const skipGenericContext = skipContext || stageKey === "EDITING" || stageKey === "TYPESET"
-    || stageKey === "LAUNCH_LISTING" || stageKey === "PRESS_KIT" || stageKey === "SOCIAL_CAMPAIGN"
-    || stageKey === "AUDIO_PREP" || stageKey === "COURSE_DESIGN" || stageKey === "SPEAKING_KIT";
+    || stageKey === "AUDIO_PREP" || stageKey === "COURSE_DESIGN";
   const stageOrder = skipGenericContext ? [] : getWorkflowStageKeys(book.workflowType);
   const currentIdx = skipGenericContext ? -1 : stageOrder.indexOf(stageKey);
   // Filter out undefined (defensive against enum mismatches) and MANIFEST
@@ -439,10 +438,10 @@ export async function POST(
   }
 
   // ── POST-PRODUCTION: inject manuscript + outline + typeset package ───────
-  // All 6 post-production agents need the finished book in context.
+  // Both post-production agents need the finished book in context.
   // Prefer the EDITING committed artifact; fall back to assembled chapter drafts.
   // Also inject outline and typeset package where available.
-  if (!skipContext && ["LAUNCH_LISTING", "PRESS_KIT", "SOCIAL_CAMPAIGN", "AUDIO_PREP", "COURSE_DESIGN", "SPEAKING_KIT"].includes(stageKey)) {
+  if (!skipContext && ["AUDIO_PREP", "COURSE_DESIGN"].includes(stageKey)) {
     const [editingStage, chapterStage, outlineStage, typesetStage] = await Promise.all([
       db.bookStage.findUnique({
         where: { bookId_stageKey: { bookId: book.id, stageKey: "EDITING" } },
@@ -484,42 +483,6 @@ export async function POST(
     if (typesetText) assembly += `\n\nTYPESET PACKAGE (platform specs, ISBN, front matter):\n\n${typesetText}`;
 
     priorContext = assembly;
-  }
-
-  // ── LAUNCH_LISTING: pre-fetch live Amazon/KDP market data ────────────────
-  // Marquee needs live search to do competitive positioning, keyword research,
-  // and category discovery. We run 4 targeted queries before the LLM call
-  // and inject the results as structured context — same pattern as Scout.
-  let marketSearchContext = "";
-  if (!skipContext && stageKey === "LAUNCH_LISTING") {
-    try {
-      const bookTitle   = book.titleWorking ?? "";
-      const meta2 = book.metadataJson && typeof book.metadataJson === "object"
-        ? book.metadataJson as Record<string, unknown> : {};
-      const premise     = (meta2.premise as string) ?? "";
-      const targetReader = (meta2.targetReader as string) ?? "";
-      const subject     = [premise, bookTitle].filter(Boolean).join(" ").slice(0, 100);
-
-      // Last user message — let Marquee drill into what the author just asked about
-      const lastUserMsg = [...messages].reverse().find(m => m.role === "user")?.content ?? "";
-      const focusedQuery = lastUserMsg.length > 10 && lastUserMsg.length < 200
-        ? lastUserMsg : null;
-
-      const queries: string[] = [
-        `Amazon KDP bestseller categories "${bookTitle}" nonfiction 2024 2025`,
-        `Amazon best seller keyword research "${subject}" book`,
-        `competing books "${subject}" Amazon description examples`,
-        ...(targetReader ? [`Amazon nonfiction books "${targetReader}" bestseller list`] : []),
-        ...(focusedQuery ? [focusedQuery] : []),
-      ].slice(0, 5);
-
-      const { results, attempts } = await searchWeb(queries, { perQueryLimit: 4, totalLimit: 16 });
-      const pageTexts = await fetchTopPageTexts(results, 5, 3000);
-      marketSearchContext = formatSearchResults(results, attempts, "LIVE AMAZON/KDP MARKET DATA", pageTexts);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Search failed";
-      marketSearchContext = `\n\nMARKET SEARCH: Search failed (${msg}). Use training knowledge for category/keyword guidance and note that data may not reflect current rankings.`;
-    }
   }
 
   // ── CHAPTER_DRAFT: use manifest for targeted context injection ────────────
@@ -590,12 +553,8 @@ export async function POST(
   const skipSourceDocs = skipContext
     || stageKey === "EDITING"
     || stageKey === "TYPESET"
-    || stageKey === "LAUNCH_LISTING"
-    || stageKey === "PRESS_KIT"
-    || stageKey === "SOCIAL_CAMPAIGN"
     || stageKey === "AUDIO_PREP"
-    || stageKey === "COURSE_DESIGN"
-    || stageKey === "SPEAKING_KIT";
+    || stageKey === "COURSE_DESIGN";
 
   const sourceDocs = skipSourceDocs ? [] : await db.sourceDocument.findMany({
     where: {
@@ -674,7 +633,7 @@ When asked to "draft the artifact" or "produce the artifact for this stage", out
 
 The "content" field should be the full artifact text (can be multi-paragraph prose, JSON, or structured markdown). Keep the ARTIFACT block at the end of your response.${sameStageContext}${priorContext}${sourceDocContext}
 
-PROSE VOICE RULES — these apply to every word you write. No exceptions.${marketSearchContext}
+PROSE VOICE RULES — these apply to every word you write. No exceptions.
 - NO EM-DASHES. Not a single one. Replace every (--) and every (--) with a comma, colon, semicolon, or period. If you catch yourself about to write one, stop and restructure the sentence.
 - BANNED WORDS AND PHRASES. Never use any of these: "delve", "dive into", "unpack", "explore" (as a verb for ideas), "it's important to note", "it's worth noting", "moreover", "furthermore", "in conclusion", "to summarize", "stands as a testament", "in the realm of", "at its core", "in essence", "at the end of the day", "when it comes to", "in terms of", "simply put", "put simply", "with that in mind", "that said", "having said that", "as we've seen", "moving forward", "going forward", "leverage" (use "use"), "utilize" (use "use"), "not only... but also", "game-changing", "groundbreaking", "transformative", "seamlessly", "robust", "foster", "underscore", "navigate", "unlock", "harness", "empower", "elevate", "holistic", "synergy", "paradigm", "cutting-edge", "ultimately", "essentially", "fundamentally", "undoubtedly", "needless to say", "of course" (as a filler), "clearly" (as a filler), "obviously".
 - Do not start consecutive sentences with "The".

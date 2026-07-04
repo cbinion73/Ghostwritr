@@ -23,23 +23,25 @@ import { triggerWorkflowRunInBackground } from "@/lib/workflow-queue";
 import { StageKey } from "@prisma/client";
 
 function getTabPath(slug: string, tabId?: string) {
-  return tabId ? `/books/${slug}/external-stories?tabId=${tabId}` : `/books/${slug}/external-stories`;
+  return tabId
+    ? `/books/${slug}?stage=EXTERNAL_STORIES&tabId=${tabId}`
+    : `/books/${slug}?stage=EXTERNAL_STORIES`;
 }
 
 export async function runFullExternalStoriesStage(slug: string) {
   await enqueueAndTriggerFullExternalStoriesWorkflow(slug, triggerWorkflowRunInBackground);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function stopExternalStoriesStage(slug: string) {
   await cancelStageWorkflow(slug, StageKey.EXTERNAL_STORIES);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
 export async function retryExternalStoriesStage(slug: string) {
   await retryStageWorkflow(slug, StageKey.EXTERNAL_STORIES, triggerWorkflowRunInBackground);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
@@ -49,7 +51,7 @@ export async function resumeFailedExternalStoriesStage(slug: string) {
     StageKey.EXTERNAL_STORIES,
     triggerWorkflowRunInBackground,
   );
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
 }
 
@@ -58,7 +60,7 @@ export async function commitSelectedExternalStories(slug: string, formData: Form
   if (!chapterKey) return;
 
   await commitChapterExternalStoriesWorkflow(slug, chapterKey);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
 }
 
 export async function addExternalStoryBinderTab(slug: string, formData: FormData) {
@@ -67,7 +69,7 @@ export async function addExternalStoryBinderTab(slug: string, formData: FormData
   if (!label) return;
 
   const tab = await addExternalStoryBinderTabWorkflow(slug, label, chapterKey);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   redirect(getTabPath(slug, tab.id));
 }
 
@@ -77,7 +79,7 @@ export async function renameExternalStoryBinderTab(slug: string, formData: FormD
   if (!tabId || !label) return;
 
   await renameExternalStoryBinderTabWorkflow(slug, tabId, label);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   redirect(getTabPath(slug, tabId));
 }
 
@@ -86,8 +88,8 @@ export async function archiveExternalStoryBinderTab(slug: string, formData: Form
   if (!tabId) return;
 
   await archiveExternalStoryBinderTabWorkflow(slug, tabId);
-  revalidatePath(`/books/${slug}/external-stories`);
-  redirect(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
+  redirect(`/books/${slug}?stage=EXTERNAL_STORIES`);
 }
 
 export async function combineExternalStoryBinderTabs(slug: string, formData: FormData) {
@@ -96,7 +98,7 @@ export async function combineExternalStoryBinderTabs(slug: string, formData: For
   if (!sourceTabId || !targetTabId) return;
 
   await combineExternalStoryBinderTabsWorkflow(slug, sourceTabId, targetTabId);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   redirect(getTabPath(slug, targetTabId));
 }
 
@@ -107,7 +109,7 @@ export async function separateExternalStoryBinderTab(slug: string, formData: For
   if (!sourceTabId || !chapterKey || !newLabel) return;
 
   const tab = await separateExternalStoryBinderTabWorkflow(slug, sourceTabId, chapterKey, newLabel);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   redirect(getTabPath(slug, tab.id));
 }
 
@@ -119,7 +121,7 @@ export async function addExternalStoryClip(slug: string, formData: FormData) {
   if (!tabId || !content) return;
 
   await addExternalStoryClipWorkflow({ bookSlug: slug, tabId, chapterKey, title, content });
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   redirect(getTabPath(slug, tabId));
 }
 
@@ -129,6 +131,6 @@ export async function deleteExternalStoryClip(slug: string, formData: FormData) 
   if (!clipId) return;
 
   await deleteExternalStoryClipWorkflow(slug, clipId);
-  revalidatePath(`/books/${slug}/external-stories`);
+  revalidatePath(`/books/${slug}`);
   redirect(getTabPath(slug, tabId || undefined));
 }

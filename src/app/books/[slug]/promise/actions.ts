@@ -318,48 +318,6 @@ export async function togglePromiseReferenceMaterial(
   revalidatePath(`/books/${slug}/files`);
 }
 
-export async function saveFinalPromiseStatement(slug: string, formData: FormData) {
-  const promiseStatement = String(formData.get("promiseStatement") ?? "").trim();
-
-  if (!promiseStatement) {
-    return;
-  }
-
-  const book = await getOrCreateBookBySlug(slug);
-  const workspace = await getPromiseWorkspace(slug);
-  const nextPromiseBrief = {
-    ...workspace.promiseBrief,
-    promiseStatement,
-    metadata: {
-      ...(workspace.promiseBrief.metadata ?? {}),
-      updatedAt: new Date().toISOString(),
-      model: "manual-edit",
-    },
-  };
-
-  await createPromiseArtifactVersion({
-    bookId: book.id,
-    artifactType: ArtifactType.PROMISE_BRIEF,
-    title: "Promise Brief",
-    summary: promiseStatement,
-    contentJson: nextPromiseBrief,
-    contentText: promiseStatement,
-    createdByType: ActorType.USER,
-  });
-
-  await createDirectionEvent({
-    bookId: book.id,
-    stageKey: StageKey.PROMISE,
-    eventType: "PROMISE_BRIEF_EDITED",
-    title: "Edited final book pitch",
-    content: promiseStatement,
-    metadataJson: {
-      referenceMaterialCount: workspace.sourceDocuments.filter((doc) => doc.enabled).length,
-    },
-  });
-
-  revalidatePath(`/books/${slug}/promise`);
-}
 
 export async function savePromiseStatement(slug: string, statement: string) {
   "use server";

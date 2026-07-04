@@ -1,10 +1,15 @@
-import { StageKey } from "@prisma/client";
+import { redirect } from "next/navigation";
 
-import { renderFictionStagePage } from "../fiction-stage-page";
-
-export default function WorldCastPage(props: {
+/**
+ * Retired standalone view — World & Cast now lives inside the Book Studio
+ * (see fiction-stage-detail-content.tsx, rendered as the WORLD_CAST slot).
+ * This route only preserves old links.
+ */
+export default async function WorldCastPage({
+  params,
+}: {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  return renderFictionStagePage(props, StageKey.WORLD_CAST);
+  const { slug } = await params;
+  redirect(`/books/${slug}?stage=WORLD_CAST`);
 }

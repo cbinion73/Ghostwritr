@@ -24,7 +24,6 @@ interface StageConfig {
 const NONFICTION_STAGES: StageConfig[] = [
   { stageKey: "BOOK_SETUP",        label: "Book Setup",        agentName: "Blueprint",  stageRole: "setup:voice-blending",          perChapter: false },
   { stageKey: "PROMISE",           label: "Promise",           agentName: "Sage",       stageRole: "promise:author",                perChapter: false },
-  { stageKey: "AUDIENCE",          label: "Audience",          agentName: "Sage",       stageRole: "outline:phase-1",               perChapter: false, note: "shared role with Outline" },
   { stageKey: "MARKET_ANALYSIS",   label: "Market Analysis",   agentName: "Sage",       stageRole: "promise:author",                perChapter: false, note: "shared role with Promise" },
   { stageKey: "OUTLINE",           label: "Outline",           agentName: "Cartographer", stageRole: "outline:phase-1",             perChapter: false },
   { stageKey: "BASE_STORY",        label: "Base Story",        agentName: "Narrator",   stageRole: "base-story:author",             perChapter: false },
@@ -43,7 +42,6 @@ function charsToTokens(chars: number) { return Math.round(chars / 4); }
 const INPUT_TOKEN_ESTIMATE: Partial<Record<StageKey, number>> = {
   BOOK_SETUP:       2_000,
   PROMISE:          3_000,
-  AUDIENCE:         3_500,
   MARKET_ANALYSIS:  4_000,
   OUTLINE:          5_000,
   BASE_STORY:       6_000,

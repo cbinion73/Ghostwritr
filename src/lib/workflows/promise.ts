@@ -2990,7 +2990,7 @@ function fallbackRecommendations(
       differentiationStrategy: `Differentiate through the specific buyer, the truth reframe, the practical mechanism, and the author's lived authority. The book should sound like the only one that solves this exact problem in this exact way.`,
     },
     positioningAndMarketing: {
-      marketPositioningStatement: `For ${primaryPersona}, ${promise.workingTitle} is a practical business book that helps them ${promise.readerDesire.toLowerCase() || "create better outcomes"} by teaching ${coreTruth.toLowerCase()}, unlike broader competitors that diagnose the category without giving this reader a tailored operating model.`,
+      marketPositioningStatement: `For ${primaryPersona}, ${promise.workingTitle} is a practical business book that helps them ${(promise.readerDesire ?? "").toLowerCase() || "create better outcomes"} by teaching ${(coreTruth ?? "").toLowerCase()}, unlike broader competitors that diagnose the category without giving this reader a tailored operating model.`,
       keyDifferentiators: [
         "Sharper primary buyer definition than generic category books",
         "A core truth tied directly to day-to-day pressure and decision friction",
@@ -3010,7 +3010,7 @@ function fallbackRecommendations(
         `Unique approach: ${coreTruth}`,
         `Who it's for: ${primaryPersona} and adjacent professionals who feel the same operating tension`,
       ],
-      competitivePositioningQuadrant: marketReport.competitiveLandscape.marketPositioning.whiteSpace,
+      competitivePositioningQuadrant: marketReport.competitiveLandscape?.marketPositioning?.whiteSpace ?? "",
     },
     launchAndGoToMarket: {
       publishingPathRecommendation: `The recommended path should reflect your goals for control, speed, authority, and distribution. If platform leverage is strong, hybrid or self-directed models can compound faster; if borrowed distribution and trade credibility matter more, traditional may be worth the tradeoffs.`,
@@ -5068,7 +5068,7 @@ function buildTruthPersonaContexts(
       dilemma: promise.readerProblem || "They are stuck using a broken mental model.",
       voiceHint: "Drucker" as const,
     },
-    ...promise.audienceSecondary.slice(0, 2).map((audience, index) => ({
+    ...(promise.audienceSecondary ?? []).slice(0, 2).map((audience, index) => ({
       name: audience,
       context: `Secondary audience ${index + 1}`,
       dilemma: promise.readerProblem || "They need a clearer path forward.",

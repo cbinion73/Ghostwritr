@@ -15,6 +15,11 @@ import { ManifestPanel } from "./manifest-panel";
 import { WorkbookSplitPanel } from "./workbook-split-panel";
 import { WorkbookDesignPanel } from "./workbook-design-panel";
 import { CostPaceBar } from "./cost-pace-bar";
+import { ActivityTicker } from "./activity-ticker";
+import { OvernightBuildControls, MorningReportBanner } from "./overnight-build-panel";
+import { ReviewNotifier } from "./review-notifier";
+import { StageLiveFeed } from "./stage-live-feed";
+import type { MorningReport } from "@/lib/workflows/overnight-build";
 
 export type WorkspaceStage = {
   key: StageKey;
@@ -38,6 +43,36 @@ interface WorkspaceShellProps {
   defaultStageKey: StageKey;
   totalCommitted: number;
   totalArtifacts: number;
+  /** Server-rendered Evidence Room content, mounted when RESEARCH is selected. */
+  researchDetail?: React.ReactNode;
+  /** Server-rendered Verdict room content, mounted when PROMISE is selected. */
+  promiseDetail?: React.ReactNode;
+  /** Server-rendered Outline room content, mounted when OUTLINE is selected. */
+  outlineDetail?: React.ReactNode;
+  /** Server-rendered Base Story room content, mounted when BASE_STORY is selected. */
+  baseStoryDetail?: React.ReactNode;
+  /** Server-rendered Story Vault content, mounted when EXTERNAL_STORIES is selected. */
+  externalStoriesDetail?: React.ReactNode;
+  /** Server-rendered Interview room content, mounted when PERSONAL_STORIES is selected. */
+  personalStoriesDetail?: React.ReactNode;
+  /** Server-rendered Settings room content, mounted when BOOK_SETUP is selected. */
+  bookSetupDetail?: React.ReactNode;
+  /** Server-rendered Editing room content, mounted when EDITING is selected. */
+  editingDetail?: React.ReactNode;
+  /** Server-rendered Story Setup room content, mounted when STORY_SETUP is selected. */
+  storySetupDetail?: React.ReactNode;
+  /** Server-rendered Story Core room content, mounted when STORY_CORE is selected. */
+  storyCoreDetail?: React.ReactNode;
+  /** Server-rendered World & Cast room content, mounted when WORLD_CAST is selected. */
+  worldCastDetail?: React.ReactNode;
+  /** Server-rendered Plot Blueprint room content, mounted when PLOT_BLUEPRINT is selected. */
+  plotBlueprintDetail?: React.ReactNode;
+  /** Server-rendered Scene Plan room content, mounted when SCENE_PLAN is selected. */
+  scenePlanDetail?: React.ReactNode;
+  /** Overnight build session state (from book metadata). */
+  overnightActive?: boolean;
+  /** Unacknowledged Morning Report to surface, if any. */
+  morningReport?: MorningReport | null;
 }
 
 export function WorkspaceShell({
@@ -49,6 +84,21 @@ export function WorkspaceShell({
   defaultStageKey,
   totalCommitted,
   totalArtifacts: _totalArtifacts,
+  researchDetail = null,
+  promiseDetail = null,
+  outlineDetail = null,
+  baseStoryDetail = null,
+  externalStoriesDetail = null,
+  personalStoriesDetail = null,
+  bookSetupDetail = null,
+  editingDetail = null,
+  storySetupDetail = null,
+  storyCoreDetail = null,
+  worldCastDetail = null,
+  plotBlueprintDetail = null,
+  scenePlanDetail = null,
+  overnightActive = false,
+  morningReport = null,
 }: WorkspaceShellProps) {
   const router = useRouter();
   const [selectedKey, setSelectedKey] = useState<StageKey>(defaultStageKey);
@@ -56,8 +106,9 @@ export function WorkspaceShell({
 
   const selectedStage = stages.find((s) => s.key === selectedKey) ?? stages[0];
 
-  // Poll while any stage is running so the sidebar badge updates automatically
-  const hasRunning = stages.some((s) => s.status === "IN_PROGRESS");
+  // Poll while any stage is running (or an overnight build session is live,
+  // so the Morning Report appears without a manual reload).
+  const hasRunning = stages.some((s) => s.status === "IN_PROGRESS") || overnightActive;
   useEffect(() => {
     if (!hasRunning) return;
     const id = setTimeout(() => router.refresh(), 3000);
@@ -74,8 +125,10 @@ export function WorkspaceShell({
     <div style={shellStyle}>
       {/* ── Top bar ── */}
       <div style={topBarStyle}>
-        {/* Left: library link + stage shortcuts + utility pages */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "nowrap" }}>
+        {/* Left: library link + stage shortcuts + utility pages.
+            minWidth 0 + overflow lets this cluster shrink/scroll instead of
+            pushing the right cluster (progress/cost/Write-the-Book) off-screen. */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "nowrap", minWidth: 0, flex: 1, overflowX: "auto", scrollbarWidth: "none" }}>
           <Link href="/" style={breadcrumbLinkStyle} title="Library">← Library</Link>
           <span style={dividerStyle} />
           {NAV_SHORTCUTS.map((s) => {
@@ -120,7 +173,9 @@ export function WorkspaceShell({
               }}
             />
           </div>
+          <ActivityTicker slug={slug} />
           <CostPaceBar slug={slug} />
+          <OvernightBuildControls slug={slug} active={overnightActive} />
           {totalCommitted > 0 && (
             <a
               href={`/api/books/${slug}/workspace-export?format=markdown`}
@@ -159,6 +214,17 @@ export function WorkspaceShell({
         </div>
       </div>
 
+      {/* ── Morning Report (unacknowledged overnight-build digest) ── */}
+      {morningReport && <MorningReportBanner slug={slug} report={morningReport} />}
+      <ReviewNotifier
+        stages={stages.map((s) => ({ key: s.key, label: s.label, status: s.status }))}
+        hasMorningReport={Boolean(morningReport)}
+        bookTitle={bookTitle}
+      />
+
+      {/* ── Live activity strip for the selected stage's background run ── */}
+      {selectedStage && <StageLiveFeed slug={slug} stageKey={selectedStage.key} />}
+
       {/* ── Body: sidebar + panels ── */}
       <div style={bodyStyle}>
         <StageNav
@@ -174,18 +240,22 @@ export function WorkspaceShell({
           }}
         />
 
-        {/* EDITING (Reed) — auto-loop panel, edits each chapter in sequence */}
+        {/* EDITING — the real editorial-pass room (editorial modes, revision
+            plans, version comparison, export) when reachable; otherwise
+            Reed's auto-loop panel, edits each chapter in sequence. */}
         {(() => {
           const editingStage = stages.find((s) => s.key === "EDITING");
           if (!editingStage || editingStage.locked) return null;
           return (
             <div style={{ display: selectedKey === "EDITING" ? "flex" : "none", flex: 1, overflow: "hidden" }}>
-              <EditingBmadPanel
-                slug={slug}
-                status={editingStage.status}
-                bookTitle={bookTitle}
-                onStageAdvance={advanceTo}
-              />
+              {editingDetail ?? (
+                <EditingBmadPanel
+                  slug={slug}
+                  status={editingStage.status}
+                  bookTitle={bookTitle}
+                  onStageAdvance={advanceTo}
+                />
+              )}
             </div>
           );
         })()}
@@ -249,6 +319,232 @@ export function WorkspaceShell({
               bookTitle={bookTitle}
               onStageAdvance={advanceTo}
             />
+          ) : selectedStage?.key === "OUTLINE" ? (
+            outlineDetail ? (
+              /* The Outline room — the real 3-phase approval flow (sections & chapters →
+                 chapter breakdowns → full ToC), each with its own phase chat. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                {outlineDetail}
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
+          ) : selectedStage?.key === "BASE_STORY" ? (
+            baseStoryDetail ? (
+              /* The Base Story room — narrative spine: generate/review/commit, no chat. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                {baseStoryDetail}
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
+          ) : selectedStage?.key === "STORY_SETUP" ? (
+            storySetupDetail ? (
+              /* Fiction room (server-rendered) + stage agent chat side by side —
+                 the Blueprint conversational pattern, kept as a companion. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                  {storySetupDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <AgentChatPanel
+                    slug={slug}
+                    stageKey={selectedStage.key}
+                    stageLabel={selectedStage.label}
+                    stageRoute={selectedStage.route}
+                    status={selectedStage.status}
+                    artifactCount={selectedStage.artifactCount}
+                    bookTitle={bookTitle}
+                    committedContent={selectedStage.committedContent}
+                    onStageAdvance={advanceTo}
+                    dossierMode={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
+          ) : selectedStage?.key === "STORY_CORE" ? (
+            storyCoreDetail ? (
+              /* Fiction room (server-rendered) + stage agent chat side by side —
+                 the Blueprint conversational pattern, kept as a companion. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                  {storyCoreDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <AgentChatPanel
+                    slug={slug}
+                    stageKey={selectedStage.key}
+                    stageLabel={selectedStage.label}
+                    stageRoute={selectedStage.route}
+                    status={selectedStage.status}
+                    artifactCount={selectedStage.artifactCount}
+                    bookTitle={bookTitle}
+                    committedContent={selectedStage.committedContent}
+                    onStageAdvance={advanceTo}
+                    dossierMode={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
+          ) : selectedStage?.key === "WORLD_CAST" ? (
+            worldCastDetail ? (
+              /* Fiction room (server-rendered) + stage agent chat side by side —
+                 the Blueprint conversational pattern, kept as a companion. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                  {worldCastDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <AgentChatPanel
+                    slug={slug}
+                    stageKey={selectedStage.key}
+                    stageLabel={selectedStage.label}
+                    stageRoute={selectedStage.route}
+                    status={selectedStage.status}
+                    artifactCount={selectedStage.artifactCount}
+                    bookTitle={bookTitle}
+                    committedContent={selectedStage.committedContent}
+                    onStageAdvance={advanceTo}
+                    dossierMode={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
+          ) : selectedStage?.key === "PLOT_BLUEPRINT" ? (
+            plotBlueprintDetail ? (
+              /* Fiction room (server-rendered) + stage agent chat side by side —
+                 the Blueprint conversational pattern, kept as a companion. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                  {plotBlueprintDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <AgentChatPanel
+                    slug={slug}
+                    stageKey={selectedStage.key}
+                    stageLabel={selectedStage.label}
+                    stageRoute={selectedStage.route}
+                    status={selectedStage.status}
+                    artifactCount={selectedStage.artifactCount}
+                    bookTitle={bookTitle}
+                    committedContent={selectedStage.committedContent}
+                    onStageAdvance={advanceTo}
+                    dossierMode={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
+          ) : selectedStage?.key === "SCENE_PLAN" ? (
+            scenePlanDetail ? (
+              /* Fiction room (server-rendered) + stage agent chat side by side —
+                 the Blueprint conversational pattern, kept as a companion. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                  {scenePlanDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <AgentChatPanel
+                    slug={slug}
+                    stageKey={selectedStage.key}
+                    stageLabel={selectedStage.label}
+                    stageRoute={selectedStage.route}
+                    status={selectedStage.status}
+                    artifactCount={selectedStage.artifactCount}
+                    bookTitle={bookTitle}
+                    committedContent={selectedStage.committedContent}
+                    onStageAdvance={advanceTo}
+                    dossierMode={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
           ) : selectedStage?.key === "MANIFEST" ? (
             <ManifestPanel
               slug={slug}
@@ -257,21 +553,135 @@ export function WorkspaceShell({
               onStageAdvance={advanceTo}
             />
           ) : selectedStage?.key === "RESEARCH" ? (
-            <ScoutResearchPanel
-              slug={slug}
-              status={selectedStage.status}
-              outlineContent={stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null}
-              bookTitle={bookTitle}
-              onStageAdvance={advanceTo}
-            />
+            researchDetail ? (
+              /* The Evidence Room (server-rendered) + Scout agent panel side by side */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
+                  {researchDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <ScoutResearchPanel
+                    slug={slug}
+                    status={selectedStage.status}
+                    outlineContent={stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null}
+                    bookTitle={bookTitle}
+                    onStageAdvance={advanceTo}
+                  />
+                </div>
+              </div>
+            ) : (
+              <ScoutResearchPanel
+                slug={slug}
+                status={selectedStage.status}
+                outlineContent={stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null}
+                bookTitle={bookTitle}
+                onStageAdvance={advanceTo}
+              />
+            )
           ) : selectedStage?.key === "EXTERNAL_STORIES" ? (
-            <ChronicleStoriesPanel
-              slug={slug}
-              status={selectedStage.status}
-              outlineContent={stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null}
-              bookTitle={bookTitle}
-              onStageAdvance={advanceTo}
-            />
+            externalStoriesDetail ? (
+              /* The Story Vault (server-rendered) + Chronicle agent panel side by side */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
+                  {externalStoriesDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <ChronicleStoriesPanel
+                    slug={slug}
+                    status={selectedStage.status}
+                    outlineContent={stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null}
+                    bookTitle={bookTitle}
+                    onStageAdvance={advanceTo}
+                  />
+                </div>
+              </div>
+            ) : (
+              <ChronicleStoriesPanel
+                slug={slug}
+                status={selectedStage.status}
+                outlineContent={stages.find((s) => s.key === "OUTLINE")?.committedContent ?? null}
+                bookTitle={bookTitle}
+                onStageAdvance={advanceTo}
+              />
+            )
+          ) : selectedStage?.key === "PROMISE" ? (
+            promiseDetail ? (
+              /* The Verdict room — gate verdict + the real 7-phase approval flow.
+                 promiseDetail manages its own internal flex/scroll (main column + chat). */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                {promiseDetail}
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
+          ) : selectedStage?.key === "PERSONAL_STORIES" ? (
+            personalStoriesDetail ? (
+              /* The Interview room — chapter-aware interview + growing story encyclopedia. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+                {personalStoriesDetail}
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={true}
+              />
+            )
+          ) : selectedStage?.key === "BOOK_SETUP" ? (
+            bookSetupDetail ? (
+              /* The Settings room (server-rendered form) + Blueprint chat side by side —
+                 Blueprint's conversational flow is the loved pattern, kept as a companion. */
+              <div style={{ flex: 1, display: "flex", minWidth: 0, overflow: "hidden" }}>
+                <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
+                  {bookSetupDetail}
+                </div>
+                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                  <AgentChatPanel
+                    slug={slug}
+                    stageKey={selectedStage.key}
+                    stageLabel={selectedStage.label}
+                    stageRoute={selectedStage.route}
+                    status={selectedStage.status}
+                    artifactCount={selectedStage.artifactCount}
+                    bookTitle={bookTitle}
+                    committedContent={selectedStage.committedContent}
+                    onStageAdvance={advanceTo}
+                    dossierMode={false}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AgentChatPanel
+                slug={slug}
+                stageKey={selectedStage.key}
+                stageLabel={selectedStage.label}
+                stageRoute={selectedStage.route}
+                status={selectedStage.status}
+                artifactCount={selectedStage.artifactCount}
+                bookTitle={bookTitle}
+                committedContent={selectedStage.committedContent}
+                onStageAdvance={advanceTo}
+                dossierMode={false}
+              />
+            )
           ) : selectedStage && (
             <AgentChatPanel
               slug={slug}
@@ -283,7 +693,7 @@ export function WorkspaceShell({
               bookTitle={bookTitle}
               committedContent={selectedStage.committedContent}
               onStageAdvance={advanceTo}
-              dossierMode={selectedStage.key === "PERSONAL_STORIES"}
+              dossierMode={false}
             />
           )
         )}
@@ -306,12 +716,8 @@ const NAV_SHORTCUTS: Array<{ key: string; label: string }> = [
   { key: "EDITING",          label: "Edit"      },
   { key: "TYPESET",          label: "Typeset"   },
   // Post-production launch tools — unlock after Typeset
-  { key: "LAUNCH_LISTING",   label: "Listing"   },
-  { key: "PRESS_KIT",        label: "Press"     },
-  { key: "SOCIAL_CAMPAIGN",  label: "Social"    },
   { key: "AUDIO_PREP",       label: "Audio"     },
   { key: "COURSE_DESIGN",    label: "Course"    },
-  { key: "SPEAKING_KIT",     label: "Speaking"  },
 ];
 
 // ── Utility pages (separate full routes, not workspace panels) ────────────────
@@ -354,6 +760,7 @@ const progressStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "10px",
+  flexShrink: 0,
 };
 
 const runningPulseStyle: React.CSSProperties = {

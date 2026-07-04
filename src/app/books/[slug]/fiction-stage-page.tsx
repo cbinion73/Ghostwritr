@@ -50,7 +50,7 @@ type PersistedFictionDraftQuality = {
   signals: DraftQualitySignal[];
 };
 
-function pageTitleForStage(stageKey: StageKey) {
+export function pageTitleForStage(stageKey: StageKey) {
   switch (stageKey) {
     case StageKey.STORY_SETUP:
       return "Story Setup";
@@ -69,18 +69,18 @@ function pageTitleForStage(stageKey: StageKey) {
   }
 }
 
-function getStageArtifact<T>(latestArtifact: unknown, committedArtifact: unknown) {
+export function getStageArtifact<T>(latestArtifact: unknown, committedArtifact: unknown) {
   return (latestArtifact ?? committedArtifact ?? null) as T | null;
 }
 
-function parseSelectedChapter(searchParams: Record<string, string | string[] | undefined> | undefined) {
+export function parseSelectedChapter(searchParams: Record<string, string | string[] | undefined> | undefined) {
   const raw = searchParams?.chapter;
   const value = Array.isArray(raw) ? raw[0] : raw;
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function resolveActiveChapterNumber(chapterNumbers: number[], selectedChapterNumber: number | null) {
+export function resolveActiveChapterNumber(chapterNumbers: number[], selectedChapterNumber: number | null) {
   if (selectedChapterNumber && chapterNumbers.includes(selectedChapterNumber)) {
     return selectedChapterNumber;
   }
@@ -260,7 +260,7 @@ function buildFictionContinuityWatchlist(args: {
   return Array.from(watchlist).slice(0, 6);
 }
 
-function renderStorySetupPanel(storySetup: StorySetupArtifact | null) {
+export function renderStorySetupPanel(storySetup: StorySetupArtifact | null) {
   if (!storySetup) {
     return <div className="empty-state">Generate the story foundation to lock the novel’s core setup.</div>;
   }
@@ -289,7 +289,7 @@ function renderStorySetupPanel(storySetup: StorySetupArtifact | null) {
   );
 }
 
-function renderStoryCorePanel(storyCore: StoryCoreArtifact | null) {
+export function renderStoryCorePanel(storyCore: StoryCoreArtifact | null) {
   if (!storyCore) {
     return <div className="empty-state">Generate Story Core to define the novel’s emotional and dramatic engine.</div>;
   }
@@ -317,7 +317,7 @@ function renderStoryCorePanel(storyCore: StoryCoreArtifact | null) {
   );
 }
 
-function renderWorldCastPanel(worldCast: WorldCastArtifact | null) {
+export function renderWorldCastPanel(worldCast: WorldCastArtifact | null) {
   if (!worldCast) {
     return <div className="empty-state">Generate World & Cast to define the novel’s pressure environment.</div>;
   }
@@ -354,7 +354,7 @@ function renderWorldCastPanel(worldCast: WorldCastArtifact | null) {
   );
 }
 
-function renderPlotBlueprintWorkspace(
+export function renderPlotBlueprintWorkspace(
   slug: string,
   plotBlueprint: PlotBlueprintArtifact | null,
   selectedChapterNumber: number | null,
@@ -461,7 +461,7 @@ function renderPlotBlueprintWorkspace(
   );
 }
 
-function renderScenePlanWorkspace(
+export function renderScenePlanWorkspace(
   slug: string,
   scenePlan: ScenePlanArtifact | null,
   plotBlueprint: PlotBlueprintArtifact | null,
@@ -870,7 +870,7 @@ function renderDraftWorkspace(
   );
 }
 
-function renderVersionsPanel(workspace: Awaited<ReturnType<typeof getFictionStageWorkspace>>) {
+export function renderVersionsPanel(workspace: Awaited<ReturnType<typeof getFictionStageWorkspace>>) {
   return (
     <div className="card">
       <div className="label">Versions</div>

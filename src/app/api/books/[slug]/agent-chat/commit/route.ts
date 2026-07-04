@@ -4,6 +4,7 @@ import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
 import { notifyStageCommitted, triggerPreLaunch, syncBookToJarvis, notifyPostProductionCommitted } from "@/lib/jarvis/client";
+import { scheduleStructuredExtraction } from "@/lib/workflows/structured-extraction";
 
 interface ArtifactDraft {
   type: string;
@@ -21,7 +22,6 @@ const STAGE_ARTIFACT_TYPE: Partial<Record<StageKey, ArtifactType>> = {
   // Nonfiction core
   BOOK_SETUP:       ArtifactType.BOOK_SETUP_PROFILE,
   PROMISE:          ArtifactType.PROMISE_BRIEF,
-  AUDIENCE:         ArtifactType.AUDIENCE_RESEARCH,
   MARKET_ANALYSIS:  ArtifactType.MARKET_REPORT,
   OUTLINE:          ArtifactType.OUTLINE,
   BASE_STORY:       ArtifactType.BASE_STORY,
@@ -33,12 +33,8 @@ const STAGE_ARTIFACT_TYPE: Partial<Record<StageKey, ArtifactType>> = {
   EDITING:          ArtifactType.EDITORIAL_ASSESSMENT,
   TYPESET:          ArtifactType.TYPESET_PACKAGE,
   // Post-production
-  LAUNCH_LISTING:   ArtifactType.LAUNCH_LISTING_PACKAGE,
-  PRESS_KIT:        ArtifactType.PRESS_KIT_PACKAGE,
-  SOCIAL_CAMPAIGN:  ArtifactType.SOCIAL_CAMPAIGN_PACKAGE,
   AUDIO_PREP:       ArtifactType.AUDIO_PREP_PACKAGE,
   COURSE_DESIGN:    ArtifactType.COURSE_DESIGN_PACKAGE,
-  SPEAKING_KIT:     ArtifactType.SPEAKING_KIT_PACKAGE,
   // Fiction
   STORY_SETUP:      ArtifactType.STORY_SETUP_PROFILE,
   STORY_CORE:       ArtifactType.STORY_CORE_BIBLE,
@@ -138,6 +134,24 @@ export async function POST(
       data: { committedVersionId: newVersion.id },
     });
 
+    // Research / External Stories dossiers also get a background structured
+    // extraction pass so the queryable knowledge tables stay in sync.
+    if (stageKey === "RESEARCH" || stageKey === "EXTERNAL_STORIES") {
+      const existingMeta = await db.artifact.findUnique({
+        where: { id: targetArtifactId },
+        select: { metadataJson: true },
+      });
+      const chapterKey =
+        (existingMeta?.metadataJson as Record<string, string> | null)?.chapterKey ?? "book";
+      scheduleStructuredExtraction({
+        kind: stageKey === "RESEARCH" ? "research" : "external-stories",
+        bookId: book.id,
+        chapterKey,
+        versionId: newVersion.id,
+        dossierText: artifact.content,
+      });
+    }
+
     // Mark stage COMMITTED and record the committed artifact version
     await db.bookStage.update({
       where: { id: bookStage.id },
@@ -193,12 +207,8 @@ export async function POST(
 
     // Post-production stages — send committed artifact content to JARVIS
     const POST_PRODUCTION_AGENTS: Partial<Record<string, string>> = {
-      LAUNCH_LISTING:  "Marquee",
-      PRESS_KIT:       "Bureau",
-      SOCIAL_CAMPAIGN: "Dispatch",
       AUDIO_PREP:      "Studio",
       COURSE_DESIGN:   "Podium",
-      SPEAKING_KIT:    "Lectern",
     };
     if (stageKey in POST_PRODUCTION_AGENTS) {
       notifyPostProductionCommitted({

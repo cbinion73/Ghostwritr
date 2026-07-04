@@ -261,14 +261,14 @@ async function processSaveBookSetup(slug: string, formData: FormData) {
 
 export async function saveBookSetupAction(slug: string, formData: FormData) {
   await processSaveBookSetup(slug, formData);
-  revalidatePath(`/books/${slug}/setup`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/promise`);
   revalidatePath(`/books/${slug}/story-setup`);
 }
 
 export async function commitBookSetupAction(slug: string) {
   await commitBookSetupWorkflow(slug);
-  revalidatePath(`/books/${slug}/setup`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/promise`);
   revalidatePath(`/books/${slug}/story-setup`);
 }
@@ -280,15 +280,14 @@ export async function saveAndCommitSetupAction(slug: string, formData: FormData)
   // Then commit it
   await commitBookSetupWorkflow(slug);
 
-  revalidatePath(`/books/${slug}/setup`);
-  revalidatePath(`/books/${slug}/promise`);
+  revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/story-setup`);
 
   const book = await getBookBySlugOrThrow(slug);
   redirect(
     book.workflowType === BookWorkflowType.FICTION
       ? `/books/${slug}/story-setup`
-      : `/books/${slug}/promise`,
+      : `/books/${slug}?stage=PROMISE`,
   );
 }
 
@@ -510,7 +509,7 @@ export async function saveWriterPersonaBlend(
       writerPersonaId: null, // Clear single persona when using blend
     });
 
-    revalidatePath(`/books/${slug}/setup`);
+    revalidatePath(`/books/${slug}`);
     revalidatePath(`/books/${slug}/promise`);
   } catch (error) {
     console.error("[saveWriterPersonaBlend] Error:", error);

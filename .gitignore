@@ -41,3 +41,6 @@ reference-library/
 
 # Local-only DB snapshots (see ROLLBACK.md)
 db-snapshots/
+
+# Local secrets — never commit
+.env

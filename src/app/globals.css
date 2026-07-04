@@ -1,14 +1,27 @@
 :root {
-  --bg: #efe6d6;
-  --panel: rgba(254, 251, 245, 0.78);
-  --panel-solid: #f8f2e8;
-  --paper: #fbf6ef;
-  --ink: #2d241d;
-  --muted: #6f6256;
-  --line: rgba(59, 44, 31, 0.12);
-  --accent: #16384f;
-  --accent-soft: rgba(22, 56, 79, 0.08);
-  --gold: #8f6d32;
+  /* Publishing-house palette: parchment field, bottle-green spine, gilt accents. */
+  --bg: #ece3d0;
+  --panel: rgba(249, 244, 232, 0.78);
+  --panel-solid: #f9f4e8;
+  --paper: #f2ebdc;
+  --ink: #282318;
+  --muted: #5d5544;
+  --line: rgba(59, 44, 31, 0.14);
+  --accent: #163328;
+  --accent-soft: rgba(22, 51, 40, 0.08);
+  --gold: #9a7c39;
+  --gold-bright: #c9a24b;
+  --spine: #163328;
+  --spine-deep: #0e211a;
+  --spine-lit: #1e4234;
+  --spine-ink: #dfd8c4;
+  --spine-dim: #8fa397;
+  --green-ink: #2f5d43;
+  --green-lit: #e4ecdf;
+  --rust: #a5462f;
+  --rust-lit: #f1e0d6;
+  --amber: #b98a2e;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --shadow: 0 18px 60px rgba(79, 57, 34, 0.12);
 }
 
@@ -90,8 +103,22 @@ textarea {
 .stage-chip.active {
   color: var(--accent);
   background: var(--accent-soft);
-  border-color: rgba(22, 56, 79, 0.12);
+  border-color: rgba(22, 51, 40, 0.14);
   font-weight: 600;
+}
+
+/* Small-caps mono metadata label — the publishing-house microlabel. */
+.microlabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+@keyframes ghostwritr-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 .main-column {
@@ -177,8 +204,8 @@ textarea {
 }
 
 .live-feed-item.active {
-  background: rgba(22, 56, 79, 0.07);
-  border-color: rgba(22, 56, 79, 0.14);
+  background: rgba(22, 51, 40, 0.07);
+  border-color: rgba(22, 51, 40, 0.14);
 }
 
 .live-feed-meta {
@@ -248,8 +275,8 @@ textarea {
 }
 
 .message.assistant {
-  background: rgba(22, 56, 79, 0.07);
-  border: 1px solid rgba(22, 56, 79, 0.1);
+  background: rgba(22, 51, 40, 0.07);
+  border: 1px solid rgba(22, 51, 40, 0.1);
 }
 
 .composer {
@@ -340,7 +367,7 @@ textarea {
 .bar {
   height: 10px;
   overflow: hidden;
-  background: rgba(22, 56, 79, 0.08);
+  background: rgba(22, 51, 40, 0.08);
   border-radius: 999px;
 }
 
@@ -348,7 +375,7 @@ textarea {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #8f6d32, #16384f);
+  background: linear-gradient(90deg, #8f6d32, #163328);
 }
 
 .rightbar {
@@ -978,7 +1005,7 @@ select.editor-input {
   margin-inline: -18px;
   padding-inline: 18px;
   border-radius: 12px;
-  background: rgba(22, 56, 79, 0.06);
+  background: rgba(22, 51, 40, 0.06);
 }
 
 .toc-link {
@@ -1030,8 +1057,8 @@ select.editor-input {
 }
 
 .toc-subentry.selected {
-  border-color: rgba(22, 56, 79, 0.14);
-  background: rgba(22, 56, 79, 0.08);
+  border-color: rgba(22, 51, 40, 0.14);
+  background: rgba(22, 51, 40, 0.08);
 }
 
 .toc-subtitle {
@@ -1193,8 +1220,8 @@ select.editor-input {
 .story-entry-emotions span {
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(22, 56, 79, 0.08);
-  border: 1px solid rgba(22, 56, 79, 0.12);
+  background: rgba(22, 51, 40, 0.08);
+  border: 1px solid rgba(22, 51, 40, 0.12);
   font-size: 0.88rem;
   color: var(--muted);
 }
@@ -1284,8 +1311,8 @@ select.editor-input {
 }
 
 .chapter-list-item.selected {
-  border-color: rgba(22, 56, 79, 0.18);
-  background: rgba(22, 56, 79, 0.08);
+  border-color: rgba(22, 51, 40, 0.18);
+  background: rgba(22, 51, 40, 0.08);
 }
 
 .chapter-list-header {

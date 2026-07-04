@@ -21,6 +21,7 @@ import {
   parseMetadataRecord,
 } from "../artifact-schemas";
 import { getModelForRole } from "../llm/routing";
+import { buildCachedSystemBlocks } from "../llm/providers";
 import type { BaseStoryBundle, BaseStoryChapter } from "../base-story-types";
 import type { BookSetupProfile, WriterPersonaBlend } from "../book-setup-types";
 import { CANONICAL_PERSONAS } from "../personas";
@@ -50,6 +51,10 @@ import {
   getChapterArtifactVersions,
 } from "../repositories/chapter-draft-artifacts";
 import { getCommittedBaseStory } from "../repositories/base-story-artifacts";
+import {
+  buildResearchDossierFromStructuredRows,
+  buildExternalStoryDossierFromStructuredRows,
+} from "../repositories/structured-dossiers";
 import {
   getCommittedExternalStoryPack,
   getExternalStoryPackVersions,
@@ -123,6 +128,11 @@ const DraftSchema = z.object({
     externalStories: z.array(z.string()).default([]),
     personalStories: z.array(z.string()).default([]),
     baseStory: z.array(z.string()).default([]),
+    // Citation trace: the exact `id` values (from the research/externalStories
+    // input arrays) the author actually wove into the prose. Enables the
+    // linked-notes brain to distinguish "available" from "used".
+    researchItemIds: z.array(z.string()).default([]),
+    externalStoryItemIds: z.array(z.string()).default([]),
   }),
 });
 
@@ -201,18 +211,28 @@ async function getVoiceGuardCriticModel() {
 
 async function getCommittedResearchDossier(bookId: string, chapterKey: string) {
   const committed = await getCommittedResearchPack(bookId, chapterKey);
-  if (committed) {
-    return parseJson<ChapterResearchDossier | null>(committed.contentJson, null);
+  const parsed = committed
+    ? parseJson<ChapterResearchDossier | null>(committed.contentJson, null)
+    : null;
+  // Legacy dossiers are {text} blobs — only trust the parse when it actually
+  // has the structured shape. Otherwise fall back to the structured tables
+  // populated by the background extraction pass, so blob-era research still
+  // reaches the author model.
+  if (parsed && Array.isArray(parsed.factBank)) {
+    return parsed;
   }
-  return null;
+  return buildResearchDossierFromStructuredRows(bookId, chapterKey, chapterKey);
 }
 
 async function getCommittedExternalStoriesDossier(bookId: string, chapterKey: string) {
   const committed = await getCommittedExternalStoryPack(bookId, chapterKey);
-  if (committed) {
-    return parseJson<ChapterExternalStoryDossier | null>(committed.contentJson, null);
+  const parsed = committed
+    ? parseJson<ChapterExternalStoryDossier | null>(committed.contentJson, null)
+    : null;
+  if (parsed && Array.isArray(parsed.storyCandidates)) {
+    return parsed;
   }
-  return null;
+  return buildExternalStoryDossierFromStructuredRows(bookId, chapterKey, chapterKey);
 }
 
 async function getCommittedBaseStoryBundle(bookId: string) {
@@ -923,6 +943,43 @@ function countMandateHits(text: string, values: string[]) {
   }).length;
 }
 
+/**
+ * Run-stable book context — identical for every chapter in a workflow run,
+ * so it lives in the cached system prefix (Anthropic prompt caching) instead
+ * of being re-sent at full input price inside each per-chapter packet.
+ */
+function buildSharedBookContextJson(
+  promise: PromiseBrief,
+  bookSetupProfile: BookSetupProfile | null,
+  baseStory: BaseStoryBundle | null,
+): string {
+  const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
+  const shared = {
+    promise,
+    bookSetupProfile: bookSetupProfile
+      ? {
+          writerPersona: bookSetupProfile.writerPersona,
+          writerPersonaGuidance: bookSetupProfile.writerPersonaGuidance ?? [],
+          voiceReferenceNotes: bookSetupProfile.voiceReferenceNotes,
+          notesToSystem: bookSetupProfile.notesToSystem,
+        }
+      : null,
+    voice: {
+      dominantPersona: framework.dominantPersona,
+      frameworkName: framework.name,
+      frameworkFlow: framework.flow.map((step) => ({ slot: step.slot, prompt: step.prompt })),
+    },
+    baseStoryBook: baseStory
+      ? {
+          storyPremise: baseStory.storyPremise,
+          bookThread: baseStory.bookThread,
+          movement: baseStory.bookMovement,
+        }
+      : null,
+  };
+  return `SHARED BOOK CONTEXT (identical for every chapter in this run):\n${JSON.stringify(shared)}`;
+}
+
 function buildAuthorInputPacket(
   promise: PromiseBrief,
   context: ChapterContext,
@@ -1210,6 +1267,7 @@ Hard rules:
 - write actual Lean Labs manuscript prose
 - keep the meaning, chapter structure, and source-backed ideas
 - integrate research and stories naturally instead of naming sources
+- copy the input draft's sourceUsage object through unchanged (including researchItemIds and externalStoryItemIds)
       `),
       new HumanMessage(
         JSON.stringify({
@@ -1244,6 +1302,8 @@ function normalizeDraftResult(
       externalStories?: string[];
       personalStories?: string[];
       baseStory?: string[];
+      researchItemIds?: string[];
+      externalStoryItemIds?: string[];
     };
   },
 ): ChapterDraftBundle {
@@ -1274,6 +1334,8 @@ function normalizeDraftResult(
       externalStories: result.sourceUsage.externalStories ?? [],
       personalStories: result.sourceUsage.personalStories ?? [],
       baseStory: result.sourceUsage.baseStory ?? [],
+      researchItemIds: result.sourceUsage.researchItemIds ?? [],
+      externalStoryItemIds: result.sourceUsage.externalStoryItemIds ?? [],
     },
     quality: {
       score: 0,
@@ -1564,8 +1626,20 @@ async function generateDraft(
     );
     const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
     const frameworkSlots = renderFrameworkSlotsForPrompt(framework);
+    // Shared book context is byte-identical across chapters — cached prefix.
+    // Per-chapter packet drops the shared fields so they aren't re-sent.
+    const sharedContext = buildSharedBookContextJson(promise, bookSetupProfile, baseStory);
+    const {
+      promise: _sharedPromise,
+      bookSetupProfile: _sharedProfile,
+      voice: _sharedVoice,
+      baseStoryBook: _sharedBaseStory,
+      ...chapterInput
+    } = authorInput;
     const result = await structured.invoke([
-      new SystemMessage(`
+      new SystemMessage({
+        content: buildCachedSystemBlocks(
+          `
 You are a ghostwriter writing a finished nonfiction book chapter for a real author.
 
 Your job is to write the best, most human chapter you can from the material available to you.
@@ -1605,8 +1679,18 @@ ${frameworkSlots}
 - if a story helps, tell only the part that earns its place in the chapter
 - satisfy the source-weave plan when material is available: normally absorb at least one concrete research anchor, one outside story or case, one relevant personal-story beat, and the base-story thread when those inputs exist
 - keep the chapter mandate alive on the page so the prose clearly carries the intended chapter purpose, thread role, and paragraph-level movement
-      `),
-      new HumanMessage(JSON.stringify(authorInput)),
+
+Citation trace (required):
+- every research entry and external story in your input carries an "id" field
+- in sourceUsage.researchItemIds, list the exact id of every research entry whose substance you actually used in the prose
+- in sourceUsage.externalStoryItemIds, list the exact id of every external story you actually told or referenced
+- copy ids verbatim; never invent ids; leave the arrays empty if you used none
+      `,
+          sharedContext,
+          "1h",
+        ),
+      }),
+      new HumanMessage(JSON.stringify(chapterInput)),
     ]);
 
     return normalizeDraftResult(context, result);
@@ -1665,7 +1749,9 @@ async function reviewDraft(
   try {
     const structured = model.withStructuredOutput(ReviewSchema);
     const result = await structured.invoke([
-      new SystemMessage(`
+      new SystemMessage({
+        content: buildCachedSystemBlocks(
+          `
 You are the editorial feedback agent for a ghostwriting platform.
 
 Review the draft like a sharp editor.
@@ -1678,10 +1764,13 @@ Rules:
 - flag paragraphs that never turn from evidence into consequence, interpretation, or implication
 - prefer specific, actionable revision notes
 - be tough but fair
-      `),
+      `,
+          `SHARED BOOK CONTEXT (identical for every chapter in this run):\n${JSON.stringify({ promise })}`,
+          "1h",
+        ),
+      }),
       new HumanMessage(
         JSON.stringify({
-          promise,
           chapter: context.chapter,
           sourceWeaveFocus,
           draft,
@@ -1751,8 +1840,18 @@ async function reviseDraft(
     );
     const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
     const frameworkSlots = renderFrameworkSlotsForPrompt(framework);
+    const sharedContext = buildSharedBookContextJson(promise, bookSetupProfile, baseStory);
+    const {
+      promise: _sharedPromise,
+      bookSetupProfile: _sharedProfile,
+      voice: _sharedVoice,
+      baseStoryBook: _sharedBaseStory,
+      ...chapterInput
+    } = authorInput;
     const result = await structured.invoke([
-      new SystemMessage(`
+      new SystemMessage({
+        content: buildCachedSystemBlocks(
+          `
 Revise the chapter draft using the editorial feedback.
 
 Hard rules:
@@ -1769,10 +1868,15 @@ Hard rules:
 ${frameworkSlots}
 - if research, outside stories, personal stories, or the base-story thread are available, make sure the revision uses the strongest ones intentionally rather than leaving them idle
 - make each paragraph earn itself by moving from assertion into consequence, interpretation, or real-world implication
-      `),
+- keep sourceUsage accurate: carry the input draft's researchItemIds/externalStoryItemIds forward, adding or removing ids only when the revision actually adds or drops that material
+      `,
+          sharedContext,
+          "1h",
+        ),
+      }),
       new HumanMessage(
         JSON.stringify({
-          authorInput,
+          authorInput: chapterInput,
           draft,
           review,
         }),
@@ -1828,6 +1932,7 @@ Rules:
 - if the chapter is far too short, add substantial developed prose, not filler
 - each paragraph should do real explanatory, narrative, or persuasive work
 - never answer with notes about the target; return only finished book prose
+- copy the input draft's sourceUsage object through unchanged (including researchItemIds and externalStoryItemIds)
       `),
         new HumanMessage(
           JSON.stringify({

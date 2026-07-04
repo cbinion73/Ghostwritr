@@ -39,6 +39,20 @@ export async function listActiveWorkflowRunsForStage(bookId: string, stageKey: S
   });
 }
 
+/** All QUEUED/RUNNING runs for a book, any stage — powers the activity ticker. */
+export async function listActiveWorkflowRunsForBook(bookId: string) {
+  return db.workflowRun.findMany({
+    where: {
+      bookId,
+      status: {
+        in: [WorkflowRunStatus.QUEUED, WorkflowRunStatus.RUNNING],
+      },
+    },
+    include: { stage: true },
+    orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+  });
+}
+
 export async function createWorkflowRun(params: {
   bookId: string;
   stageKey: StageKey;

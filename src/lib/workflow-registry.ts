@@ -30,12 +30,6 @@ const NONFICTION_WORKFLOW: WorkflowDefinition = {
       description: "Refine the book promise, audience, truth, market, and pitch.",
     },
     {
-      key: StageKey.AUDIENCE,
-      label: "Audience",
-      href: (slug) => `/books/${slug}/audience`,
-      description: "Target reader: role, pain, and motivations.",
-    },
-    {
       key: StageKey.MARKET_ANALYSIS,
       label: "Market Viability",
       href: (slug) => `/books/${slug}/market-analysis`,
@@ -96,24 +90,6 @@ const NONFICTION_WORKFLOW: WorkflowDefinition = {
       description: "KDP and B&N Press formatting, ISBN, front matter, and cover brief.",
     },
     {
-      key: StageKey.LAUNCH_LISTING,
-      label: "Launch Listing",
-      href: (slug) => `/books/${slug}/launch-listing`,
-      description: "Amazon/KDP retail copy, keywords, and category strategy.",
-    },
-    {
-      key: StageKey.PRESS_KIT,
-      label: "Press Kit",
-      href: (slug) => `/books/${slug}/press-kit`,
-      description: "Media kit, author bio, talking points, and interview Q&A.",
-    },
-    {
-      key: StageKey.SOCIAL_CAMPAIGN,
-      label: "Social Campaign",
-      href: (slug) => `/books/${slug}/social-campaign`,
-      description: "30-day launch content calendar across all platforms.",
-    },
-    {
       key: StageKey.AUDIO_PREP,
       label: "Audio Prep",
       href: (slug) => `/books/${slug}/audio-prep`,
@@ -124,12 +100,6 @@ const NONFICTION_WORKFLOW: WorkflowDefinition = {
       label: "Course Design",
       href: (slug) => `/books/${slug}/course-design`,
       description: "Online course structure, modules, exercises, and platform selection.",
-    },
-    {
-      key: StageKey.SPEAKING_KIT,
-      label: "Speaking Kit",
-      href: (slug) => `/books/${slug}/speaking-kit`,
-      description: "Keynote outline, speaker bio variants, one-sheet, and session descriptions.",
     },
   ],
 };
@@ -151,16 +121,16 @@ const FICTION_WORKFLOW: WorkflowDefinition = {
       description: "The story premise and reader promise.",
     },
     {
-      key: StageKey.AUDIENCE,
-      label: "Audience",
-      href: (slug) => `/books/${slug}/audience`,
-      description: "Target reader: role, pain, and motivations.",
-    },
-    {
       key: StageKey.MARKET_ANALYSIS,
       label: "Market Viability",
       href: (slug) => `/books/${slug}/market-analysis`,
       description: "11-dimension scoring, hard gate at 3.5/5.",
+    },
+    {
+      key: StageKey.STORY_SETUP,
+      label: "Story Setup",
+      href: (slug) => `/books/${slug}/story-setup`,
+      description: "Story question, voice, genre, and premise.",
     },
     {
       key: StageKey.STORY_CORE,
@@ -205,24 +175,6 @@ const FICTION_WORKFLOW: WorkflowDefinition = {
       description: "KDP and B&N Press formatting, ISBN, front matter, and cover brief.",
     },
     {
-      key: StageKey.LAUNCH_LISTING,
-      label: "Launch Listing",
-      href: (slug) => `/books/${slug}/launch-listing`,
-      description: "Amazon/KDP retail copy, keywords, and category strategy.",
-    },
-    {
-      key: StageKey.PRESS_KIT,
-      label: "Press Kit",
-      href: (slug) => `/books/${slug}/press-kit`,
-      description: "Media kit, author bio, talking points, and interview Q&A.",
-    },
-    {
-      key: StageKey.SOCIAL_CAMPAIGN,
-      label: "Social Campaign",
-      href: (slug) => `/books/${slug}/social-campaign`,
-      description: "30-day launch content calendar across all platforms.",
-    },
-    {
       key: StageKey.AUDIO_PREP,
       label: "Audio Prep",
       href: (slug) => `/books/${slug}/audio-prep`,
@@ -233,12 +185,6 @@ const FICTION_WORKFLOW: WorkflowDefinition = {
       label: "Course Design",
       href: (slug) => `/books/${slug}/course-design`,
       description: "Online course structure, modules, exercises, and platform selection.",
-    },
-    {
-      key: StageKey.SPEAKING_KIT,
-      label: "Speaking Kit",
-      href: (slug) => `/books/${slug}/speaking-kit`,
-      description: "Keynote outline, speaker bio variants, one-sheet, and session descriptions.",
     },
   ],
 };
@@ -266,34 +212,10 @@ const WORKBOOK_WORKFLOW: WorkflowDefinition = {
       description: "KDP and B&N Press formatting, ISBN, front matter, and cover brief.",
     },
     {
-      key: StageKey.LAUNCH_LISTING,
-      label: "Launch Listing",
-      href: (slug) => `/books/${slug}/launch-listing`,
-      description: "Amazon/KDP retail copy, keywords, and category strategy.",
-    },
-    {
-      key: StageKey.PRESS_KIT,
-      label: "Press Kit",
-      href: (slug) => `/books/${slug}/press-kit`,
-      description: "Media kit, author bio, talking points, and interview Q&A.",
-    },
-    {
-      key: StageKey.SOCIAL_CAMPAIGN,
-      label: "Social Campaign",
-      href: (slug) => `/books/${slug}/social-campaign`,
-      description: "30-day launch content calendar across all platforms.",
-    },
-    {
       key: StageKey.AUDIO_PREP,
       label: "Audio Prep",
       href: (slug) => `/books/${slug}/audio-prep`,
       description: "ACX audiobook package: checklist, recording notes, pronunciation guide.",
-    },
-    {
-      key: StageKey.SPEAKING_KIT,
-      label: "Speaking Kit",
-      href: (slug) => `/books/${slug}/speaking-kit`,
-      description: "Keynote outline, speaker bio variants, one-sheet, and session descriptions.",
     },
   ],
 };

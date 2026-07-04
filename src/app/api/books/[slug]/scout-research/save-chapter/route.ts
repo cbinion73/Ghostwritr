@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { scheduleStructuredExtraction } from "@/lib/workflows/structured-extraction";
 
 // GET — return all saved research dossiers for this book's RESEARCH stage
 export async function GET(
@@ -90,6 +91,16 @@ export async function POST(
   await db.artifact.update({
     where: { id: artifact.id },
     data: { currentVersionId: version.id },
+  });
+
+  // Background pass: parse the dossier text into structured ResearchItem/
+  // ResearchSource rows so citation-tracing and linked notes have real data.
+  scheduleStructuredExtraction({
+    kind: "research",
+    bookId: book.id,
+    chapterKey,
+    versionId: version.id,
+    dossierText: content,
   });
 
   return NextResponse.json({ success: true, artifactId: artifact.id });

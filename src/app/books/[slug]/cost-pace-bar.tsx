@@ -65,9 +65,15 @@ export function CostPaceBar({ slug }: { slug: string }) {
   };
 
   return (
-    <div>
+    <div style={{ position: "relative" }}>
       <div style={rowStyle}>
-        <span style={labelStyle}>LLM cost ({usage.totalCalls} calls)</span>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{ ...labelStyle, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+          title="Toggle per-role cost breakdown"
+        >
+          LLM cost ({usage.totalCalls} calls) {usage.breakdown.length > 0 ? (expanded ? "▴" : "▾") : ""}
+        </button>
         <a
           href={`/books/${slug}/cost-analysis`}
           style={{ ...valueStyle, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,0.25)" }}
@@ -81,8 +87,22 @@ export function CostPaceBar({ slug }: { slug: string }) {
         <span style={{ ...valueStyle, fontWeight: 400 }}>{fmtTokens(usage.totalTokens)}</span>
       </div>
 
-      {usage.breakdown.length > 0 && (
-        <div style={expandedPanelStyle}>
+      {expanded && usage.breakdown.length > 0 && (
+        <div
+          style={{
+            ...expandedPanelStyle,
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            zIndex: 60,
+            minWidth: 240,
+            padding: "10px 12px",
+            background: "#1a1410",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 6,
+            boxShadow: "0 8px 20px rgba(0,0,0,0.4)",
+          }}
+        >
           {usage.breakdown.map((row) => (
             <div
               key={row.stageRole}

@@ -43,6 +43,20 @@ export async function saveBookSetupWorkflow(bookSlug: string, profile: BookSetup
 
 export async function commitBookSetupWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
+
+  // The Studio's standalone "Commit Setup" button carries no form data — it
+  // commits whatever was last saved. On a brand-new book nothing has been
+  // saved yet, so seed a default profile (same fallback the workspace read
+  // path already uses) instead of failing with "No Book Setup profile
+  // exists yet."
+  const existingVersions = await getBookSetupVersions(book.id, 1);
+  if (existingVersions.length === 0) {
+    await createBookSetupVersion({
+      bookId: book.id,
+      profile: { ...DEFAULT_BOOK_SETUP_PROFILE, workingTitle: book.titleWorking ?? "" },
+    });
+  }
+
   const committedStage = await commitBookSetup(book.id);
   const committedVersion = await getCommittedBookSetup(book.id);
   const committedProfile = parseStoredJson<BookSetupProfile>(

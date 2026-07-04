@@ -47,6 +47,7 @@ import type {
   TransformationArtifact,
 } from "../promise-types";
 import type { BookSetupProfile } from "../book-setup-types";
+import { DEFAULT_BOOK_SETUP_PROFILE } from "../book-setup-types";
 
 const PromiseBriefSchema = z.object({
   workingTitle: z.string(),
@@ -1424,6 +1425,21 @@ function parseArtifactJson<T>(value: unknown, fallback: T): T {
   return fallback;
 }
 
+/**
+ * Committed BOOK_SETUP_PROFILE artifacts come in two shapes: the structured
+ * profile (settings form / seeded default) and a markdown {text} blob
+ * (Blueprint chat commits). Blind-casting the blob crashed every downstream
+ * field access — shallow-merging over defaults gives all consumers the full
+ * profile shape either way, and also backfills fields added after older
+ * profiles were saved.
+ */
+function normalizeBookSetupProfile(value: unknown): BookSetupProfile | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return { ...DEFAULT_BOOK_SETUP_PROFILE, ...(value as Partial<BookSetupProfile>) };
+}
+
 function formatSetupContextForPrompt(profile?: BookSetupProfile | null) {
   if (!profile) {
     return "No committed book setup profile is available yet.";
@@ -2344,7 +2360,7 @@ function fallbackPromiseExtraction(
     stakes:
       "without clarity, teams waste effort, miss outcomes, and lose confidence in the work",
     tone:
-      bookSetupProfile?.voiceReferenceNotes.length
+      bookSetupProfile?.voiceReferenceNotes?.length
         ? ["clear", "grounded", "practical", ...bookSetupProfile.voiceReferenceNotes.slice(0, 2)]
         : ["clear", "grounded", "practical", "credible"],
     openQuestions: [
@@ -8480,10 +8496,7 @@ async function loadContextNode(state: PromiseWorkflowState) {
   return {
     bookId: book.id,
     stageId: stage?.id,
-    bookSetupProfile: parseArtifactJson<BookSetupProfile | null>(
-      committedBookSetup?.contentJson,
-      null,
-    ),
+    bookSetupProfile: normalizeBookSetupProfile(committedBookSetup?.contentJson),
     referenceMaterials: referenceDocuments.map((document) => ({
       id: document.id,
       title: document.title,
@@ -8756,10 +8769,7 @@ export async function getPromiseWorkspace(bookSlug: string) {
     artifactMap.get(ArtifactType.PROMISE_CHAT)?.versions[0]?.contentJson,
     { messages: [] },
   );
-  const bookSetupProfile = parseArtifactJson<BookSetupProfile | null>(
-    bookSetupVersion?.contentJson,
-    null,
-  );
+  const bookSetupProfile = normalizeBookSetupProfile(bookSetupVersion?.contentJson);
   const promiseBrief = parseArtifactJson<PromiseBrief>(
     artifactMap.get(ArtifactType.PROMISE_BRIEF)?.versions[0]?.contentJson,
     fallbackPromiseExtraction(

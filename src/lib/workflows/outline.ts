@@ -17,6 +17,7 @@ import {
   type OutlinePhaseMapping,
 } from "../outline-types";
 import type { BookSetupProfile } from "../book-setup-types";
+import { DEFAULT_BOOK_SETUP_PROFILE } from "../book-setup-types";
 import type { BookPromiseReport, PromiseBrief } from "../promise-types";
 import { getBookBySlugOrThrow, getOrCreateBookBySlug, getStageForBook } from "../repositories/books";
 import {
@@ -282,6 +283,18 @@ function parseJson<T>(value: unknown, fallback: T): T {
   }
 
   return fallback;
+}
+
+/**
+ * Committed BOOK_SETUP_PROFILE artifacts come in two shapes: the structured
+ * profile and a markdown {text} blob (Blueprint chat commits). Shallow-merge
+ * over defaults so downstream field access never hits undefined.
+ */
+function normalizeBookSetupProfile(value: unknown): BookSetupProfile | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return { ...DEFAULT_BOOK_SETUP_PROFILE, ...(value as Partial<BookSetupProfile>) };
 }
 
 function objectRecord(value: unknown): Record<string, unknown> {
@@ -1732,7 +1745,7 @@ async function loadPromiseNode(state: OutlineWorkflowState) {
   const committedBookSetup = await getCommittedBookSetup(book.id);
   const promiseArtifacts = await getPromiseArtifacts(book.id);
   const committedPromise = parseJson<PromiseBrief | null>(committedPromiseVersion?.contentJson, null);
-  const bookSetupProfile = parseJson<BookSetupProfile | null>(committedBookSetup?.contentJson, null);
+  const bookSetupProfile = normalizeBookSetupProfile(committedBookSetup?.contentJson);
   const bookPromiseReportArtifact = promiseArtifacts.find(
     (artifact) => artifact.artifactType === ArtifactType.BOOK_PROMISE_REPORT,
   );
@@ -1883,10 +1896,7 @@ export async function getOutlineWorkspace(bookSlug: string) {
     committedPromiseVersion?.contentJson,
     null,
   );
-  const bookSetupProfile = parseJson<BookSetupProfile | null>(
-    committedBookSetup?.contentJson,
-    null,
-  );
+  const bookSetupProfile = normalizeBookSetupProfile(committedBookSetup?.contentJson);
   const bookPromiseReportArtifact = promiseArtifacts.find(
     (artifact) => artifact.artifactType === ArtifactType.BOOK_PROMISE_REPORT,
   );

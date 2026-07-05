@@ -2138,6 +2138,27 @@ export async function processWorkflowRun(runId: string) {
   }
 }
 
+// Ground truth for "what still needs work" — a chapter with no saved
+// dossier version yet either failed outright or was simply never reached
+// (e.g. the run died mid-flight without marking it failed, the exact gap
+// that let an orphaned run's remaining chapters go unrecovered). Checking
+// actual saved versions rather than trusting only the in-memory
+// failedChapters list means resume can't miss chapters silently dropped
+// by a dead run.
+export async function getUnfinishedResearchChapterKeys(bookId: string): Promise<string[]> {
+  const { chapterSeeds } = await getResearchChapterSeeds(bookId);
+  if (chapterSeeds.length === 0) return [];
+
+  const latestVersionsByChapter = await getLatestResearchPackVersionsByChapter(
+    bookId,
+    chapterSeeds.map((chapter) => chapter.chapterKey),
+  );
+
+  return chapterSeeds
+    .filter((chapter) => !latestVersionsByChapter.has(chapter.chapterKey))
+    .map((chapter) => chapter.chapterKey);
+}
+
 export async function enqueueAndTriggerFullResearchWorkflow(
   bookSlug: string,
   trigger: (runId: string) => void,

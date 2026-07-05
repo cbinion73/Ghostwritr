@@ -1300,6 +1300,24 @@ export async function processExternalStoriesWorkflowRun(runId: string) {
   }
 }
 
+// See getUnfinishedResearchChapterKeys in research.ts for why this checks
+// saved versions rather than trusting only the in-memory failedChapters
+// list — a chapter a dead run never reached is indistinguishable from one
+// that's still pending unless we check what's actually been saved.
+export async function getUnfinishedExternalStoriesChapterKeys(bookId: string): Promise<string[]> {
+  const { chapterSeeds } = await getChapterSeeds(bookId);
+  if (chapterSeeds.length === 0) return [];
+
+  const latestVersionsByChapter = await getLatestExternalStoryPackVersionsByChapter(
+    bookId,
+    chapterSeeds.map((chapter) => chapter.chapterKey),
+  );
+
+  return chapterSeeds
+    .filter((chapter) => !latestVersionsByChapter.has(chapter.chapterKey))
+    .map((chapter) => chapter.chapterKey);
+}
+
 export async function enqueueAndTriggerFullExternalStoriesWorkflow(
   bookSlug: string,
   trigger: (runId: string) => void,

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PromiseComposer } from "./promise-composer";
 import { PromiseWorkflowWatcher } from "./promise-workflow-watcher";
+import { PromiseReplyStream } from "./promise-reply-stream";
 import type { PromiseMessage } from "@/lib/promise-types";
 
 interface ChatSidebarProps {
@@ -77,11 +78,16 @@ export function ChatSidebar({
                   ))}
                 </div>
               )}
+              <PromiseReplyStream slug={slug} active={isWaitingForReply} />
               {isWaitingForReply && (
-                <div style={styles.thinking}>
-                  <span style={styles.thinkingDot} />
-                  Reading your message and updating the promise…
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setArmed(null)}
+                  style={styles.cancelWaitButton}
+                  title="Stop waiting — the reply may still land in the background, but you can send a new message now"
+                >
+                  Cancel waiting
+                </button>
               )}
             </div>
 
@@ -164,26 +170,6 @@ const styles = {
     padding: "20px",
     textAlign: "center" as const,
   },
-  thinking: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    alignSelf: "flex-start",
-    padding: "10px 14px",
-    borderRadius: "8px",
-    fontSize: "12.5px",
-    fontStyle: "italic",
-    color: "var(--muted, #6f6256)",
-    backgroundColor: "var(--paper, #fbf6ef)",
-  },
-  thinkingDot: {
-    display: "inline-block",
-    width: "7px",
-    height: "7px",
-    borderRadius: "50%",
-    backgroundColor: "var(--gold, #8f6d32)",
-    animation: "ghostwritr-pulse 1.4s ease-in-out infinite",
-  },
   emptyText: {
     color: "var(--muted, #6f6256)",
     fontSize: "13px",
@@ -220,5 +206,15 @@ const styles = {
     padding: "16px",
     backgroundColor: "var(--paper, #fbf6ef)",
     flexShrink: 0,
+  },
+  cancelWaitButton: {
+    alignSelf: "flex-start" as const,
+    background: "none",
+    border: "none",
+    padding: "2px 4px",
+    fontSize: "11.5px",
+    color: "var(--muted, #6f6256)",
+    textDecoration: "underline",
+    cursor: "pointer",
   },
 };

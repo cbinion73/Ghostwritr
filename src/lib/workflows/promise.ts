@@ -3294,6 +3294,7 @@ async function maybeGenerateAssistantReplyWithSetup(
     mimeType: string;
     note: string;
   }>,
+  bookSlug?: string,
 ) {
   const model = await getChatModel();
 
@@ -3302,8 +3303,7 @@ async function maybeGenerateAssistantReplyWithSetup(
     return fallbackAssistantReply(messages, bookSetupProfile);
   }
 
-
-  const response = await model.invoke([
+  const inputMessages = [
     new SystemMessage(
       `${PROMISE_CONVERSATION_SYSTEM_PROMPT}\n\nCommitted Book Setup Context:\n${formatSetupContextForPrompt(
         bookSetupProfile,
@@ -3314,7 +3314,44 @@ async function maybeGenerateAssistantReplyWithSetup(
         ? new HumanMessage(message.content)
         : new AIMessage(message.content),
     ),
-  ]);
+  ];
+
+  // This is a plain chat call (no withStructuredOutput) — real token
+  // streaming works here, unlike the structured-output calls elsewhere in
+  // this file, which buffer to a single chunk regardless of .stream() vs
+  // .invoke() (verified directly against the Anthropic client). Streaming
+  // into the live buffer lets the Refine sidebar show the reply appearing
+  // word-by-word instead of a static "thinking" indicator, at no extra
+  // token cost — it's the same generation, just surfaced as it arrives.
+  if (bookSlug) {
+    try {
+      const { startPromiseReplyStream, appendPromiseReplyChunk, finishPromiseReplyStream } =
+        await import("./promise-reply-stream-tracker");
+      startPromiseReplyStream(bookSlug);
+      let full = "";
+      const stream = await model.stream(inputMessages);
+      for await (const chunk of stream) {
+        const piece =
+          typeof chunk.content === "string"
+            ? chunk.content
+            : chunk.content.map((part) => ("text" in part ? part.text : "")).join("");
+        if (piece) {
+          full += piece;
+          appendPromiseReplyChunk(bookSlug, piece);
+        }
+      }
+      finishPromiseReplyStream(bookSlug);
+      if (full.trim().length > 0) {
+        return full;
+      }
+      // Empty stream (e.g. provider returned nothing) — fall through to a
+      // non-streaming retry rather than return blank content.
+    } catch (error) {
+      console.error("[promise] Streaming reply failed, falling back to non-streaming call:", error);
+    }
+  }
+
+  const response = await model.invoke(inputMessages);
 
   return typeof response.content === "string"
     ? response.content
@@ -8613,6 +8650,7 @@ async function generatePromiseReplyNode(state: PromiseWorkflowState) {
     state.conversationMessages,
     state.bookSetupProfile,
     state.referenceMaterials,
+    state.bookSlug,
   );
 
   return {

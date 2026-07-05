@@ -566,7 +566,14 @@ async function wasWorkflowCanceled(runId?: string | null) {
 const REAL_CHAPTER_RE = /^(introduction|epilogue|prologue|conclusion|closing|afterword|foreword|preface|chapter\s+\d+)/i;
 
 function isRealChapter(title: string): boolean {
-  return REAL_CHAPTER_RE.test(title.trim());
+  // REAL_CHAPTER_RE matches generic/structural labels (front-matter words,
+  // bare "Chapter N" placeholders) — a title matches when it's NOT one of
+  // those, i.e. when it's a real, descriptively-titled chapter. This was
+  // inverted (missing the `!`) for every book, which meant any chapter with
+  // a normal narrative title (the overwhelming majority) was excluded —
+  // zero chapters ever reached Research or External Stories generation,
+  // and the "Generate" button stayed disabled regardless of upstream state.
+  return !REAL_CHAPTER_RE.test(title.trim());
 }
 
 function getWorkspaceChapterSeeds(

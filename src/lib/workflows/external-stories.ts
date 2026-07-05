@@ -501,8 +501,12 @@ async function getChapterSeeds(bookId: string) {
 
   // Only run external stories for real narrative chapters — skip section headers
   // like "Big question: ...", "Pillars: ...", "Full Book Outline" etc.
+  // REAL_CHAPTER_RE matches generic/structural labels, so a title is real
+  // when it does NOT match — this was missing the negation, which excluded
+  // every normally-titled chapter (the vast majority of any book) instead
+  // of just the generic placeholders it was meant to skip.
   const REAL_CHAPTER_RE = /^(introduction|epilogue|prologue|conclusion|closing|afterword|foreword|preface|chapter\s+\d+)/i;
-  const isRealChapter = (title: string) => REAL_CHAPTER_RE.test(title.trim());
+  const isRealChapter = (title: string) => !REAL_CHAPTER_RE.test(title.trim());
 
   if (paragraph) {
     return {

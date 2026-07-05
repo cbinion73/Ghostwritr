@@ -953,10 +953,14 @@ async function extractItemsFromSource(
     const itemType: ResearchItemType =
       /\d/.test(sentence) ? "STATISTIC" : index === 0 ? "FACT" : "EXAMPLE";
 
+    // A real sentence is at most a few hundred characters — this cap is a
+    // defensive backstop (fetchWebPage now rejects non-HTML content, the
+    // usual cause) so a page with no normal punctuation can never again
+    // turn one "sentence" into an unbounded, multi-megabyte claimText.
     return {
       id: `${source.id}-item-${index + 1}`,
       itemType,
-      claimText: sentence.trim(),
+      claimText: sentence.trim().slice(0, 600),
       evidenceExcerpt: sentence.trim().slice(0, 320),
       summary: `Candidate support drawn from ${source.publisher ?? source.title}.`,
       sourceId: source.id,

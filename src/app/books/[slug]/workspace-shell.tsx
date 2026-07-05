@@ -19,6 +19,7 @@ import { ActivityTicker } from "./activity-ticker";
 import { OvernightBuildControls, MorningReportBanner } from "./overnight-build-panel";
 import { ReviewNotifier } from "./review-notifier";
 import { StageLiveFeed } from "./stage-live-feed";
+import { CollapsibleSidePanel } from "@/app/components/collapsible-side-panel";
 import type { MorningReport } from "@/lib/workflows/overnight-build";
 
 export type WorkspaceStage = {
@@ -376,7 +377,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
                   {storySetupDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title={selectedStage.label}>
                   <AgentChatPanel
                     slug={slug}
                     stageKey={selectedStage.key}
@@ -389,7 +390,7 @@ export function WorkspaceShell({
                     onStageAdvance={advanceTo}
                     dossierMode={false}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <AgentChatPanel
@@ -413,7 +414,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
                   {storyCoreDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title={selectedStage.label}>
                   <AgentChatPanel
                     slug={slug}
                     stageKey={selectedStage.key}
@@ -426,7 +427,7 @@ export function WorkspaceShell({
                     onStageAdvance={advanceTo}
                     dossierMode={false}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <AgentChatPanel
@@ -450,7 +451,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
                   {worldCastDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title={selectedStage.label}>
                   <AgentChatPanel
                     slug={slug}
                     stageKey={selectedStage.key}
@@ -463,7 +464,7 @@ export function WorkspaceShell({
                     onStageAdvance={advanceTo}
                     dossierMode={false}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <AgentChatPanel
@@ -487,7 +488,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
                   {plotBlueprintDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title={selectedStage.label}>
                   <AgentChatPanel
                     slug={slug}
                     stageKey={selectedStage.key}
@@ -500,7 +501,7 @@ export function WorkspaceShell({
                     onStageAdvance={advanceTo}
                     dossierMode={false}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <AgentChatPanel
@@ -524,7 +525,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
                   {scenePlanDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title={selectedStage.label}>
                   <AgentChatPanel
                     slug={slug}
                     stageKey={selectedStage.key}
@@ -537,7 +538,7 @@ export function WorkspaceShell({
                     onStageAdvance={advanceTo}
                     dossierMode={false}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <AgentChatPanel
@@ -567,7 +568,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
                   {researchDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title="Scout">
                   <ScoutResearchPanel
                     slug={slug}
                     status={selectedStage.status}
@@ -575,7 +576,7 @@ export function WorkspaceShell({
                     bookTitle={bookTitle}
                     onStageAdvance={advanceTo}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <ScoutResearchPanel
@@ -593,7 +594,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
                   {externalStoriesDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title="Chronicle">
                   <ChronicleStoriesPanel
                     slug={slug}
                     status={selectedStage.status}
@@ -601,7 +602,7 @@ export function WorkspaceShell({
                     bookTitle={bookTitle}
                     onStageAdvance={advanceTo}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <ChronicleStoriesPanel
@@ -661,7 +662,7 @@ export function WorkspaceShell({
                 <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
                   {bookSetupDetail}
                 </div>
-                <div style={{ width: 420, flexShrink: 0, display: "flex", borderLeft: "1px solid var(--line)" }}>
+                <CollapsibleSidePanel title={selectedStage.label}>
                   <AgentChatPanel
                     slug={slug}
                     stageKey={selectedStage.key}
@@ -674,7 +675,7 @@ export function WorkspaceShell({
                     onStageAdvance={advanceTo}
                     dossierMode={false}
                   />
-                </div>
+                </CollapsibleSidePanel>
               </div>
             ) : (
               <AgentChatPanel

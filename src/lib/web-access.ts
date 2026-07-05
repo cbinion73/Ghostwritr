@@ -430,6 +430,25 @@ export async function fetchWebPage(
     });
   }
 
+  // response.text() decodes whatever bytes come back as if they were UTF-8
+  // text regardless of content-type — for a PDF (or image, video, etc.)
+  // that turns the raw binary into a garbled "text" blob (still containing
+  // recognizable structure like "%PDF-1.4" headers and xref tables) with
+  // none of the punctuation stripHtmlToText or the sentence-splitting
+  // fallback extractor expect. Without normal sentence boundaries, that
+  // fallback treats the entire blob as one "sentence" with no length cap,
+  // producing a single multi-megabyte claimText (confirmed in production:
+  // a 24.9MB dossier from exactly this). Reject non-HTML content up front
+  // instead of silently mangling it.
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType && !/text\/html|application\/xhtml\+xml/i.test(contentType)) {
+    throw new WebAccessError(
+      `Fetched content is not HTML (content-type: ${contentType}) — skipping to avoid treating binary content as text.`,
+      "fetch_unsupported_content_type",
+      { url, contentType },
+    );
+  }
+
   const html = await response.text();
   const text = stripHtmlToText(html);
   const minTextLength = options?.minTextLength ?? 400;

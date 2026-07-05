@@ -112,10 +112,14 @@ async function getChatModel() {
   // to silently exhaust all retries and fall back to the hardcoded
   // placeholder bundle below (confirmed in production: two consecutive
   // ~64s failures, matching 3 attempts x the old 20s cap, both silently
-  // swallowed with no error logged).
+  // swallowed with no error logged). Raising the timeout to 120s wasn't
+  // enough on its own — a leftover `maxOutputTokens: 8000` override here
+  // was *lowering* this role's own routing-layer default of 12000 (chosen
+  // specifically because this role "needs headroom beyond 8,192", per
+  // routing.ts) instead of letting it apply. Omitting it now lets that
+  // default take effect.
   return getModelForRole("base-story:author", {
     temperature: 0.3,
-    maxOutputTokens: 8000,
     timeoutMs: 120000,
   });
 }
@@ -244,6 +248,8 @@ async function generateBaseStory(
   if (!model) return { bundle: fallback, usedFallback: true };
 
   try {
+    console.log(`[generateBaseStory] Starting for "${bookTitle}" (${outline.sections.reduce((sum, s) => sum + s.chapters.length, 0)} chapters)...`);
+    const startedAt = Date.now();
     const structured = model.withStructuredOutput(BaseStorySchema);
     const result = await structured.invoke([
       new SystemMessage(`
@@ -279,6 +285,8 @@ These movement fields are narrative design notes for later drafting, not final c
       ),
     ]);
 
+    console.log(`[generateBaseStory] LLM call returned after ${Date.now() - startedAt}ms`);
+
     const normalized = normalizeBaseStoryBundle({
       workingTitle: bookTitle,
       selectedFormat: result.selectedFormat as BaseStoryFormat,
@@ -288,6 +296,9 @@ These movement fields are narrative design notes for later drafting, not final c
       bookMovement: result.bookMovement,
       chapters: result.chapters,
     } satisfies BaseStoryBundle);
+    if (!normalized) {
+      console.error(`[generateBaseStory] normalizeBaseStoryBundle rejected the LLM result for "${bookTitle}":`, JSON.stringify(result).slice(0, 500));
+    }
     return normalized
       ? { bundle: normalized, usedFallback: false }
       : { bundle: fallback, usedFallback: true };

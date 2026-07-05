@@ -8740,12 +8740,23 @@ const promiseGraph = new StateGraph(WorkflowState)
   .addNode("appendUserMessage", appendUserMessageNode)
   .addNode("generatePromiseReply", generatePromiseReplyNode)
   .addNode("extractPromise", extractPromiseNode)
+  .addNode("scorePromise", scorePromiseNode)
+  .addNode("generatePersonas", personaNode)
+  .addNode("generateMarket", marketNode)
+  .addNode("generateRecommendations", recommendationsNode)
   .addNode("persistArtifacts", persistNode)
   .addEdge(START, "loadContext")
   .addEdge("loadContext", "appendUserMessage")
   .addEdge("appendUserMessage", "generatePromiseReply")
   .addEdge("generatePromiseReply", "extractPromise")
-  .addEdge("extractPromise", "persistArtifacts")
+  // Every refine turn re-evaluates against the freshly extracted brief —
+  // score, personas, and market are independent of each other; recommendations
+  // needs personas and market to already be in state, so it runs last.
+  .addEdge("extractPromise", "scorePromise")
+  .addEdge("scorePromise", "generatePersonas")
+  .addEdge("generatePersonas", "generateMarket")
+  .addEdge("generateMarket", "generateRecommendations")
+  .addEdge("generateRecommendations", "persistArtifacts")
   .addEdge("persistArtifacts", END)
   .compile();
 

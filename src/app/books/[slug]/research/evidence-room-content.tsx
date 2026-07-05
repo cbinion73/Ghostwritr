@@ -12,13 +12,11 @@ import Link from "next/link";
 import {
   commitAllResearch,
   commitSelectedResearchDossier,
-  retryResearchStage,
-  runFullResearchStage,
   runSelectedResearchDossier,
-  stopResearchStage,
 } from "./actions";
 import { ResearchProgressBar } from "@/app/books/research-progress-bar";
 import { SubmitButton } from "@/app/components/submit-button";
+import { ResearchRunPanel } from "./research-run-panel";
 
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 
@@ -119,24 +117,15 @@ export async function EvidenceRoomContent({
             <Link className="btn" href={`/books/${slug}/dashboard`}>
               Open Dashboard
             </Link>
-            <form action={runFullResearchStage.bind(null, slug)}>
-              <SubmitButton
-                className="btn"
-                disabled={!canGenerateResearch}
-                label={hasGeneratedResearch ? "Regenerate Full Research" : "Generate Full Research"}
-                pendingLabel="Starting Research..."
-              />
-            </form>
-            {workspace.stage?.status === "IN_PROGRESS" ? (
-              <form action={stopResearchStage.bind(null, slug)}>
-                <SubmitButton className="btn" label="Stop Research" pendingLabel="Stopping..." />
-              </form>
-            ) : null}
-            {workspace.stage?.status === "BLOCKED" ? (
-              <form action={retryResearchStage.bind(null, slug)}>
-                <SubmitButton className="btn" label="Retry Research" pendingLabel="Retrying..." />
-              </form>
-            ) : null}
+            <ResearchRunPanel
+              slug={slug}
+              hasGeneratedResearch={hasGeneratedResearch}
+              canGenerateResearch={canGenerateResearch}
+              initialStatus={workspace.stage?.status ?? "NOT_STARTED"}
+              chapterLabels={Object.fromEntries(
+                workspace.availableChapters.map((chapter) => [chapter.chapterKey, chapter.chapterLabel]),
+              )}
+            />
             {selectedTab ? (
               <>
                 <form action={runSelectedResearchDossier.bind(null, slug)}>

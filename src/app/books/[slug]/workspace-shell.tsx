@@ -111,13 +111,30 @@ export function WorkspaceShell({
   const selectedStage = stages.find((s) => s.key === selectedKey) ?? stages[0];
 
   // Poll while any stage is running (or an overnight build session is live,
-  // so the Morning Report appears without a manual reload).
+  // so the Morning Report appears without a manual reload). router.refresh()
+  // re-runs the ENTIRE current stage's server component tree — for
+  // Research/External Stories/Chapter Draft that means reloading and
+  // JSON-parsing every saved dossier/draft in full, which got expensive
+  // enough with a few oversized dossiers still in the database to visibly
+  // stall a concurrent background generation (confirmed in production: the
+  // repeated full reload was competing with — and delaying — the actual
+  // research run for the CPU/event-loop time to process its own fetch
+  // timeouts). Those three stages now have their own lightweight
+  // StageRunPanel that polls a small progress endpoint instead of the full
+  // page, so skip the expensive whole-page refresh while one of them is
+  // selected — it would just be redundant, more costly work anyway.
+  const STAGES_WITH_OWN_LIVE_PANEL = new Set<StageKey>([
+    "RESEARCH",
+    "EXTERNAL_STORIES",
+    "CHAPTER_DRAFT",
+  ] as StageKey[]);
   const hasRunning = stages.some((s) => s.status === "IN_PROGRESS") || overnightActive;
   useEffect(() => {
     if (!hasRunning) return;
+    if (STAGES_WITH_OWN_LIVE_PANEL.has(selectedKey)) return;
     const id = setTimeout(() => router.refresh(), 3000);
     return () => clearTimeout(id);
-  }, [hasRunning, stages, router]);
+  }, [hasRunning, stages, router, selectedKey]);
 
   // Advance to a specific stage (called by AgentChatPanel after commit/approve)
   const advanceTo = useCallback((key: StageKey) => {

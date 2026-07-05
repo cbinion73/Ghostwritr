@@ -12,8 +12,10 @@ import Link from "next/link";
 import {
   commitAllResearch,
   commitSelectedResearchDossier,
+  retryResearchStage,
   runFullResearchStage,
   runSelectedResearchDossier,
+  stopResearchStage,
 } from "./actions";
 import { ResearchProgressBar } from "@/app/books/research-progress-bar";
 import { SubmitButton } from "@/app/components/submit-button";
@@ -125,6 +127,16 @@ export async function EvidenceRoomContent({
                 pendingLabel="Starting Research..."
               />
             </form>
+            {workspace.stage?.status === "IN_PROGRESS" ? (
+              <form action={stopResearchStage.bind(null, slug)}>
+                <SubmitButton className="btn" label="Stop Research" pendingLabel="Stopping..." />
+              </form>
+            ) : null}
+            {workspace.stage?.status === "BLOCKED" ? (
+              <form action={retryResearchStage.bind(null, slug)}>
+                <SubmitButton className="btn" label="Retry Research" pendingLabel="Retrying..." />
+              </form>
+            ) : null}
             {selectedTab ? (
               <>
                 <form action={runSelectedResearchDossier.bind(null, slug)}>

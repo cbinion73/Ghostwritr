@@ -8449,8 +8449,12 @@ export async function maybeGenerateTransformationArc(
     // TransformationArcSchema is 7 stages x up to 3 personas each with several
     // prose fields — the default 4000-token cap truncates it mid-object
     // before the JSON closes (confirmed in production: two consecutive
-    // max_tokens stops at candidateLength ~17.9k chars).
-    const model = await getChatModel({ maxOutputTokens: 8000 });
+    // max_tokens stops at candidateLength ~17.9k chars). The longer
+    // generation also needs more than the default 90s timeout, or it gets
+    // killed as "Request timed out" before the larger response finishes
+    // streaming (also confirmed in production, immediately after raising
+    // maxOutputTokens alone).
+    const model = await getChatModel({ maxOutputTokens: 8000, timeoutMs: 180000 });
     const personaContexts = buildTruthPersonaContexts(
       promise,
       deepProfiles,

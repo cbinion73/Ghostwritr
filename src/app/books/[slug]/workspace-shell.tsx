@@ -565,7 +565,7 @@ export function WorkspaceShell({
             researchDetail ? (
               /* The Evidence Room (server-rendered) + Scout agent panel side by side */
               <div style={{ flex: 1, display: "flex", minWidth: 0, overflow: "hidden" }}>
-                <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
+                <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", minWidth: 0, padding: "14px 16px" }}>
                   {researchDetail}
                 </div>
                 <CollapsibleSidePanel title="Scout">
@@ -591,7 +591,7 @@ export function WorkspaceShell({
             externalStoriesDetail ? (
               /* The Story Vault (server-rendered) + Chronicle agent panel side by side */
               <div style={{ flex: 1, display: "flex", minWidth: 0, overflow: "hidden" }}>
-                <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "14px 16px" }}>
+                <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", minWidth: 0, padding: "14px 16px" }}>
                   {externalStoriesDetail}
                 </div>
                 <CollapsibleSidePanel title="Chronicle">

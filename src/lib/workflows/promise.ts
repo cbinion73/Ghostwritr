@@ -8446,7 +8446,11 @@ export async function maybeGenerateTransformationArc(
 ): Promise<TransformationArtifact> {
   try {
     console.log(`[maybeGenerateTransformationArc] Starting...`);
-    const model = await getChatModel();
+    // TransformationArcSchema is 7 stages x up to 3 personas each with several
+    // prose fields — the default 4000-token cap truncates it mid-object
+    // before the JSON closes (confirmed in production: two consecutive
+    // max_tokens stops at candidateLength ~17.9k chars).
+    const model = await getChatModel({ maxOutputTokens: 8000 });
     const personaContexts = buildTruthPersonaContexts(
       promise,
       deepProfiles,

@@ -47,9 +47,16 @@ function SubmitButton() {
   );
 }
 
-export function PromiseComposer({ slug }: PromiseComposerProps) {
+export function PromiseComposer({
+  slug,
+  onSubmitted,
+}: PromiseComposerProps & { onSubmitted?: () => void }) {
   return (
-    <form className="composer" action={submitPromiseMessage.bind(null, slug)}>
+    <form
+      className="composer"
+      action={submitPromiseMessage.bind(null, slug)}
+      onSubmit={() => onSubmitted?.()}
+    >
       <textarea
         name="message"
         placeholder="Enter your rough book idea, refinement, objection, or direction change here."

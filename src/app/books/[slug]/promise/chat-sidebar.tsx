@@ -19,6 +19,7 @@ export function ChatSidebar({
   onToggleCollapse,
 }: ChatSidebarProps) {
   const [localCollapsed, setLocalCollapsed] = useState(isCollapsed);
+  const [armed, setArmed] = useState<{ armedFor: number; baselineCount: number } | null>(null);
 
   const handleToggle = () => {
     const newState = !localCollapsed;
@@ -26,9 +27,18 @@ export function ChatSidebar({
     onToggleCollapse?.(newState);
   };
 
+  // The reply arrived once the transcript actually grew past where it stood
+  // when this submission was armed — the same signal the watcher itself
+  // stops on, so the indicator and the auto-refresh always agree.
+  const isWaitingForReply = armed != null && messages.length <= armed.baselineCount;
+
   return (
     <div style={{ ...styles.container, ...(localCollapsed ? styles.containerCollapsed : {}) }}>
-      <PromiseWorkflowWatcher slug={slug} />
+      <PromiseWorkflowWatcher
+        slug={slug}
+        messageCount={messages.length}
+        armedFor={armed?.armedFor ?? null}
+      />
       <div style={styles.sidebar}>
         {/* Header */}
         <div style={styles.header}>
@@ -67,11 +77,22 @@ export function ChatSidebar({
                   ))}
                 </div>
               )}
+              {isWaitingForReply && (
+                <div style={styles.thinking}>
+                  <span style={styles.thinkingDot} />
+                  Reading your message and updating the promise…
+                </div>
+              )}
             </div>
 
             {/* Composer */}
             <div style={styles.composerWrapper}>
-              <PromiseComposer slug={slug} />
+              <PromiseComposer
+                slug={slug}
+                onSubmitted={() =>
+                  setArmed({ armedFor: Date.now(), baselineCount: messages.length })
+                }
+              />
             </div>
           </>
         )}
@@ -142,6 +163,26 @@ const styles = {
     flex: 1,
     padding: "20px",
     textAlign: "center" as const,
+  },
+  thinking: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    alignSelf: "flex-start",
+    padding: "10px 14px",
+    borderRadius: "8px",
+    fontSize: "12.5px",
+    fontStyle: "italic",
+    color: "var(--muted, #6f6256)",
+    backgroundColor: "var(--paper, #fbf6ef)",
+  },
+  thinkingDot: {
+    display: "inline-block",
+    width: "7px",
+    height: "7px",
+    borderRadius: "50%",
+    backgroundColor: "var(--gold, #8f6d32)",
+    animation: "ghostwritr-pulse 1.4s ease-in-out infinite",
   },
   emptyText: {
     color: "var(--muted, #6f6256)",

@@ -110,11 +110,17 @@ function hasUsableOpenAIKey() {
 }
 
 async function getChatModel() {
-  // Routed via provider layer: Sonnet for cost-effective narrative generation
+  // Routed via provider layer: Sonnet for cost-effective narrative generation.
+  // BaseStorySchema asks for a movement (5 fields) per chapter, so a
+  // 16+ chapter book easily exceeds what fits in a 20s timeout — that used
+  // to silently exhaust all retries and fall back to the hardcoded
+  // placeholder bundle below (confirmed in production: two consecutive
+  // ~64s failures, matching 3 attempts x the old 20s cap, both silently
+  // swallowed with no error logged).
   return getModelForRole("base-story:author", {
     temperature: 0.3,
     maxOutputTokens: 8000,
-    timeoutMs: 20000,
+    timeoutMs: 120000,
   });
 }
 
@@ -194,18 +200,23 @@ function fallbackBaseStory(
   const selectedFormat =
     preferredFormat && preferredFormat !== "AUTO" ? preferredFormat : "GUIDE_JOURNEY";
 
+  // Deliberately generic and derived only from this book's own title/outline —
+  // this used to be hardcoded with "leader / lab / lean" language that had
+  // nothing to do with most books, which read as cross-book content leakage
+  // when it silently replaced a failed generation (see getChatModel's
+  // comment above for how that happened).
   return normalizeBaseStoryBundle({
     workingTitle: bookTitle,
     selectedFormat,
     availableFormats: StoryFormatCatalog,
-    storyPremise: "A leader learns to move from noise, pressure, and performative certainty into grounded clarity and credible action.",
-    bookThread: "Across the book, the central thread follows a leader learning how to replace reactive noise with earned clarity.",
+    storyPremise: `The reader moves from where they stand now toward what "${bookTitle}" promises to give them.`,
+    bookThread: `Across the book, the central thread follows the reader's own progress through the ideas in "${bookTitle}".`,
     bookMovement: {
-      me: "The book opens inside the lived pressure of leading a lab where urgency is constant and confidence feels expensive.",
-      we: "That pressure broadens into a shared reality across teams, systems, and organizations that have learned to live with friction for too long.",
-      truth: "The book relieves that tension by showing that lean, disciplined flow is not a cold efficiency project but the operating truth that frees capacity, quality, and trust at the same time.",
-      you: "It then turns toward the reader's own responsibility, showing what has to change in how they see waste, make decisions, and lead improvement.",
-      weClosing: "The book closes by reconnecting those choices to the larger future a laboratory team can create together when the system finally works for the people inside it.",
+      me: "The book opens inside the reader's own lived experience of the problem this book addresses.",
+      we: "That experience broadens into a shared reality other readers in the same position recognize.",
+      truth: `The book relieves that tension by naming the governing insight at the heart of "${bookTitle}".`,
+      you: "It then turns toward the reader's own responsibility, showing what has to change in how they think and act.",
+      weClosing: "The book closes by reconnecting that change to the larger future the reader and others like them can build together.",
     },
     chapters: outline.sections.flatMap((section) =>
       section.chapters.map((chapter) => ({
@@ -213,13 +224,13 @@ function fallbackBaseStory(
         chapterLabel: `Chapter ${chapter.number}: ${chapter.title}`,
         chapterPurpose: chapter.description,
         threadRole: `This chapter advances the larger thread inside ${section.title}.`,
-        chapterStory: `In this chapter, the narrative thread shows how the protagonist confronts the tension behind ${chapter.title.toLowerCase()} and takes one step closer to credible clarity.`,
+        chapterStory: `In this chapter, the narrative thread shows how the reader confronts the tension behind ${chapter.title.toLowerCase()} and takes one step closer to the book's promise.`,
         movement: {
-          me: `Open inside the tension around ${chapter.title.toLowerCase()}, where the cost of the current system is felt in real work, real delay, and real frustration.`,
-          we: "Widen that tension into the shared reality leaders and teams recognize across the lab, not just one isolated incident.",
-          truth: "Relieve the tension by landing the operational truth this chapter needs to teach, the shift that makes better performance finally possible.",
-          you: "Turn that truth toward the reader so they can see what ownership, discipline, and application look like in their own lab.",
-          weClosing: "Close by reconnecting the chapter's lesson to the broader team mission and the future-state the book is building chapter by chapter.",
+          me: `Open inside the tension around ${chapter.title.toLowerCase()}, where its cost is felt in the reader's real experience.`,
+          we: "Widen that tension into the shared reality other readers in the same position recognize, not just one isolated case.",
+          truth: "Relieve the tension by landing the insight this chapter needs to teach, the shift that makes progress finally possible.",
+          you: "Turn that insight toward the reader so they can see what it means for their own choices and actions.",
+          weClosing: "Close by reconnecting the chapter's lesson to the broader change the book is building chapter by chapter.",
         },
       })),
     ),
@@ -281,7 +292,8 @@ These movement fields are narrative design notes for later drafting, not final c
       bookMovement: result.bookMovement,
       chapters: result.chapters,
     } satisfies BaseStoryBundle) ?? fallback;
-  } catch {
+  } catch (error) {
+    console.error(`[generateBaseStory] Generation failed for "${bookTitle}", using fallback:`, error);
     return fallback;
   }
 }

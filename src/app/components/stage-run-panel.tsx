@@ -1,16 +1,19 @@
 "use client";
 
 /**
- * Run controls + live feed for the Research stage, shown in a modal that
- * opens when generation is launched (or reopened while a run is already in
- * progress). Polls /api/books/[slug]/research/progress every 2s while open
- * so the author can watch chapters complete, see recent activity, and stop
- * or retry without leaving the page or guessing whether anything is
- * happening.
+ * Generic run controls + live feed for any chapter-scoped background stage
+ * (Research, External Stories, Chapter Draft, ...). Opens a modal when
+ * generation is launched, or reopens automatically if a run is already in
+ * progress. Polls the given progress endpoint every 2s so the author can
+ * watch chapters complete, see recent activity, and stop or retry without
+ * leaving the page or guessing whether anything is happening.
+ *
+ * Polling the same progress data GhostWritr already stores in
+ * BookStage.metadataJson costs nothing extra in tokens — it's not
+ * token-by-token model streaming, just a live view of stage-level state.
  */
 
 import { useEffect, useRef, useState } from "react";
-import { retryResearchStage, runFullResearchStage, stopResearchStage } from "./actions";
 import { SubmitButton } from "@/app/components/submit-button";
 
 type FailedChapter = { chapterKey: string; message: string };
@@ -38,18 +41,30 @@ function formatElapsedSince(iso: string | null): string {
   return `${minutes}m ${seconds % 60}s ago`;
 }
 
-export function ResearchRunPanel({
-  slug,
-  hasGeneratedResearch,
-  canGenerateResearch,
+export function StageRunPanel({
+  stageLabel,
+  progressUrl,
+  generateAction,
+  stopAction,
+  retryAction,
+  hasGenerated,
+  canGenerate,
   initialStatus,
   chapterLabels,
+  generateLabel,
+  regenerateLabel,
 }: {
-  slug: string;
-  hasGeneratedResearch: boolean;
-  canGenerateResearch: boolean;
+  stageLabel: string;
+  progressUrl: string;
+  generateAction: () => Promise<void>;
+  stopAction: () => Promise<void>;
+  retryAction: () => Promise<void>;
+  hasGenerated: boolean;
+  canGenerate: boolean;
   initialStatus: string;
   chapterLabels: Record<string, string>;
+  generateLabel: string;
+  regenerateLabel: string;
 }) {
   const [open, setOpen] = useState(initialStatus === "IN_PROGRESS");
   const [data, setData] = useState<ProgressResponse | null>(null);
@@ -60,7 +75,7 @@ export function ResearchRunPanel({
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/books/${slug}/research/progress`, { cache: "no-store" });
+        const res = await fetch(progressUrl, { cache: "no-store" });
         if (res.ok && !cancelled) {
           setData((await res.json()) as ProgressResponse);
         }
@@ -79,36 +94,36 @@ export function ResearchRunPanel({
     };
     // Poll continuously (not just while open) so the reopen pill knows a
     // run is active even after the modal has been dismissed.
-  }, [slug]);
+  }, [progressUrl]);
 
   const isRunning = data?.status === "IN_PROGRESS";
   const isBlocked = data?.status === "BLOCKED";
 
   return (
     <>
-      <form action={runFullResearchStage.bind(null, slug)} onSubmit={() => setOpen(true)}>
+      <form action={generateAction} onSubmit={() => setOpen(true)}>
         <SubmitButton
           className="btn"
-          disabled={!canGenerateResearch}
-          label={hasGeneratedResearch ? "Regenerate Full Research" : "Generate Full Research"}
-          pendingLabel="Starting Research..."
+          disabled={!canGenerate}
+          label={hasGenerated ? regenerateLabel : generateLabel}
+          pendingLabel="Starting..."
         />
       </form>
 
       {!open && isRunning ? (
         <button type="button" className="btn" onClick={() => setOpen(true)} style={reopenPillStyle}>
           <span style={pulseDotStyle} />
-          Research running — View
+          {stageLabel} running — View
         </button>
       ) : null}
 
       {open ? (
-        <div style={overlayStyle} role="dialog" aria-label="Research run">
+        <div style={overlayStyle} role="dialog" aria-label={`${stageLabel} run`}>
           <div style={modalStyle}>
             <div style={headerStyle}>
               <div>
                 <div className="microlabel" style={{ color: "var(--muted, #6f6256)" }}>
-                  Research Run
+                  {stageLabel} Run
                 </div>
                 <h3 style={{ margin: "4px 0 0" }}>
                   {isRunning ? (
@@ -207,13 +222,17 @@ export function ResearchRunPanel({
 
             <div style={footerStyle}>
               {isRunning ? (
-                <form action={stopResearchStage.bind(null, slug)}>
-                  <SubmitButton className="btn" label="Stop Research" pendingLabel="Stopping..." />
+                <form action={stopAction}>
+                  <SubmitButton className="btn" label={`Stop ${stageLabel}`} pendingLabel="Stopping..." />
                 </form>
               ) : null}
               {isBlocked ? (
-                <form action={retryResearchStage.bind(null, slug)}>
-                  <SubmitButton className="btn btn-primary" label="Retry Research" pendingLabel="Retrying..." />
+                <form action={retryAction}>
+                  <SubmitButton
+                    className="btn btn-primary"
+                    label={`Retry ${stageLabel}`}
+                    pendingLabel="Retrying..."
+                  />
                 </form>
               ) : null}
             </div>

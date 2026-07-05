@@ -12,11 +12,14 @@ import Link from "next/link";
 import {
   commitAllResearch,
   commitSelectedResearchDossier,
+  retryResearchStage,
+  runFullResearchStage,
   runSelectedResearchDossier,
+  stopResearchStage,
 } from "./actions";
 import { ResearchProgressBar } from "@/app/books/research-progress-bar";
 import { SubmitButton } from "@/app/components/submit-button";
-import { ResearchRunPanel } from "./research-run-panel";
+import { StageRunPanel } from "@/app/components/stage-run-panel";
 
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 
@@ -117,14 +120,20 @@ export async function EvidenceRoomContent({
             <Link className="btn" href={`/books/${slug}/dashboard`}>
               Open Dashboard
             </Link>
-            <ResearchRunPanel
-              slug={slug}
-              hasGeneratedResearch={hasGeneratedResearch}
-              canGenerateResearch={canGenerateResearch}
+            <StageRunPanel
+              stageLabel="Research"
+              progressUrl={`/api/books/${slug}/research/progress`}
+              generateAction={runFullResearchStage.bind(null, slug)}
+              stopAction={stopResearchStage.bind(null, slug)}
+              retryAction={retryResearchStage.bind(null, slug)}
+              hasGenerated={hasGeneratedResearch}
+              canGenerate={canGenerateResearch}
               initialStatus={workspace.stage?.status ?? "NOT_STARTED"}
               chapterLabels={Object.fromEntries(
                 workspace.availableChapters.map((chapter) => [chapter.chapterKey, chapter.chapterLabel]),
               )}
+              generateLabel="Generate Full Research"
+              regenerateLabel="Regenerate Full Research"
             />
             {selectedTab ? (
               <>

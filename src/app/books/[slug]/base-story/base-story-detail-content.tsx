@@ -10,7 +10,13 @@
 
 import Link from "next/link";
 
-import { commitBaseStoryStage, runBaseStoryStage } from "./actions";
+import {
+  commitBaseStoryStage,
+  retryBaseStoryStage,
+  runBaseStoryStage,
+  stopBaseStoryStage,
+} from "./actions";
+import { SubmitButton } from "@/app/components/submit-button";
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { getBaseStoryWorkspace } from "@/lib/workflows/base-story";
 
@@ -80,6 +86,16 @@ export async function BaseStoryDetailContent({ slug }: { slug: string }) {
                 {bundle ? "Regenerate Base Story" : "Generate Base Story"}
               </button>
             </form>
+            {workspace.stage?.status === "IN_PROGRESS" ? (
+              <form action={stopBaseStoryStage.bind(null, slug)}>
+                <SubmitButton className="btn" label="Stop Base Story" pendingLabel="Stopping..." />
+              </form>
+            ) : null}
+            {workspace.stage?.status === "BLOCKED" ? (
+              <form action={retryBaseStoryStage.bind(null, slug)}>
+                <SubmitButton className="btn" label="Retry Base Story" pendingLabel="Retrying..." />
+              </form>
+            ) : null}
             <form action={commitBaseStoryStage.bind(null, slug)}>
               <button className="btn btn-primary" disabled={!bundle} type="submit">
                 Commit Base Story

@@ -8,9 +8,14 @@ const RETRYABLE_STAGES = new Set<StageKey>([
   StageKey.BASE_STORY,
   StageKey.RESEARCH,
   StageKey.EXTERNAL_STORIES,
+  StageKey.CHAPTER_DRAFT,
 ]);
 
-const RESUMABLE_STAGES = new Set<StageKey>([StageKey.RESEARCH, StageKey.EXTERNAL_STORIES]);
+const RESUMABLE_STAGES = new Set<StageKey>([
+  StageKey.RESEARCH,
+  StageKey.EXTERNAL_STORIES,
+  StageKey.CHAPTER_DRAFT,
+]);
 
 export function getStageControlCapabilities(stageKey?: StageKey | null) {
   if (!stageKey) {
@@ -80,6 +85,12 @@ async function getChaptersNeedingRecovery(
     return Array.from(new Set([...failedChapterKeys, ...unfinished]));
   }
 
+  if (stageKey === StageKey.CHAPTER_DRAFT) {
+    const { getUnfinishedChapterDraftChapterKeys } = await import("./chapter-draft");
+    const unfinished = await getUnfinishedChapterDraftChapterKeys(bookId);
+    return Array.from(new Set([...failedChapterKeys, ...unfinished]));
+  }
+
   return failedChapterKeys;
 }
 
@@ -123,11 +134,15 @@ export async function retryStageWorkflow(
 
   await cancelStageWorkflow(bookSlug, stageKey);
 
-  // Research and External Stories are chapter-scoped — resume only the
-  // chapters actually still outstanding (failed, or never reached because
-  // the prior run died) instead of redoing completed chapters and burning
-  // tokens on work that's already saved.
-  if (stageKey === StageKey.RESEARCH || stageKey === StageKey.EXTERNAL_STORIES) {
+  // Research, External Stories, and Chapter Draft are chapter-scoped —
+  // resume only the chapters actually still outstanding (failed, or never
+  // reached because the prior run died) instead of redoing completed
+  // chapters and burning tokens on work that's already saved.
+  if (
+    stageKey === StageKey.RESEARCH ||
+    stageKey === StageKey.EXTERNAL_STORIES ||
+    stageKey === StageKey.CHAPTER_DRAFT
+  ) {
     const chapterKeys = await getChaptersNeedingRecovery(book.id, stageKey, metadata);
     const totalChapters =
       typeof metadata.totalChapters === "number" ? metadata.totalChapters : chapterKeys.length;
@@ -150,12 +165,17 @@ export async function retryStageWorkflow(
       });
     }
 
-    const { enqueueAndTriggerFullExternalStoriesWorkflow } = await import("./external-stories");
-    return enqueueAndTriggerFullExternalStoriesWorkflow(bookSlug, trigger, {
-      chapterKeys,
-      preserveCompletedCount,
-      preserveProvisionalChapters,
-    });
+    if (stageKey === StageKey.EXTERNAL_STORIES) {
+      const { enqueueAndTriggerFullExternalStoriesWorkflow } = await import("./external-stories");
+      return enqueueAndTriggerFullExternalStoriesWorkflow(bookSlug, trigger, {
+        chapterKeys,
+        preserveCompletedCount,
+        preserveProvisionalChapters,
+      });
+    }
+
+    const { enqueueAndTriggerChapterDraftWorkflow } = await import("./chapter-draft");
+    return enqueueAndTriggerChapterDraftWorkflow(bookSlug, trigger, undefined, chapterKeys);
   }
 
   if (stageKey === StageKey.BASE_STORY) {
@@ -214,6 +234,11 @@ export async function resumeFailedStageWorkflow(
       preserveCompletedCount: Math.min(preservedCompletedCount, totalChapters),
       preserveProvisionalChapters,
     });
+  }
+
+  if (stageKey === StageKey.CHAPTER_DRAFT) {
+    const { enqueueAndTriggerChapterDraftWorkflow } = await import("./chapter-draft");
+    return enqueueAndTriggerChapterDraftWorkflow(bookSlug, trigger, undefined, failedChapterKeys);
   }
 
   throw new Error(`Resume failed is not implemented for stage ${stageKey}.`);

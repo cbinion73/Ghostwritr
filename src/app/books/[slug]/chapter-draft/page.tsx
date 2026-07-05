@@ -6,9 +6,12 @@ import {
   expandSelectedChapterTowardTarget,
   expandUnderTargetChapters,
   repairWeakChapterDrafts,
+  retryChapterDraftStage,
   runFullChapterDraftStage,
   runSelectedChapterDraft,
+  stopChapterDraftStage,
 } from "./actions";
+import { StageRunPanel } from "@/app/components/stage-run-panel";
 
 import { STAGE_LINKS } from "@/lib/navigation";
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
@@ -343,11 +346,21 @@ export default async function ChapterDraftStagePage({
                     ) : null}
                   </>
                 ) : null}
-                <form action={runFullChapterDraftStage.bind(null, slug)}>
-                  <button className="btn" type="submit">
-                    Generate All Chapters
-                  </button>
-                </form>
+                <StageRunPanel
+                  stageLabel="Chapter Draft"
+                  progressUrl={`/api/books/${slug}/chapter-draft/progress`}
+                  generateAction={runFullChapterDraftStage.bind(null, slug)}
+                  stopAction={stopChapterDraftStage.bind(null, slug)}
+                  retryAction={retryChapterDraftStage.bind(null, slug)}
+                  hasGenerated={workspace.entries.some((entry) => Boolean(entry.draft))}
+                  canGenerate={!workspace.blockingReason}
+                  initialStatus={workspace.stage?.status ?? "NOT_STARTED"}
+                  chapterLabels={Object.fromEntries(
+                    workspace.entries.map((entry) => [entry.chapterKey, entry.chapterLabel]),
+                  )}
+                  generateLabel="Generate All Chapters"
+                  regenerateLabel="Regenerate All Chapters"
+                />
                 <form action={expandUnderTargetChapters.bind(null, slug)}>
                   <input type="hidden" name="limit" value="2" />
                   <button className="btn" type="submit">

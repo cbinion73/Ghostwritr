@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { StageKey } from "@prisma/client";
 import { triggerWorkflowRunInBackground } from "@/lib/workflow-queue";
 import {
   assembleManuscriptWorkflow,
@@ -14,6 +15,10 @@ import {
   enqueueAndTriggerChapterDraftWorkflow,
   repairWeakChapterDraftsWorkflow,
 } from "@/lib/workflows/chapter-draft";
+import {
+  cancelStageWorkflow,
+  retryStageWorkflow,
+} from "@/lib/workflows/stage-controls";
 
 async function refreshDownstreamEditorialViews(slug: string) {
   try {
@@ -27,6 +32,18 @@ async function refreshDownstreamEditorialViews(slug: string) {
 export async function runFullChapterDraftStage(slug: string) {
   await enqueueAndTriggerChapterDraftWorkflow(slug, triggerWorkflowRunInBackground);
   revalidatePath(`/books/${slug}/chapter-draft`);
+}
+
+export async function stopChapterDraftStage(slug: string) {
+  await cancelStageWorkflow(slug, StageKey.CHAPTER_DRAFT);
+  revalidatePath(`/books/${slug}/chapter-draft`);
+  revalidatePath(`/books/${slug}/dashboard`);
+}
+
+export async function retryChapterDraftStage(slug: string) {
+  await retryStageWorkflow(slug, StageKey.CHAPTER_DRAFT, triggerWorkflowRunInBackground);
+  revalidatePath(`/books/${slug}/chapter-draft`);
+  revalidatePath(`/books/${slug}/dashboard`);
 }
 
 export async function runSelectedChapterDraft(slug: string, formData: FormData) {

@@ -17,11 +17,14 @@ import {
   commitSelectedExternalStories,
   deleteExternalStoryClip,
   renameExternalStoryBinderTab,
+  retryExternalStoriesStage,
   runFullExternalStoriesStage,
   separateExternalStoryBinderTab,
+  stopExternalStoriesStage,
 } from "./actions";
 import { SubmitButton } from "@/app/components/submit-button";
 import { CollapsibleRightbar } from "@/app/components/collapsible-rightbar";
+import { StageRunPanel } from "@/app/components/stage-run-panel";
 
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { getExternalStoriesWorkspace } from "@/lib/workflows/external-stories";
@@ -104,16 +107,24 @@ export async function ExternalStoriesContent({
             <Link className="btn" href={`/books/${slug}/dashboard`}>
               Open Dashboard
             </Link>
-            <form action={runFullExternalStoriesStage.bind(null, slug)}>
-              <SubmitButton
-                className="btn"
-                disabled={!canGenerateExternalStories}
-                label={hasGeneratedStoryVault
-                  ? "Regenerate Story Vault"
-                  : "Generate External Stories"}
-                pendingLabel="Starting Story Run..."
-              />
-            </form>
+            <StageRunPanel
+              stageLabel="External Stories"
+              progressUrl={`/api/books/${slug}/external-stories/progress`}
+              generateAction={runFullExternalStoriesStage.bind(null, slug)}
+              stopAction={stopExternalStoriesStage.bind(null, slug)}
+              retryAction={retryExternalStoriesStage.bind(null, slug)}
+              hasGenerated={hasGeneratedStoryVault}
+              canGenerate={canGenerateExternalStories}
+              initialStatus={workspace.stage?.status ?? "NOT_STARTED"}
+              chapterLabels={Object.fromEntries(
+                workspace.availableChapters.map((chapter: { chapterKey: string; chapterLabel: string }) => [
+                  chapter.chapterKey,
+                  chapter.chapterLabel,
+                ]),
+              )}
+              generateLabel="Generate External Stories"
+              regenerateLabel="Regenerate Story Vault"
+            />
           </div>
         </section>
 

@@ -2377,20 +2377,50 @@ export async function expandUnderTargetChapterDraftsWorkflow(bookSlug: string, l
   };
 }
 
-export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: string) {
+// Ground truth for "what still needs drafting" — same reasoning as
+// getUnfinishedResearchChapterKeys in research.ts: a chapter a dead run
+// never reached isn't recorded anywhere in stage metadata, so resume must
+// check actual saved versions rather than trust in-memory progress state.
+export async function getUnfinishedChapterDraftChapterKeys(bookId: string): Promise<string[]> {
+  const { chapterContexts } = await getDraftInputs(bookId);
+  const results = await Promise.all(
+    chapterContexts.map(async (context) => {
+      const versions = await getChapterArtifactVersions(
+        bookId,
+        context.chapter.chapterId,
+        ArtifactType.CHAPTER_DRAFT,
+        1,
+      );
+      return versions.length === 0 ? context.chapter.chapterId : null;
+    }),
+  );
+  return results.filter((key): key is string => key !== null);
+}
+
+export async function runChapterDraftWorkflow(
+  bookSlug: string,
+  chapterKey?: string,
+  chapterKeys?: string[],
+) {
   const book = await getBookBySlugOrThrow(bookSlug);
   const { promise, chapterContexts, baseStory, personalStories, bookSetup } = await getDraftInputs(
     book.id,
   );
   const chapterTargets = buildChapterWordTargets(chapterContexts, bookSetup?.targetWordCount);
 
-  const targetContexts = chapterKey
-    ? chapterContexts.filter((context) => context.chapter.chapterId === chapterKey)
-    : chapterContexts;
+  const requestedKeys = chapterKeys && chapterKeys.length > 0 ? new Set(chapterKeys) : null;
+  const targetContexts = requestedKeys
+    ? chapterContexts.filter((context) => requestedKeys.has(context.chapter.chapterId))
+    : chapterKey
+      ? chapterContexts.filter((context) => context.chapter.chapterId === chapterKey)
+      : chapterContexts;
 
   if (targetContexts.length === 0) {
     throw new Error("No chapter contexts found for draft generation.");
   }
+
+  const activityLog = (message: string, prior?: Array<{ at: string; message: string }>) =>
+    [{ at: new Date().toISOString(), message }, ...(prior ?? [])].slice(0, 3);
 
   await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
     status: StageStatus.IN_PROGRESS,
@@ -2400,13 +2430,16 @@ export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: str
       totalChapters: targetContexts.length,
       completedChapters: 0,
       currentChapterKey: targetContexts[0]?.chapter.chapterId ?? null,
+      recentActivity: activityLog(`Starting draft for ${targetContexts.length} chapter(s).`),
       lastRunAt: new Date().toISOString(),
     },
   });
 
   const generated = [];
+  let recentActivity = activityLog(`Starting draft for ${targetContexts.length} chapter(s).`);
 
   for (const [index, context] of targetContexts.entries()) {
+    recentActivity = activityLog(`Drafting ${context.chapter.chapterTitle}…`, recentActivity);
     await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
       status: StageStatus.IN_PROGRESS,
       metadataJson: {
@@ -2414,6 +2447,7 @@ export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: str
         totalChapters: targetContexts.length,
         completedChapters: index,
         currentChapterKey: context.chapter.chapterId,
+        recentActivity,
         lastRunAt: new Date().toISOString(),
       },
     });
@@ -2429,6 +2463,7 @@ export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: str
     );
 
     generated.push(result);
+    recentActivity = activityLog(`Finished ${context.chapter.chapterTitle}.`, recentActivity);
   }
 
   await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
@@ -2438,6 +2473,7 @@ export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: str
       totalChapters: targetContexts.length,
       completedChapters: targetContexts.length,
       currentChapterKey: null,
+      recentActivity: activityLog("All requested chapters drafted.", recentActivity),
       lastRunAt: new Date().toISOString(),
     },
   });
@@ -2445,7 +2481,11 @@ export async function runChapterDraftWorkflow(bookSlug: string, chapterKey?: str
   return generated;
 }
 
-export async function enqueueChapterDraftWorkflow(bookSlug: string, chapterKey?: string) {
+export async function enqueueChapterDraftWorkflow(
+  bookSlug: string,
+  chapterKey?: string,
+  chapterKeys?: string[],
+) {
   const book = await getBookBySlugOrThrow(bookSlug);
   const existing = await getActiveWorkflowRunForStage(book.id, StageKey.CHAPTER_DRAFT);
   if (existing) {
@@ -2453,7 +2493,12 @@ export async function enqueueChapterDraftWorkflow(bookSlug: string, chapterKey?:
   }
 
   const { chapterContexts } = await getDraftInputs(book.id);
-  const targetCount = chapterKey ? 1 : chapterContexts.length;
+  const targetCount =
+    chapterKeys && chapterKeys.length > 0
+      ? chapterKeys.length
+      : chapterKey
+        ? 1
+        : chapterContexts.length;
 
   await updateStageForBook(book.id, StageKey.CHAPTER_DRAFT, {
     status: StageStatus.IN_PROGRESS,
@@ -2462,7 +2507,7 @@ export async function enqueueChapterDraftWorkflow(bookSlug: string, chapterKey?:
       automationStatus: "queued",
       totalChapters: targetCount,
       completedChapters: 0,
-      currentChapterKey: chapterKey ?? null,
+      currentChapterKey: chapterKeys?.[0] ?? chapterKey ?? null,
       lastRunAt: new Date().toISOString(),
     },
   });
@@ -2474,6 +2519,7 @@ export async function enqueueChapterDraftWorkflow(bookSlug: string, chapterKey?:
       kind: "chapter_draft_generation",
       bookSlug,
       chapterKey: chapterKey ?? null,
+      chapterKeys: chapterKeys ?? null,
     },
   });
 }
@@ -2492,9 +2538,12 @@ export async function processChapterDraftWorkflowRun(runId: string) {
   const input = parseJson<Record<string, unknown>>(run.inputJson, {});
   const bookSlug = typeof input.bookSlug === "string" ? input.bookSlug : run.book.slug;
   const chapterKey = typeof input.chapterKey === "string" ? input.chapterKey : undefined;
+  const chapterKeys = Array.isArray(input.chapterKeys)
+    ? input.chapterKeys.filter((key): key is string => typeof key === "string")
+    : undefined;
 
   try {
-    const result = await runChapterDraftWorkflow(bookSlug, chapterKey);
+    const result = await runChapterDraftWorkflow(bookSlug, chapterKey, chapterKeys);
     await completeWorkflowRun(runId, result as unknown as Prisma.InputJsonValue);
     return result;
   } catch (error) {
@@ -2524,8 +2573,9 @@ export async function enqueueAndTriggerChapterDraftWorkflow(
   bookSlug: string,
   trigger: (runId: string) => void,
   chapterKey?: string,
+  chapterKeys?: string[],
 ) {
-  const queued = await enqueueChapterDraftWorkflow(bookSlug, chapterKey);
+  const queued = await enqueueChapterDraftWorkflow(bookSlug, chapterKey, chapterKeys);
   if (queued.status === WorkflowRunStatus.QUEUED) {
     trigger(queued.id);
   }

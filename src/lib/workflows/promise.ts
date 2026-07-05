@@ -2004,7 +2004,12 @@ function getUsageMetadata(response: unknown): Record<string, unknown> {
   return asRecord(raw.usage_metadata);
 }
 
-function asOptionalFiniteNumber(value: unknown): number | undefined {
+// Returns `null` (never `undefined`) for a missing/invalid value: the
+// constructed PromiseTokenUsage feeds directly into `.nullable()` Zod
+// schemas, which accept `null` but throw on `undefined`. Anthropic/Claude
+// usage metadata legitimately omits OpenAI-only fields (e.g. reasoning
+// tokens), so every field here must resolve to null, not undefined.
+function asOptionalFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
@@ -2016,10 +2021,10 @@ function asOptionalFiniteNumber(value: unknown): number | undefined {
     }
   }
 
-  return undefined;
+  return null;
 }
 
-function normalizeTokenUsageMetadata(raw: unknown): PromiseTokenUsage | undefined {
+function normalizeTokenUsageMetadata(raw: unknown): PromiseTokenUsage | null {
   const record = asRecord(raw);
   const tokenUsage: PromiseTokenUsage = {
     inputTokens: asOptionalFiniteNumber(
@@ -2043,7 +2048,7 @@ function normalizeTokenUsageMetadata(raw: unknown): PromiseTokenUsage | undefine
   };
 
   if (Object.values(tokenUsage).every((value) => value == null)) {
-    return undefined;
+    return null;
   }
 
   return tokenUsage;
@@ -5771,7 +5776,8 @@ function normalizeMarketReport(
       model: coerceString(metadata.model, fallback.metadata?.model ?? "legacy"),
       tokenUsage:
         normalizeTokenUsageMetadata(metadata.tokenUsage) ??
-        fallback.metadata?.tokenUsage,
+        fallback.metadata?.tokenUsage ??
+        null,
       grounding: {
         previousPhases:
           coerceStringArray(asRecord(metadata.grounding).previousPhases).length > 0
@@ -6174,7 +6180,8 @@ function normalizeRecommendationsArtifact(
       model: coerceString(metadata.model, fallback.metadata?.model ?? "legacy"),
       tokenUsage:
         normalizeTokenUsageMetadata(metadata.tokenUsage) ??
-        fallback.metadata?.tokenUsage,
+        fallback.metadata?.tokenUsage ??
+        null,
       grounding: {
         previousPhases:
           coerceStringArray(asRecord(metadata.grounding).previousPhases).length > 0
@@ -7896,7 +7903,8 @@ function normalizeBookPromiseReportArtifact(
       model: coerceString(metadata.model, fallback.metadata?.model ?? "legacy"),
       tokenUsage:
         normalizeTokenUsageMetadata(metadata.tokenUsage) ??
-        fallback.metadata?.tokenUsage,
+        fallback.metadata?.tokenUsage ??
+        null,
       grounding: {
         previousPhases:
           coerceStringArray(asRecord(metadata.grounding).previousPhases).length > 0

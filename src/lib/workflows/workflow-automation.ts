@@ -467,6 +467,11 @@ async function runNonfictionAutopilot(
     }
 
     if (currentStage?.status === StageStatus.READY_FOR_REVIEW) {
+      if (item.key === StageKey.BASE_STORY) {
+        console.log(
+          `[autopilot] Base Story ready-for-review check for ${bookSlug}: usedFallback=${stageMetadata.usedFallback} (typeof ${typeof stageMetadata.usedFallback}), metadataJson=${JSON.stringify(currentStage?.metadataJson).slice(0, 300)}`,
+        );
+      }
       // Base Story generation falls back to a generic placeholder when the
       // real LLM call fails (timeout, no model, bad output) — never
       // auto-commit that silently. A human needs to see it and either

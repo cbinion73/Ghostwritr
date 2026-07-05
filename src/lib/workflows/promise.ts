@@ -1629,6 +1629,25 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+// The LLM's own raw JSON never includes our internal metadata block (it's
+// stamped on afterward), so `asRecord(record.metadata)` alone is `{}` here.
+// The metadata schemas are `.nullable()` but not `.optional()` at every
+// nested key (required for OpenAI strict structured-output mode), so an
+// incomplete object fails `.parse()` with "expected string/object, received
+// undefined" for every missing key. This defaults everything to `null` —
+// always schema-valid — since the real values get stamped in afterward by
+// the caller anyway (see mergeArtifactMetadata).
+function defaultedArtifactMetadata(raw: unknown): PromiseArtifactMetadata {
+  const record = asRecord(raw);
+  return {
+    createdAt: typeof record.createdAt === "string" ? record.createdAt : null,
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : null,
+    model: typeof record.model === "string" ? record.model : null,
+    grounding: null,
+    tokenUsage: null,
+  };
+}
+
 function coerceString(value: unknown, fallback: string): string {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -5079,7 +5098,7 @@ function normalizeTransformationArtifact(
         fallback.arc.completeTransformation,
       ),
     },
-    metadata: asRecord(record.metadata),
+    metadata: defaultedArtifactMetadata(record.metadata),
   });
 }
 
@@ -8281,7 +8300,7 @@ function normalizeCoreTruthsArtifact(
         ),
       },
       completeTruth: coerceString(record.completeTruth, fallback.completeTruth),
-      metadata: asRecord(record.metadata),
+      metadata: defaultedArtifactMetadata(record.metadata),
     };
 
     return CoreTruthsArtifactSchema.parse({

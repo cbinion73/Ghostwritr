@@ -2077,14 +2077,20 @@ function mergeArtifactMetadata(
   metadata: PromiseArtifactMetadata | undefined,
   updates: PromiseArtifactMetadata,
 ): PromiseArtifactMetadata {
+  // grounding's three fields are `.nullable()` but not `.optional()` in the
+  // artifact schemas, so every key must be present even when neither side
+  // supplies a `grounding` at all (e.g. TransformationArc's caller never
+  // sets one) — spreading two partial/absent sources without defaulting
+  // each key individually can silently produce `{}`, missing every key.
   return {
     ...(metadata ?? {}),
     ...(updates ?? {}),
     grounding: {
-      ...(metadata?.grounding ?? {}),
-      ...(updates?.grounding ?? {}),
+      previousPhases: updates?.grounding?.previousPhases ?? metadata?.grounding?.previousPhases ?? null,
+      kbSources: updates?.grounding?.kbSources ?? metadata?.grounding?.kbSources ?? null,
+      audienceSignals: updates?.grounding?.audienceSignals ?? metadata?.grounding?.audienceSignals ?? null,
     },
-    tokenUsage: updates?.tokenUsage ?? metadata?.tokenUsage,
+    tokenUsage: updates?.tokenUsage ?? metadata?.tokenUsage ?? null,
   };
 }
 

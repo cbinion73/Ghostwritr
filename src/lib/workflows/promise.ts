@@ -3434,7 +3434,7 @@ export async function maybeGenerateMarketReport(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           model: "fallback",
-          tokenUsage: undefined,
+          tokenUsage: null,
           grounding: {
             previousPhases: groundingContext.previousPhases,
             audienceSignals: groundingContext.audienceSignals,
@@ -3580,7 +3580,7 @@ export async function maybeGenerateRecommendations(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           model: "fallback",
-          tokenUsage: undefined,
+          tokenUsage: null,
           grounding: {
             previousPhases: groundingContext.previousPhases,
             audienceSignals: groundingContext.audienceSignals,
@@ -3831,7 +3831,7 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
           ...(fallback.metadata ?? {}),
           updatedAt: new Date().toISOString(),
           model: "fallback-timeout",
-          tokenUsage: fallback.metadata?.tokenUsage,
+          tokenUsage: fallback.metadata?.tokenUsage ?? null,
           grounding: {
             previousPhases: groundingContext?.previousPhases ?? [],
             audienceSignals: groundingContext?.audienceSignals ?? [],
@@ -3984,7 +3984,7 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
         createdAt: composed.metadata?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         model: resolveModelSpec("promise:author"),
-        tokenUsage,
+        tokenUsage: tokenUsage ?? null,
         grounding: {
           previousPhases: groundingContext.previousPhases,
           audienceSignals: groundingContext.audienceSignals,
@@ -4005,7 +4005,7 @@ ${formatSetupContextForPrompt(bookSetupProfile)}${knowledgeContext}`;
           ...(fallback.metadata ?? {}),
           updatedAt: new Date().toISOString(),
           model: "fallback-timeout",
-          tokenUsage: fallback.metadata?.tokenUsage,
+          tokenUsage: fallback.metadata?.tokenUsage ?? null,
           grounding: {
             previousPhases: groundingContext?.previousPhases ?? [],
             audienceSignals: groundingContext?.audienceSignals ?? [],
@@ -6605,7 +6605,7 @@ async function generateBookPitchMarkdownInSections(params: {
   model: NonNullable<Awaited<ReturnType<typeof getBookPitchModel>>>;
   systemPrompt: string;
   promptPayload: Record<string, unknown>;
-}): Promise<{ markdown: string; tokenUsage?: PromiseTokenUsage }> {
+}): Promise<{ markdown: string; tokenUsage: PromiseTokenUsage | null }> {
   const sections: string[] = [];
   const usageItems: PromiseTokenUsage[] = [];
 
@@ -6668,7 +6668,7 @@ Additional guidance:
 
   return {
     markdown: sections.join("\n\n"),
-    tokenUsage: combinedUsage,
+    tokenUsage: combinedUsage ?? null,
   };
 }
 
@@ -8143,7 +8143,7 @@ export function composeBookPromiseReportFromMarkdown(
         new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       model: existingReport?.metadata?.model || "manual-edit",
-      tokenUsage: existingReport?.metadata?.tokenUsage,
+      tokenUsage: existingReport?.metadata?.tokenUsage ?? null,
       grounding: {
         previousPhases: groundingContext.previousPhases,
         audienceSignals: groundingContext.audienceSignals,

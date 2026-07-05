@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { SubmitButton } from "@/app/components/submit-button";
 
 type FailedChapter = { chapterKey: string; message: string };
@@ -117,128 +118,131 @@ export function StageRunPanel({
         </button>
       ) : null}
 
-      {open ? (
-        <div style={overlayStyle} role="dialog" aria-label={`${stageLabel} run`}>
-          <div style={modalStyle}>
-            <div style={headerStyle}>
-              <div>
-                <div className="microlabel" style={{ color: "var(--muted, #6f6256)" }}>
-                  {stageLabel} Run
-                </div>
-                <h3 style={{ margin: "4px 0 0" }}>
-                  {isRunning ? (
-                    <>
-                      <span style={pulseDotStyle} /> Running
-                    </>
-                  ) : isBlocked ? (
-                    "Stopped"
-                  ) : (
-                    "Idle"
-                  )}
-                </h3>
-              </div>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setOpen(false)}
-                aria-label="Close (run keeps going in the background)"
-              >
-                Close
-              </button>
-            </div>
-
-            {data ? (
-              <>
-                <div style={statRowStyle}>
-                  <span>
-                    {data.completedChapters}/{data.totalChapters} chapters
-                  </span>
-                  {data.currentChapterKey ? (
-                    <span>
-                      Now: {chapterLabels[data.currentChapterKey] ?? data.currentChapterKey}
-                    </span>
-                  ) : null}
-                  {data.lastRunAt ? <span>Updated {formatElapsedSince(data.lastRunAt)}</span> : null}
-                </div>
-
-                <div style={progressTrackStyle}>
-                  <div
-                    style={{
-                      ...progressFillStyle,
-                      width: `${
-                        data.totalChapters > 0
-                          ? Math.round((data.completedChapters / data.totalChapters) * 100)
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
-
-                {data.currentAction ? (
-                  <div style={{ fontSize: 13, fontStyle: "italic", color: "var(--muted, #6f6256)" }}>
-                    {data.currentAction}
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div style={overlayStyle} role="dialog" aria-label={`${stageLabel} run`}>
+              <div style={modalStyle}>
+                <div style={headerStyle}>
+                  <div>
+                    <div className="microlabel" style={{ color: "var(--muted, #6f6256)" }}>
+                      {stageLabel} Run
+                    </div>
+                    <h3 style={{ margin: "4px 0 0" }}>
+                      {isRunning ? (
+                        <>
+                          <span style={pulseDotStyle} /> Running
+                        </>
+                      ) : isBlocked ? (
+                        "Stopped"
+                      ) : (
+                        "Idle"
+                      )}
+                    </h3>
                   </div>
-                ) : null}
-
-                <div style={feedLabelStyle}>Live feed</div>
-                <div style={feedStyle}>
-                  {data.recentActivity.length === 0 ? (
-                    <div className="muted" style={{ fontSize: 13 }}>
-                      No activity recorded yet.
-                    </div>
-                  ) : (
-                    data.recentActivity.map((entry, index) => (
-                      <div key={`${entry.at}-${index}`} style={feedEntryStyle}>
-                        <span style={{ color: "var(--muted, #6f6256)", fontSize: 11 }}>
-                          {formatElapsedSince(entry.at)}
-                        </span>
-                        <span>{entry.message}</span>
-                      </div>
-                    ))
-                  )}
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setOpen(false)}
+                    aria-label="Close (run keeps going in the background)"
+                  >
+                    Close
+                  </button>
                 </div>
 
-                {data.failedChapters.length > 0 ? (
+                {data ? (
                   <>
-                    <div style={{ ...feedLabelStyle, color: "#a5342a" }}>
-                      Failed chapters ({data.failedChapters.length})
+                    <div style={statRowStyle}>
+                      <span>
+                        {data.completedChapters}/{data.totalChapters} chapters
+                      </span>
+                      {data.currentChapterKey ? (
+                        <span>
+                          Now: {chapterLabels[data.currentChapterKey] ?? data.currentChapterKey}
+                        </span>
+                      ) : null}
+                      {data.lastRunAt ? <span>Updated {formatElapsedSince(data.lastRunAt)}</span> : null}
                     </div>
-                    <div style={feedStyle}>
-                      {data.failedChapters.map((entry) => (
-                        <div key={entry.chapterKey} style={feedEntryStyle}>
-                          <strong>{chapterLabels[entry.chapterKey] ?? entry.chapterKey}</strong>
-                          <span style={{ color: "#a5342a", fontSize: 12 }}>
-                            {entry.message.slice(0, 160)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <div className="muted">Loading run status…</div>
-            )}
 
-            <div style={footerStyle}>
-              {isRunning ? (
-                <form action={stopAction}>
-                  <SubmitButton className="btn" label={`Stop ${stageLabel}`} pendingLabel="Stopping..." />
-                </form>
-              ) : null}
-              {isBlocked ? (
-                <form action={retryAction}>
-                  <SubmitButton
-                    className="btn btn-primary"
-                    label={`Retry ${stageLabel}`}
-                    pendingLabel="Retrying..."
-                  />
-                </form>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
+                    <div style={progressTrackStyle}>
+                      <div
+                        style={{
+                          ...progressFillStyle,
+                          width: `${
+                            data.totalChapters > 0
+                              ? Math.round((data.completedChapters / data.totalChapters) * 100)
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+
+                    {data.currentAction ? (
+                      <div style={{ fontSize: 13, fontStyle: "italic", color: "var(--muted, #6f6256)" }}>
+                        {data.currentAction}
+                      </div>
+                    ) : null}
+
+                    <div style={feedLabelStyle}>Live feed</div>
+                    <div style={feedStyle}>
+                      {data.recentActivity.length === 0 ? (
+                        <div className="muted" style={{ fontSize: 13 }}>
+                          No activity recorded yet.
+                        </div>
+                      ) : (
+                        data.recentActivity.map((entry, index) => (
+                          <div key={`${entry.at}-${index}`} style={feedEntryStyle}>
+                            <span style={{ color: "var(--muted, #6f6256)", fontSize: 11 }}>
+                              {formatElapsedSince(entry.at)}
+                            </span>
+                            <span>{entry.message}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {data.failedChapters.length > 0 ? (
+                      <>
+                        <div style={{ ...feedLabelStyle, color: "#a5342a" }}>
+                          Failed chapters ({data.failedChapters.length})
+                        </div>
+                        <div style={feedStyle}>
+                          {data.failedChapters.map((entry) => (
+                            <div key={entry.chapterKey} style={feedEntryStyle}>
+                              <strong>{chapterLabels[entry.chapterKey] ?? entry.chapterKey}</strong>
+                              <span style={{ color: "#a5342a", fontSize: 12 }}>
+                                {entry.message.slice(0, 160)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="muted">Loading run status…</div>
+                )}
+
+                <div style={footerStyle}>
+                  {isRunning ? (
+                    <form action={stopAction}>
+                      <SubmitButton className="btn" label={`Stop ${stageLabel}`} pendingLabel="Stopping..." />
+                    </form>
+                  ) : null}
+                  {isBlocked ? (
+                    <form action={retryAction}>
+                      <SubmitButton
+                        className="btn btn-primary"
+                        label={`Retry ${stageLabel}`}
+                        pendingLabel="Retrying..."
+                      />
+                    </form>
+                  ) : null}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

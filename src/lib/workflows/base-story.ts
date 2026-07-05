@@ -117,10 +117,18 @@ async function getChatModel() {
   // was *lowering* this role's own routing-layer default of 12000 (chosen
   // specifically because this role "needs headroom beyond 8,192", per
   // routing.ts) instead of letting it apply. Omitting it now lets that
-  // default take effect.
+  // default take effect. Still not enough — a live-monitored regeneration
+  // with that fix in place hit the SAME 120s ceiling again (clean SDK
+  // timeout, no further error detail), which points at something more
+  // fundamental: forcing a large nested tool-call/structured-output
+  // schema (16 chapters x 5 movement fields) appears to genuinely take
+  // Claude much longer than free-form prose of comparable length (compare
+  // chapter-draft:author's reliable 30s timeout at 16,000 tokens of plain
+  // prose). Raised substantially to give a real structured-output call
+  // room to finish rather than guessing again.
   return getModelForRole("base-story:author", {
     temperature: 0.3,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
   });
 }
 
@@ -247,9 +255,9 @@ async function generateBaseStory(
   const fallback = fallbackBaseStory(bookTitle, outline, preferredFormat);
   if (!model) return { bundle: fallback, usedFallback: true };
 
+  const startedAt = Date.now();
   try {
     console.log(`[generateBaseStory] Starting for "${bookTitle}" (${outline.sections.reduce((sum, s) => sum + s.chapters.length, 0)} chapters)...`);
-    const startedAt = Date.now();
     const structured = model.withStructuredOutput(BaseStorySchema);
     const result = await structured.invoke([
       new SystemMessage(`
@@ -303,7 +311,7 @@ These movement fields are narrative design notes for later drafting, not final c
       ? { bundle: normalized, usedFallback: false }
       : { bundle: fallback, usedFallback: true };
   } catch (error) {
-    console.error(`[generateBaseStory] Generation failed for "${bookTitle}", using fallback:`, error);
+    console.error(`[generateBaseStory] Generation failed for "${bookTitle}" after ${Date.now() - startedAt}ms, using fallback:`, error);
     return { bundle: fallback, usedFallback: true };
   }
 }

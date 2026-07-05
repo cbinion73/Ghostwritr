@@ -44,70 +44,117 @@ export function ChapterGenerationProgress({ bookSlug, isGenerating }: ChapterGen
 
   const completionPercentage = Math.round((progress.completed / progress.total) * 100);
   const hasErrors = progress.failed > 0;
+  const barColor = hasErrors
+    ? "#c0392b"
+    : progress.completed === progress.total
+      ? "#2f7a4d"
+      : "var(--gold-bright, #c9a24b)";
+
+  const chipColor = (status: ChapterProgress["status"]) => {
+    switch (status) {
+      case "completed":
+        return "#2f7a4d";
+      case "processing":
+        return "var(--gold-bright, #c9a24b)";
+      case "failed":
+        return "#c0392b";
+      default:
+        return "rgba(93, 85, 68, 0.25)";
+    }
+  };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium">Chapter Breakdowns</span>
-        <span className="text-gray-600">
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        padding: "14px 16px",
+        borderRadius: 8,
+        border: "1px solid var(--line, rgba(59,44,31,0.14))",
+        background: "var(--paper, #f2ebdc)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink, #282318)" }}>
+          <span
+            style={{
+              display: "inline-block",
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              marginRight: 8,
+              background: barColor,
+              animation:
+                progress.completed < progress.total
+                  ? "ghostwritr-pulse 1.4s ease-in-out infinite"
+                  : "none",
+            }}
+          />
+          Generating Chapter Breakdowns
+        </span>
+        <span style={{ fontSize: 12, color: "var(--muted, #5d5544)", fontVariantNumeric: "tabular-nums" }}>
           {progress.completed}/{progress.total} complete
-          {hasErrors && <span className="text-red-600"> • {progress.failed} failed</span>}
+          {hasErrors && <span style={{ color: "#c0392b" }}> · {progress.failed} failed</span>}
         </span>
       </div>
 
-      {/* Overall progress bar */}
-      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div
+        style={{
+          height: 6,
+          borderRadius: 999,
+          overflow: "hidden",
+          background: "rgba(93, 85, 68, 0.15)",
+        }}
+      >
         <div
-          className={`h-full transition-all duration-300 ${
-            hasErrors
-              ? "bg-red-500"
-              : progress.completed === progress.total
-                ? "bg-green-500"
-                : "bg-yellow-500"
-          }`}
-          style={{ width: `${completionPercentage}%` }}
+          style={{
+            height: "100%",
+            width: `${completionPercentage}%`,
+            background: barColor,
+            transition: "width 0.3s ease-out",
+          }}
         />
       </div>
 
-      {/* Chapter grid */}
-      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1">
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(28px, 1fr))",
+          gap: 4,
+        }}
+      >
         {progress.chapters.map((chapter) => (
           <div
             key={chapter.chapterId}
-            className="aspect-square rounded flex items-center justify-center text-xs font-medium relative group"
-            title={`${chapter.chapterTitle}: ${chapter.status}`}
+            title={`${chapter.chapterNumber}. ${chapter.chapterTitle} — ${chapter.status}${
+              chapter.status === "failed" && chapter.error ? `: ${chapter.error.slice(0, 80)}` : ""
+            }`}
+            style={{
+              aspectRatio: "1 / 1",
+              borderRadius: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 11,
+              fontWeight: 600,
+              color: chapter.status === "pending" ? "var(--muted, #5d5544)" : "#fff",
+              background: chipColor(chapter.status),
+              animation:
+                chapter.status === "processing"
+                  ? "ghostwritr-pulse 1.4s ease-in-out infinite"
+                  : "none",
+            }}
           >
-            <div
-              className={`w-full h-full rounded flex items-center justify-center text-white text-xs font-semibold transition-colors duration-200 ${
-                chapter.status === "completed"
-                  ? "bg-green-500"
-                  : chapter.status === "processing"
-                    ? "bg-yellow-500 animate-pulse"
-                    : chapter.status === "failed"
-                      ? "bg-red-500"
-                      : "bg-gray-300"
-              }`}
-            >
-              {chapter.chapterNumber}
-            </div>
-
-            {/* Tooltip */}
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              {chapter.chapterTitle}
-              <br />
-              {chapter.status === "failed" && chapter.error && (
-                <span className="text-red-200">{chapter.error.slice(0, 50)}...</span>
-              )}
-            </div>
+            {chapter.chapterNumber}
           </div>
         ))}
       </div>
 
-      {/* Status message */}
-      <div className="text-xs text-gray-600 mt-2">
+      <div style={{ fontSize: 11.5, color: "var(--muted, #5d5544)" }}>
         {progress.completed === progress.total
           ? "✓ All chapters processed"
-          : `Processing... ${progress.completed} of ${progress.total} chapters done`}
+          : `Processing chapter ${progress.completed + 1} of ${progress.total}…`}
       </div>
     </div>
   );

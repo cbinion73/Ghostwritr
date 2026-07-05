@@ -105,10 +105,6 @@ const BaseStorySchema = z.object({
   ),
 });
 
-function hasUsableOpenAIKey() {
-  return Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== "your-key-here");
-}
-
 async function getChatModel() {
   // Routed via provider layer: Sonnet for cost-effective narrative generation.
   // BaseStorySchema asks for a movement (5 fields) per chapter, so a
@@ -242,10 +238,10 @@ async function generateBaseStory(
   promise: PromiseBrief,
   outline: BookOutline,
   preferredFormat: BaseStoryFormatPreference,
-) {
+): Promise<{ bundle: BaseStoryBundle; usedFallback: boolean }> {
   const model = await getChatModel();
   const fallback = fallbackBaseStory(bookTitle, outline, preferredFormat);
-  if (!model) return fallback;
+  if (!model) return { bundle: fallback, usedFallback: true };
 
   try {
     const structured = model.withStructuredOutput(BaseStorySchema);
@@ -283,7 +279,7 @@ These movement fields are narrative design notes for later drafting, not final c
       ),
     ]);
 
-    return normalizeBaseStoryBundle({
+    const normalized = normalizeBaseStoryBundle({
       workingTitle: bookTitle,
       selectedFormat: result.selectedFormat as BaseStoryFormat,
       availableFormats: StoryFormatCatalog,
@@ -291,10 +287,13 @@ These movement fields are narrative design notes for later drafting, not final c
       bookThread: result.bookThread,
       bookMovement: result.bookMovement,
       chapters: result.chapters,
-    } satisfies BaseStoryBundle) ?? fallback;
+    } satisfies BaseStoryBundle);
+    return normalized
+      ? { bundle: normalized, usedFallback: false }
+      : { bundle: fallback, usedFallback: true };
   } catch (error) {
     console.error(`[generateBaseStory] Generation failed for "${bookTitle}", using fallback:`, error);
-    return fallback;
+    return { bundle: fallback, usedFallback: true };
   }
 }
 
@@ -333,7 +332,7 @@ export async function runBaseStoryWorkflow(bookSlug: string, runId?: string) {
     currentAction: "Choosing the best narrative format",
     message: `Choosing the best base-story format${bookSetup?.baseStoryFormatPreference && bookSetup.baseStoryFormatPreference !== "AUTO" ? ` with preference ${bookSetup.baseStoryFormatPreference}` : ""}.`,
   });
-  const bundle = await generateBaseStory(
+  const { bundle, usedFallback } = await generateBaseStory(
     book.titleWorking ?? "Untitled Book",
     promise,
     outline,
@@ -358,7 +357,12 @@ export async function runBaseStoryWorkflow(bookSlug: string, runId?: string) {
     summary: bundle.storyPremise,
     contentJson: bundle as unknown as Prisma.InputJsonValue,
     contentText: JSON.stringify(bundle, null, 2),
-    modelName: hasUsableOpenAIKey() ? (process.env.OPENAI_BASE_STORY_MODEL ?? "gpt-5.4") : "local-fallback",
+    // Reflects what actually happened, not just whether a key was configured
+    // — a configured key whose call times out or errors still falls back,
+    // and that must be visibly distinguishable from a real generation.
+    modelName: usedFallback
+      ? "fallback"
+      : (process.env.OPENAI_BASE_STORY_MODEL ?? "gpt-5.4"),
     promptTemplateVersion: "base-story-v1",
   });
 
@@ -367,11 +371,19 @@ export async function runBaseStoryWorkflow(bookSlug: string, runId?: string) {
     activeArtifactVersionId: version.id,
     metadataJson: {
       automationStatus: "ready_for_review",
-      currentAction: "Ready for review",
+      currentAction: usedFallback
+        ? "Ready for review — generation failed, this is a placeholder"
+        : "Ready for review",
       totalChapters: bundle.chapters.length,
       completedChapters: bundle.chapters.length,
       selectedFormat: bundle.selectedFormat,
-      recentActivity: recentActivity(undefined, `Generated Base Story in ${bundle.selectedFormat.replace(/_/g, " ").toLowerCase()} format.`),
+      usedFallback,
+      recentActivity: recentActivity(
+        undefined,
+        usedFallback
+          ? "Generation failed — saved a generic placeholder for manual review instead of the real narrative thread."
+          : `Generated Base Story in ${bundle.selectedFormat.replace(/_/g, " ").toLowerCase()} format.`,
+      ),
       lastRunAt: new Date().toISOString(),
     },
   });
@@ -491,6 +503,7 @@ export async function getBaseStoryWorkspace(bookSlug: string) {
       totalChapters: typeof metadata.totalChapters === "number" ? metadata.totalChapters : latest?.chapters.length ?? 0,
       completedChapters: typeof metadata.completedChapters === "number" ? metadata.completedChapters : latest?.chapters.length ?? 0,
       selectedFormat: typeof metadata.selectedFormat === "string" ? metadata.selectedFormat : latest?.selectedFormat ?? null,
+      usedFallback: metadata.usedFallback === true,
     },
     outlineReady,
   };

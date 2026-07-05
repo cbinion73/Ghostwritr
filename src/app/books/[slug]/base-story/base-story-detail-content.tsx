@@ -49,6 +49,23 @@ export async function BaseStoryDetailContent({ slug }: { slug: string }) {
                 </div>
               </div>
             ) : null}
+            {workspace.progress.usedFallback ? (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(192, 57, 43, 0.4)",
+                  background: "rgba(192, 57, 43, 0.08)",
+                  color: "#a5342a",
+                  fontSize: 13,
+                }}
+              >
+                <strong>Generation failed.</strong> This version is a generic placeholder, not a
+                real narrative thread for this book — the AI call failed and this filled in
+                instead. Regenerate before committing.
+              </div>
+            ) : null}
           </div>
 
           <div className="button-row">

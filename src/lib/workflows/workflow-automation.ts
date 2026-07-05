@@ -467,6 +467,18 @@ async function runNonfictionAutopilot(
     }
 
     if (currentStage?.status === StageStatus.READY_FOR_REVIEW) {
+      // Base Story generation falls back to a generic placeholder when the
+      // real LLM call fails (timeout, no model, bad output) — never
+      // auto-commit that silently. A human needs to see it and either
+      // regenerate or knowingly accept it.
+      if (item.key === StageKey.BASE_STORY && stageMetadata.usedFallback === true) {
+        return {
+          status: "manual",
+          title: "Base Story needs review",
+          detail: "Generation fell back to a generic placeholder instead of a real narrative thread. Regenerate it, or review and commit manually if the placeholder is acceptable.",
+        };
+      }
+
       const commitResult = await item.commit();
       if (
         commitResult &&

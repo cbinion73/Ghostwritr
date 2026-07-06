@@ -14,6 +14,7 @@ import {
   addExternalStoryClip,
   archiveExternalStoryBinderTab,
   combineExternalStoryBinderTabs,
+  commitAllExternalStories,
   commitSelectedExternalStories,
   deleteExternalStoryClip,
   renameExternalStoryBinderTab,
@@ -125,6 +126,15 @@ export async function ExternalStoriesContent({
               generateLabel="Generate External Stories"
               regenerateLabel="Regenerate Story Vault"
             />
+            {hasGeneratedStoryVault ? (
+              <form action={commitAllExternalStories.bind(null, slug)}>
+                <SubmitButton
+                  className="btn btn-primary"
+                  label="Commit All External Stories"
+                  pendingLabel="Committing All..."
+                />
+              </form>
+            ) : null}
           </div>
         </section>
 

@@ -12,6 +12,9 @@ import {
   parseMetadataRecord,
 } from "../artifact-schemas";
 import { getModelForRole, resolveModelSpec } from "../llm/routing";
+import { resolveResearchLens, buildLensStoryQueries, type ResearchLens } from "../research-lenses";
+import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
+import { normalizeBookSetupProfile } from "../book-setup-types";
 import {
   ArtifactStatus,
   Prisma,
@@ -554,24 +557,28 @@ async function getChapterSeeds(bookId: string) {
   };
 }
 
-async function discoverCandidateSources(chapter: ChapterSeed) {
+async function discoverCandidateSources(
+  chapter: ChapterSeed,
+  lens: ResearchLens,
+  bookSubject: string,
+) {
   // Broader, more specific queries produce richer source pools. Each angle
   // targets a different kind of story (turnaround / failure / decision /
-  // individual human moment / contrarian / long-form reporting).
+  // individual human moment / contrarian / long-form reporting) — reframed
+  // per the book's research lens so a Biblical/Theological book searches for
+  // testimonies and church-history accounts instead of business case studies.
   const descSlice = chapter.chapterDescription.slice(0, 120);
-  const queries = [
-    `${chapter.chapterTitle} leader company case study`,
+  const topics = [
+    chapter.chapterTitle,
     ...(chapter.baseStoryChapterThread
       ? [chapter.baseStoryChapterThread.replace(/\s+/g, " ").slice(0, 120)]
       : []),
-    `${chapter.chapterTitle} inspiring leadership story`,
-    `${chapter.chapterTitle} true company turnaround story`,
-    `${chapter.chapterTitle} crisis leadership example`,
+  ];
+  const queries = [
+    ...buildLensStoryQueries(lens, topics, bookSubject),
     `${chapter.chapterTitle} extraordinary accomplishment story`,
     `${chapter.chapterTitle} personal account first hand`,
     `${chapter.chapterTitle} long form profile`,
-    `${chapter.chapterTitle} failure lessons learned`,
-    `${chapter.chapterTitle} contrarian example`,
     `${chapter.chapterTitle} ${descSlice}`,
   ];
 
@@ -677,7 +684,11 @@ CORE REQUIREMENTS for every story you return:
 
 Return between 1 and 5 story candidates per source — quality over quantity.`;
 
-async function extractStories(chapter: ChapterSeed, source: FetchedSource): Promise<ChapterExternalStoryItem[]> {
+async function extractStories(
+  chapter: ChapterSeed,
+  source: FetchedSource,
+  lens: ResearchLens,
+): Promise<ChapterExternalStoryItem[]> {
   const model = await getExtractionModel();
 
   // Keep a minimal structural fallback for when no LLM is configured. This
@@ -709,8 +720,11 @@ async function extractStories(chapter: ChapterSeed, source: FetchedSource): Prom
 
   try {
     const structured = model.withStructuredOutput(StorySchema);
+    const systemPrompt = lens.storyGuidance
+      ? `${STORY_EXTRACTION_PROMPT}\n\n${lens.storyGuidance}`
+      : STORY_EXTRACTION_PROMPT;
     const result = await structured.invoke([
-      new SystemMessage(STORY_EXTRACTION_PROMPT),
+      new SystemMessage(systemPrompt),
       new HumanMessage(
         JSON.stringify({
           chapterTitle: chapter.chapterTitle,
@@ -917,6 +931,21 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
     throw new Error(`Committed chapter ${chapterKey} was not found for External Stories.`);
   }
 
+  // Per-book research lens (set in Book Setup) reframes story search and
+  // extraction for the book's actual genre — without this, every book's
+  // External Stories search used the same business/leadership phrasing
+  // ("case study", "company turnaround"), regardless of subject.
+  const committedSetup = await getCommittedBookSetup(book.id);
+  const setupProfile = normalizeBookSetupProfile(committedSetup?.contentJson);
+  const lens = resolveResearchLens(setupProfile?.researchLens);
+  const bookMeta = book.metadataJson && typeof book.metadataJson === "object"
+    ? (book.metadataJson as Record<string, unknown>)
+    : {};
+  const bookSubject = [
+    typeof bookMeta.premise === "string" ? bookMeta.premise : null,
+    book.titleWorking,
+  ].filter(Boolean).join(" ").slice(0, 80);
+
   let dossier: ChapterExternalStoryDossier;
   let persistedSources: ChapterExternalStorySource[];
   let persistedStories: ChapterExternalStoryItem[];
@@ -929,7 +958,7 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
       currentAction: "Searching the web for true story leads",
       message: `Searching true story leads for ${chapter.chapterTitle}`,
     });
-    const { candidates, attempts: searchAttempts } = await discoverCandidateSources(chapter);
+    const { candidates, attempts: searchAttempts } = await discoverCandidateSources(chapter, lens, bookSubject);
     if (candidates.length === 0) {
       throw new Error(
         `No story search results were discovered for ${chapter.chapterTitle}. ${summarizeSearchAttempts(searchAttempts)}`,
@@ -977,7 +1006,7 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
     const extractedStoriesBySource = await Promise.all(
       fetchedSources.map(async (source) => ({
         source,
-        stories: await extractStories(chapter, source),
+        stories: await extractStories(chapter, source, lens),
       })),
     );
 

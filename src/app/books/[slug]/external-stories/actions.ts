@@ -8,6 +8,7 @@ import {
   addExternalStoryClipWorkflow,
   archiveExternalStoryBinderTabWorkflow,
   combineExternalStoryBinderTabsWorkflow,
+  commitAllExternalStoriesWorkflow,
   commitChapterExternalStoriesWorkflow,
   deleteExternalStoryClipWorkflow,
   enqueueAndTriggerFullExternalStoriesWorkflow,
@@ -61,6 +62,12 @@ export async function commitSelectedExternalStories(slug: string, formData: Form
 
   await commitChapterExternalStoriesWorkflow(slug, chapterKey);
   revalidatePath(`/books/${slug}`);
+}
+
+export async function commitAllExternalStories(slug: string) {
+  await commitAllExternalStoriesWorkflow(slug);
+  revalidatePath(`/books/${slug}`);
+  revalidatePath(`/books/${slug}/dashboard`);
 }
 
 export async function addExternalStoryBinderTab(slug: string, formData: FormData) {

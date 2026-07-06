@@ -58,6 +58,25 @@ function parseMaterialRefs(chapterSection: string): { scout: string[]; chronicle
   return refs;
 }
 
+// Titles follow "Research Pack: {chapterKey} - {chapterTitle}" (or the
+// External Stories equivalent). Compare the "{chapterKey}" segment exactly —
+// matching on an arbitrary 30-char prefix let "chapter-1" match an artifact
+// titled "chapter-2", since both share the same "Research Pack: the-problem-
+// becomes-visible-" prefix and the differentiating digit only appears after
+// that cutoff. That misrouted a chapter's manifest references onto a
+// completely different chapter's (much larger) dossier.
+function extractDossierRefKey(title: string): string {
+  const afterColon = title.includes(":") ? title.split(":").slice(1).join(":").trim() : title.trim();
+  const dashIdx = afterColon.indexOf(" - ");
+  return (dashIdx === -1 ? afterColon : afterColon.slice(0, dashIdx)).trim().toLowerCase();
+}
+
+// Defensive cap regardless of match correctness — a single dossier's stored
+// contentText should never legitimately need to be this large (it's already
+// capped much smaller at write time); this exists so a stray oversized row
+// can never again blow out an entire request's context budget on its own.
+const MAX_REFERENCED_MATERIAL_CHARS = 20000;
+
 async function fetchReferencedMaterials(
   bookId: string,
   refs: { scout: string[]; chronicle: string[]; personal: string[] },
@@ -88,15 +107,20 @@ async function fetchReferencedMaterials(
     if (!stage) continue;
 
     for (const title of titles) {
+      const refKey = extractDossierRefKey(title);
       const artifact = stage.artifacts.find((a) => {
+        const aKey = extractDossierRefKey(a.title ?? "");
+        if (aKey && refKey) return aKey === refKey;
         const aTitle = (a.title ?? "").toLowerCase();
-        const refTitle = title.toLowerCase();
-        return aTitle.includes(refTitle.slice(0, 30)) || refTitle.includes(aTitle.slice(0, 30));
+        return aTitle === title.toLowerCase();
       });
       const text = artifact?.versions[0]?.contentText;
       if (text) {
+        const capped = text.length > MAX_REFERENCED_MATERIAL_CHARS
+          ? `${text.slice(0, MAX_REFERENCED_MATERIAL_CHARS)}\n...[truncated — this dossier's stored content was unexpectedly large]`
+          : text;
         const prefix = sk === "RESEARCH" ? "SCOUT" : sk === "EXTERNAL_STORIES" ? "CHRONICLE" : "PERSONAL";
-        sections.push(`=== ${prefix}: ${artifact?.title ?? title} ===\n${text}`);
+        sections.push(`=== ${prefix}: ${artifact?.title ?? title} ===\n${capped}`);
       }
     }
   }

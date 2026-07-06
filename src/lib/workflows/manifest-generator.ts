@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { ArtifactType, StageStatus, ActorType } from "@prisma/client";
 import { getModelForRole } from "@/lib/llm/routing";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
+import { getCommittedOutline } from "@/lib/repositories/outline-artifacts";
 
 export async function generateManifest(
   bookId: string,
@@ -22,18 +23,17 @@ export async function generateManifest(
   });
   if (!book) return { success: false, error: "Book not found" };
 
-  // Load committed OUTLINE
-  const outlineStage = await db.bookStage.findUnique({
-    where: { bookId_stageKey: { bookId, stageKey: "OUTLINE" } },
-    select: {
-      artifacts: {
-        select: { versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
-        orderBy: { createdAt: "desc" },
-        take: 1,
-      },
-    },
-  });
-  const outlineText = outlineStage?.artifacts[0]?.versions[0]?.contentText ?? "";
+  // Load committed OUTLINE. A BookStage's `artifacts` relation isn't
+  // exclusively OUTLINE-type rows — paragraph-level planning artifacts
+  // (e.g. CHAPTER_PARAGRAPH_PLAN) are stored under the same stage and can
+  // be created well after the outline is committed. The previous query took
+  // "most recently created artifact under this stage" with no artifactType
+  // filter, so on any book with later planning activity it would pick up
+  // one of those instead of the real outline and see empty content —
+  // reporting "no committed outline" even when one existed and was
+  // committed. getCommittedOutline() filters correctly.
+  const outlineVersion = await getCommittedOutline(bookId);
+  const outlineText = outlineVersion?.contentText ?? "";
   if (!outlineText) return { success: false, error: "No committed outline found. Commit the Outline stage before generating the manifest." };
 
   // Load RESEARCH artifacts (all dossiers)
@@ -41,6 +41,7 @@ export async function generateManifest(
     where: { bookId_stageKey: { bookId, stageKey: "RESEARCH" } },
     select: {
       artifacts: {
+        where: { artifactType: ArtifactType.RESEARCH_PACK },
         select: { title: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
         orderBy: { createdAt: "asc" },
       },
@@ -52,17 +53,23 @@ export async function generateManifest(
     where: { bookId_stageKey: { bookId, stageKey: "EXTERNAL_STORIES" } },
     select: {
       artifacts: {
+        where: { artifactType: ArtifactType.EXTERNAL_STORY_PACK },
         select: { title: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
         orderBy: { createdAt: "asc" },
       },
     },
   });
 
-  // Load PERSONAL_STORIES artifacts
+  // Load PERSONAL_STORIES artifacts. This stage also holds
+  // PERSONAL_STORY_CHAT (the raw interview transcript) alongside
+  // PERSONAL_STORY_ENCYCLOPEDIA (the actual story bank) — without this
+  // filter the manifest prompt was getting the chat transcript fed in
+  // alongside, or instead of, the real story bank content.
   const personalStage = await db.bookStage.findUnique({
     where: { bookId_stageKey: { bookId, stageKey: "PERSONAL_STORIES" } },
     select: {
       artifacts: {
+        where: { artifactType: ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA },
         select: { title: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
         orderBy: { createdAt: "asc" },
       },

@@ -1388,7 +1388,11 @@ async function adjudicateAmbiguousItems(
     return { items, verifications };
   }
 
-  const ambiguousItems = items.filter((item) => item.verificationStatus !== "VERIFIED");
+  // Only NEEDS_CORROBORATION is genuinely ambiguous. REJECTED is already a
+  // confident verifier decision — sending it through adjudication too paid
+  // for a redundant xhigh-reasoning re-check on every rejected claim, which
+  // was the majority of adjudication calls in practice.
+  const ambiguousItems = items.filter((item) => item.verificationStatus === "NEEDS_CORROBORATION");
   if (ambiguousItems.length === 0) {
     return { items, verifications };
   }

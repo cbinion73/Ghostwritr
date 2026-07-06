@@ -937,7 +937,16 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
   // ("case study", "company turnaround"), regardless of subject.
   const committedSetup = await getCommittedBookSetup(book.id);
   const setupProfile = normalizeBookSetupProfile(committedSetup?.contentJson);
-  const lens = resolveResearchLens(setupProfile?.researchLens);
+  const baseLens = resolveResearchLens(setupProfile?.researchLens);
+  // Fold the author's preferred Bible translation into storyGuidance so
+  // Chronicle quotes scripture consistently in any testimony/story it writes.
+  const lens: ResearchLens =
+    baseLens.key === "biblical" && setupProfile?.preferredBibleTranslation
+      ? {
+          ...baseLens,
+          storyGuidance: `${baseLens.storyGuidance}\n\nTRANSLATION PREFERENCE: Quote scripture in the ${setupProfile.preferredBibleTranslation} translation unless a specific source only provides another translation.`,
+        }
+      : baseLens;
   const bookMeta = book.metadataJson && typeof book.metadataJson === "object"
     ? (book.metadataJson as Record<string, unknown>)
     : {};

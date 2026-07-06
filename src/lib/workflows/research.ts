@@ -12,6 +12,9 @@ import {
   parseMetadataRecord,
 } from "../artifact-schemas";
 import { getModelForRole, resolveModelSpec, type StageRole } from "../llm/routing";
+import { resolveResearchLens, buildLensQueries, type ResearchLens } from "../research-lenses";
+import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
+import { normalizeBookSetupProfile } from "../book-setup-types";
 import {
   ArtifactStatus,
   Prisma,
@@ -814,6 +817,7 @@ function createResearchWorkspaceProfiler(bookSlug: string, selectedTabId?: strin
 
 async function maybeGenerateResearchQuestions(
   chapter: ChapterContext,
+  lens: ResearchLens,
 ): Promise<ChapterResearchQuestion[]> {
   const model = await getChatModel("questions");
 
@@ -841,8 +845,11 @@ async function maybeGenerateResearchQuestions(
 
   try {
     const structuredModel = model.withStructuredOutput(QuestionSchema);
+    const questionPrompt = lens.directives
+      ? `${QUESTION_SYSTEM_PROMPT}\n\n${lens.directives}`
+      : QUESTION_SYSTEM_PROMPT;
     const result = await structuredModel.invoke([
-      new SystemMessage(QUESTION_SYSTEM_PROMPT),
+      new SystemMessage(questionPrompt),
       new HumanMessage(
         JSON.stringify({
           chapterTitle: chapter.chapterTitle,
@@ -864,27 +871,30 @@ async function maybeGenerateResearchQuestions(
 async function discoverCandidateSources(
   chapter: ChapterContext,
   questions: ChapterResearchQuestion[],
+  lens: ResearchLens,
+  bookSubject: string,
 ) {
   // Broader, deeper query bank. The old version used only 2 generated
   // questions + 4 boilerplate seeds, producing shallow 12-source pools.
   // We now fan out across categories the extractor is expected to fill:
   // stats, mechanisms, case studies, counterevidence, definitions, origins,
   // and recent developments — all anchored to the chapter's actual thesis.
+  //
+  // The lens reframes this entirely per genre — e.g. Biblical/Theological
+  // asks for commentary/exegesis and Greek/Hebrew word studies instead of
+  // "peer reviewed study" / "government data" / "official report
+  // statistics", which made every book's research search identical
+  // regardless of subject.
   const descSlice = chapter.chapterDescription.slice(0, 140);
-  const queries = [
-    `${chapter.chapterTitle} ${descSlice}`,
+  const topics = [
+    chapter.chapterTitle,
     ...(chapter.baseStoryChapterThread
       ? [chapter.baseStoryChapterThread.replace(/\s+/g, " ").slice(0, 120)]
       : []),
-    `${chapter.chapterTitle} peer reviewed study`,
-    `${chapter.chapterTitle} official report statistics`,
-    `${chapter.chapterTitle} government data`,
-    `${chapter.chapterTitle} longitudinal research`,
-    `${chapter.chapterTitle} case study`,
-    `${chapter.chapterTitle} counterexample critique`,
-    `${chapter.chapterTitle} mechanism how it works`,
-    `${chapter.chapterTitle} origin history first`,
-    `${chapter.chapterTitle} recent developments`,
+  ];
+  const queries = [
+    `${chapter.chapterTitle} ${descSlice}`,
+    ...buildLensQueries(lens, topics, null, bookSubject),
     // Pull in up to 6 generated questions (was 2) so the brief actually
     // shapes the search.
     ...questions.slice(0, 6).map((question) => question.question),
@@ -1067,6 +1077,7 @@ function buildFocusedSourceContext(
 async function extractItemsFromSource(
   chapter: ChapterContext,
   source: FetchedSource,
+  lens: ResearchLens,
   qualityFeedback?: unknown,
 ): Promise<ChapterResearchItem[]> {
   const model = await getChatModel("extraction");
@@ -1110,7 +1121,10 @@ async function extractItemsFromSource(
 
   try {
     const structuredModel = model.withStructuredOutput(ExtractedItemsSchema);
-    const enhancedPrompt = enhancePromptWithQualityFeedback(EXTRACTION_SYSTEM_PROMPT, qualityFeedback);
+    const lensAwarePrompt = [EXTRACTION_SYSTEM_PROMPT, lens.tierRules, lens.directives]
+      .filter(Boolean)
+      .join("\n\n");
+    const enhancedPrompt = enhancePromptWithQualityFeedback(lensAwarePrompt, qualityFeedback);
     // A cheap prefilter pass (gpt-5.4-mini) pulls the passages likely to
     // matter before this expensive gpt-5.4 read, so it usually sees a few
     // thousand words instead of the full page. Falls open to the full page
@@ -1186,14 +1200,18 @@ async function verifyItemsForSource(
   chapter: ChapterContext,
   source: FetchedSource,
   items: ChapterResearchItem[],
+  lens: ResearchLens,
   qualityFeedback?: unknown,
 ): Promise<{
   items: ChapterResearchItem[];
   verifications: ChapterResearchVerification[];
 }> {
   const model = await getChatModel("verification");
+  const lensAwareVerificationPrompt = lens.tierRules
+    ? `${VERIFICATION_SYSTEM_PROMPT}\n\n${lens.tierRules}`
+    : VERIFICATION_SYSTEM_PROMPT;
   const enhancedVerificationPrompt = enhancePromptWithQualityFeedback(
-    VERIFICATION_SYSTEM_PROMPT,
+    lensAwareVerificationPrompt,
     qualityFeedback,
   );
 
@@ -1363,6 +1381,7 @@ async function adjudicateAmbiguousItems(
   source: FetchedSource,
   items: ChapterResearchItem[],
   verifications: ChapterResearchVerification[],
+  lens: ResearchLens,
 ) {
   const model = await getChatModel("adjudication");
   if (!model) {
@@ -1396,7 +1415,7 @@ Rules:
 - Only upgrade to VERIFIED if the source text clearly supports the claim.
 - Use NEEDS_CORROBORATION when the claim seems plausible but too important or too soft to accept alone.
 - Use REJECTED when the claim is not supported or is distorted.
-      `),
+      ${lens.tierRules ? `\n${lens.tierRules}\n` : ""}`),
       new HumanMessage(
         JSON.stringify({
           chapterTitle: chapter.chapterTitle,
@@ -1760,6 +1779,31 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
     ...getBaseStoryChapterContext(baseStory, chapterKey),
   };
 
+  // Per-book research lens (set in Book Setup) reframes questions, search
+  // queries, extraction, and verification for the book's actual genre —
+  // without this, every book's Research search used the same "peer
+  // reviewed study" / "government data" phrasing regardless of subject.
+  const committedSetup = await getCommittedBookSetup(book.id);
+  const setupProfile = normalizeBookSetupProfile(committedSetup?.contentJson);
+  const baseLens = resolveResearchLens(setupProfile?.researchLens);
+  // Fold the author's preferred Bible translation into the lens's own
+  // directives so every downstream prompt that reads lens.directives picks
+  // it up automatically, without threading a second parameter everywhere.
+  const lens: ResearchLens =
+    baseLens.key === "biblical" && setupProfile?.preferredBibleTranslation
+      ? {
+          ...baseLens,
+          directives: `${baseLens.directives}\n\nTRANSLATION PREFERENCE: Quote scripture in the ${setupProfile.preferredBibleTranslation} translation unless a specific source only provides another translation — in that case, quote the source's translation but note the difference.`,
+        }
+      : baseLens;
+  const bookMeta = book.metadataJson && typeof book.metadataJson === "object"
+    ? (book.metadataJson as Record<string, unknown>)
+    : {};
+  const bookSubject = [
+    typeof bookMeta.premise === "string" ? bookMeta.premise : null,
+    book.titleWorking,
+  ].filter(Boolean).join(" ").slice(0, 80);
+
   // Read quality feedback if this is a retry
   const stage = await getStageForBook(book.id, StageKey.RESEARCH);
   const qualityFeedback =
@@ -1776,7 +1820,7 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
     currentAction: "Framing research questions",
     message: `Framing research questions for ${chapterContext.chapterTitle}${retryMessage}`,
   });
-  const questions = await maybeGenerateResearchQuestions(chapterContext);
+  const questions = await maybeGenerateResearchQuestions(chapterContext, lens);
   let dossier: ChapterResearchDossier;
   let persistedSources: ChapterResearchSource[];
   let persistedItems: ChapterResearchItem[];
@@ -1793,7 +1837,7 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
           message: `Searching the web for ${chapterContext.chapterTitle}`,
         });
         const { candidates: candidateSources, attempts: searchAttempts } =
-          await discoverCandidateSources(chapterContext, questions);
+          await discoverCandidateSources(chapterContext, questions, lens, bookSubject);
         if (candidateSources.length === 0) {
           throw new Error(
             `No web search results were discovered for ${chapterContext.chapterTitle}. ${summarizeSearchAttempts(searchAttempts)}`,
@@ -1872,13 +1916,14 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
         });
         const extractionResults = await Promise.all(
           verifiedSources.map(async (source) => {
-            const items = await extractItemsFromSource(chapter, source, qualityFeedback);
-            const verification = await verifyItemsForSource(chapter, source, items, qualityFeedback);
+            const items = await extractItemsFromSource(chapter, source, lens, qualityFeedback);
+            const verification = await verifyItemsForSource(chapter, source, items, lens, qualityFeedback);
             const adjudicated = await adjudicateAmbiguousItems(
               chapter,
               source,
               verification.items,
               verification.verifications,
+              lens,
             );
             return {
               source,

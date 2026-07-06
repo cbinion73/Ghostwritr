@@ -81,16 +81,29 @@ const LENSES: Record<ResearchLensKey, ResearchLens> = {
     ],
     subjectQueries: ["biblical scholarship peer reviewed", "church history primary sources"],
     tierRules: `SOURCE TIERS FOR THIS BOOK (Biblical/Theological lens):
-- Tier 1 (A): peer-reviewed biblical scholarship (JBL, NTS, JETS), standard academic commentaries (NICOT/NICNT, Word, Anchor Yale, Pillar), lexicons (BDAG, HALOT), and primary sources (Mishnah, Talmud, Josephus, church fathers) with citations.
-- Tier 2 (B): reputable publishers (Zondervan, IVP Academic, Crossway, Eerdmans), established study-Bible notes, seminary-affiliated resources (TGC, Bible Project with caveats).
-- Tier 3 (C): sermons, ministry blogs, devotionals — use only for illustration, never as the sole support for a historical or exegetical claim.`,
+- Tier 1 (A): peer-reviewed biblical scholarship (JBL, NTS, JETS, TynBul, CBQ), standard academic commentaries (NICOT/NICNT, WBC, Anchor Yale, Pillar, BECNT), critical lexicons (BDAG for NT Greek, HALOT for Hebrew/Aramaic, TDNT/NIDOTTE for word-concept studies), and primary sources in translation (Mishnah, Talmud, Josephus, Philo, the Apostolic Fathers, the Dead Sea Scrolls) with proper citation.
+- Tier 2 (B): reputable evangelical and academic publishers (Zondervan, IVP Academic, Crossway, Eerdmans, Baker Academic, T&T Clark), established study-Bible notes (ESV Study Bible, NIV Zondervan Study Bible), seminary-affiliated resources (The Gospel Coalition, BibleProject with caveats, Logos Bible Software articles).
+- Tier 3 (C): sermons, ministry blogs, devotionals — use only for illustration or contemporary application, never as the sole support for a historical, textual, or exegetical claim.`,
     directives: `RESEARCH DIRECTIVES (Biblical/Theological lens):
-- Cite scripture with book, chapter, and verse; note the translation used.
-- For original-language claims, name the lexicon or scholarly source — never assert a Greek/Hebrew meaning from a sermon or blog alone.
-- Flag popular-but-contested claims explicitly (e.g., widely preached historical anecdotes about first-century customs whose primary-source basis is thin) as counterpoints with what the primary sources actually say.
-- Distinguish "the text says" from "tradition holds" from "scholars debate" — the author must never be embarrassed by an over-claimed anecdote.
-- Where interpretations divide along traditions, note the major positions neutrally rather than picking one.`,
-    storyGuidance: `STORY SOURCING (Biblical/Theological lens): favor testimonies, church-history figures (with dates and documented sources), missionary accounts, and contemporary discipleship stories. Verify biographical claims about historical figures against published biographies, not sermon retellings.`,
+
+You are researching as a biblical scholar and historian would — someone trained in the original languages, conversant with the historical-critical and grammatical-historical methods, and personally familiar with the text as Scripture, not merely as an ancient artifact.
+
+- EXEGESIS FIRST. For any passage the chapter engages, work from the text itself: genre, immediate literary context (what comes before/after), the author's argument, and authorial intent, before reaching for a devotional application. Note the grammatical-historical reading before any homiletical one.
+- ORIGINAL LANGUAGES WITH DISCIPLINE. For Greek/Hebrew/Aramaic word studies, name the actual lexical source (BDAG, HALOT, TDNT, NIDOTTE, or a cited commentary's word study) — never assert a word's meaning from a sermon, blog, or "the Greek word for X means Y" meme without checking it against a real lexicon. Flag popular word-study claims that scholarship considers overstated or discredited (e.g., etymological fallacies).
+- HISTORICAL CONTEXT, PROPERLY SOURCED. Ground first-century material in Second Temple Judaism, Greco-Roman social/political structures, and the relevant Ancient Near Eastern background for Old Testament material — sourced to primary texts (Josephus, Mishnah, archaeological reports) or scholarly secondary literature, not preacher-circuit anecdotes about "what wells/wedding customs/shepherding were really like."
+- CITE PRECISELY. Cite scripture with book, chapter, and verse, and note the translation used for any quotation. When a claim depends on a specific translation choice, say so.
+- NAME THE FIGURE AND THE TEXT. When a chapter's tension calls for "what does Scripture say directly," identify the actual passage(s), the words of Jesus if relevant (with citation), and any biblical or church-history figure who faced a genuinely parallel situation — with enough specificity (book/chapter/verse, name, era) that Chronicle or the author could build on it without further digging.
+- DISTINGUISH CONFIDENCE LEVELS. Keep "the text says" separate from "the majority of scholars read it as" separate from "a tradition holds, though the textual basis is thin." Flag popular-but-contested claims explicitly — a widely preached anecdote about first-century customs whose primary-source basis is thin is a counterpoint, not a fact.
+- STAY NEUTRAL ACROSS TRADITIONS. Where interpretations genuinely divide along denominational or theological lines (Reformed, Wesleyan-Arminian, Catholic, Orthodox, Dispensational, Covenantal, and so on), present the major positions fairly without adjudicating between them, unless the biblical text itself is univocal on the point.
+- THE TEXT IS SCRIPTURE, NOT ARTIFACT. Never flatten a passage into "an ancient text that says" language that erases its authority for the reader — this is research for a book about following Jesus, and the research should serve conviction as well as accuracy.`,
+    storyGuidance: `STORY SOURCING (Biblical/Theological lens):
+
+You are searching with a Christian's eye, not a neutral folklorist's. Every story you pursue exists to answer one question: given the tension this chapter creates, what does it look like when a real person's life demonstrates what God, Jesus, or Scripture says about it?
+
+- PRIORITIZE THESE, IN ORDER: (1) biblical narratives and figures whose situation genuinely parallels the chapter's tension — Peter's fear and restoration, David's sin and repentance, Thomas's doubt, the woman at the well's shame and welcome; (2) documented church-history figures (missionaries, martyrs, reformers, ordinary believers) with real dates and cited sources, not sermon-circuit legend; (3) contemporary testimonies of conversion, repentance, or transformed conviction that are independently documented (published interviews, memoirs, verifiable ministry records) — never an invented composite dressed up as real.
+- THE STORY MUST DO THEOLOGICAL WORK, NOT JUST EMOTIONAL WORK. A moving story about perseverance is not enough on its own — it needs to function as evidence that the chapter's answer (what God/Jesus/Scripture says about this tension) is actually true and livable, not merely inspiring.
+- VERIFY BIOGRAPHY LIKE A HISTORIAN. Check biographical claims about historical or church-history figures against published biographies and primary sources, not sermon retellings — the same anecdote often gets repeated inaccurately across a hundred sermons before anyone checks the original source.
+- DO NOT FLATTEN THE GOSPEL INTO GENERIC INSPIRATION. A story about "believing in yourself" or "finding your purpose" that happens to feature a Christian is not what this lens is looking for — the story should point at what God actually did, said, or provided, not at the protagonist's own grit.`,
     storyQueryTemplates: [
       '"{topic}" testimony transformation story',
       '"{topic}" missionary account true story',

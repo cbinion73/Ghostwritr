@@ -83,7 +83,14 @@ export async function POST(
   // word studies instead of "statistics data survey".
   const committedSetup = await getCommittedBookSetup(book.id);
   const setupProfile = normalizeBookSetupProfile(committedSetup?.contentJson);
-  const lens = resolveResearchLens(setupProfile?.researchLens);
+  const baseLens = resolveResearchLens(setupProfile?.researchLens);
+  const lens =
+    baseLens.key === "biblical" && setupProfile?.preferredBibleTranslation
+      ? {
+          ...baseLens,
+          directives: `${baseLens.directives}\n\nTRANSLATION PREFERENCE: Quote scripture in the ${setupProfile.preferredBibleTranslation} translation unless a specific source only provides another translation — in that case, quote the source's translation but note the difference.`,
+        }
+      : baseLens;
 
   // Single-chapter mode: use provided chapterTitle as the sole topic
   // Multi-chapter / conversational mode: extract topics from outline

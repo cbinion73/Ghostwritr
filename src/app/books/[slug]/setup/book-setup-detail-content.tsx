@@ -165,6 +165,27 @@ export async function BookSetupDetailContent({ slug }: { slug: string }) {
             </label>
 
             <label className="form-field">
+              <span className="field-label">Preferred Bible Translation</span>
+              <select
+                className="editor-input"
+                defaultValue={workspace.profile.preferredBibleTranslation ?? "ESV"}
+                name="preferredBibleTranslation"
+              >
+                <option value="ESV">ESV — English Standard Version</option>
+                <option value="NIV">NIV — New International Version</option>
+                <option value="NASB">NASB — New American Standard Bible</option>
+                <option value="KJV">KJV — King James Version</option>
+                <option value="NKJV">NKJV — New King James Version</option>
+                <option value="CSB">CSB — Christian Standard Bible</option>
+                <option value="NLT">NLT — New Living Translation</option>
+              </select>
+              <span className="muted" style={{ fontSize: "12px", marginTop: 4 }}>
+                Used with the Biblical/Theological research lens — keeps Scout's citations and
+                Chronicle's scripture references consistent throughout the book.
+              </span>
+            </label>
+
+            <label className="form-field">
               <span className="field-label">Base Story Format</span>
               <select
                 className="editor-input"

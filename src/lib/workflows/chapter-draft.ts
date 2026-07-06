@@ -10,6 +10,8 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 
+import { resolveResearchLens } from "../research-lenses";
+
 import {
   BaseStoryBundleSchema,
   BookSetupProfileSchema,
@@ -889,11 +891,25 @@ function resolveDominantFramework(
   };
 }
 
-function renderFrameworkSlotsForPrompt(framework: ResolvedFramework): string {
+// For a Biblical/Theological-lens book, the framework's "truth" beat (the
+// principle the chapter delivers) shouldn't be a generic secular insight —
+// it should be what God actually says. Swapping the slot's own prompt text
+// here means every persona's framework that happens to have a "truth" slot
+// (currently just AndyGPT's ME-WE-TRUTH-YOU-WE) gets this automatically,
+// without needing a separate Christian-only framework to maintain.
+const BIBLICAL_TRUTH_SLOT_PROMPT =
+  "Answer the chapter's tension with what GOD says about it directly. Cite the specific passage(s) of Scripture that speak to it, what Jesus says or models if relevant, and the doctrinal principle at stake. Where possible, name a biblical story or historical figure from Scripture who faced a genuinely similar tension and draw out the truth their experience reveals. This beat must be grounded in God's own words and character — not a generic secular principle dressed in Christian language.";
+
+function renderFrameworkSlotsForPrompt(framework: ResolvedFramework, isBiblical: boolean): string {
   if (framework.flow.length === 0) {
     return "  (no framework flow available — default to natural chapter progression)";
   }
-  return framework.flow.map((step) => `  ${step.slot}: ${step.prompt}`).join("\n");
+  return framework.flow
+    .map((step) => {
+      const prompt = isBiblical && step.slot === "truth" ? BIBLICAL_TRUTH_SLOT_PROMPT : step.prompt;
+      return `  ${step.slot}: ${prompt}`;
+    })
+    .join("\n");
 }
 
 function buildSourceWeaveRequirements(
@@ -1650,7 +1666,8 @@ async function generateDraft(
       chapterTarget,
     );
     const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
-    const frameworkSlots = renderFrameworkSlotsForPrompt(framework);
+    const isBiblicalLens = resolveResearchLens(bookSetupProfile?.researchLens).key === "biblical";
+    const frameworkSlots = renderFrameworkSlotsForPrompt(framework, isBiblicalLens);
     // Shared book context is byte-identical across chapters — cached prefix.
     // Per-chapter packet drops the shared fields so they aren't re-sent.
     const sharedContext = buildSharedBookContextJson(promise, bookSetupProfile, baseStory);
@@ -1866,7 +1883,8 @@ async function reviseDraft(
       chapterTarget,
     );
     const framework = resolveDominantFramework(bookSetupProfile?.writerPersonaBlend);
-    const frameworkSlots = renderFrameworkSlotsForPrompt(framework);
+    const isBiblicalLens = resolveResearchLens(bookSetupProfile?.researchLens).key === "biblical";
+    const frameworkSlots = renderFrameworkSlotsForPrompt(framework, isBiblicalLens);
     const sharedContext = buildSharedBookContextJson(promise, bookSetupProfile, baseStory);
     const {
       promise: _sharedPromise,

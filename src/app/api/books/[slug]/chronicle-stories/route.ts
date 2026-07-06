@@ -83,7 +83,14 @@ export async function POST(
   // documented church-history figures over business cases.
   const committedSetup = await getCommittedBookSetup(book.id);
   const setupProfile = normalizeBookSetupProfile(committedSetup?.contentJson);
-  const lens = resolveResearchLens(setupProfile?.researchLens);
+  const baseLens = resolveResearchLens(setupProfile?.researchLens);
+  const lens =
+    baseLens.key === "biblical" && setupProfile?.preferredBibleTranslation
+      ? {
+          ...baseLens,
+          storyGuidance: `${baseLens.storyGuidance}\n\nTRANSLATION PREFERENCE: Quote scripture in the ${setupProfile.preferredBibleTranslation} translation unless a specific source only provides another translation.`,
+        }
+      : baseLens;
 
   // Single-chapter mode: focus all searches on the specified chapter
   const topics = chapterTitle

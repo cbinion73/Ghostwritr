@@ -257,6 +257,7 @@ async function processSaveBookSetup(slug: string, formData: FormData) {
     chapterFormat: chapterFormat.length > 0 ? chapterFormat : undefined,
     readerLevel,
     researchLens: String(formData.get("researchLens") ?? "general").trim() || "general",
+    preferredBibleTranslation: String(formData.get("preferredBibleTranslation") ?? "ESV").trim() || "ESV",
   });
 }
 

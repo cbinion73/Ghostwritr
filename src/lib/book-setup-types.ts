@@ -49,6 +49,14 @@ export type BookSetupProfile = {
    * src/lib/research-lenses.ts; "general" is the balanced default.
    */
   researchLens?: string;
+
+  /**
+   * Preferred Bible translation for the Biblical/Theological lens (e.g.
+   * "ESV", "NIV", "NASB", "KJV", "NKJV", "CSB") — keeps Scout's citations
+   * and Chronicle's scripture references consistent throughout the book.
+   * Only meaningful when researchLens is "biblical".
+   */
+  preferredBibleTranslation?: string | null;
 };
 
 export const DEFAULT_BOOK_SETUP_PROFILE: BookSetupProfile = {

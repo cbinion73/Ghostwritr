@@ -517,6 +517,25 @@ async function getEditorModel() {
   });
 }
 
+/**
+ * Every editing call in this file used to route through getEditorModel()
+ * (Opus) regardless of task — including the assessment, conversation, and
+ * revision-plan calls below, none of which rewrite prose. Those are
+ * analytical/planning/dialogue tasks over the whole manuscript; the routing
+ * table already defines "final-editor:assess" (Sonnet) specifically for
+ * this ("full manuscript audit — analytical, Sonnet sufficient"), it just
+ * was never wired up here. Opus stays reserved for
+ * generateManuscriptRevisionWorkflow, the one call that actually rewrites
+ * chapter prose.
+ */
+async function getEditorAssessModel() {
+  return getModelForRole("final-editor:assess", {
+    temperature: 0.2,
+    maxOutputTokens: 4000,
+    timeoutMs: 30000,
+  });
+}
+
 async function loadNonfictionEditingChapters(bookId: string) {
   const committedOutlineVersion = await getCommittedOutlineExpansion(bookId);
   const outline = parseJson<ParagraphOutline | null>(committedOutlineVersion?.contentJson, null);
@@ -1796,7 +1815,7 @@ export async function generateEditorialAssessmentWorkflow(
     ],
   };
 
-  const model = await getEditorModel();
+  const model = await getEditorAssessModel();
   if (model) {
     try {
       const structured = model.withStructuredOutput(EditorialAssessmentReplySchema);
@@ -1852,7 +1871,7 @@ Produce a concise but serious editorial assessment in the requested mode.
     contentJson: assessment,
     contentText: JSON.stringify(assessment, null, 2),
     promptTemplateVersion: "editing-assessment-v1",
-    modelName: model ? "final-editor:polish" : "deterministic-fallback",
+    modelName: model ? "final-editor:assess" : "deterministic-fallback",
   });
 
   await updateStageForBook(book.id, StageKey.EDITING, {
@@ -2532,7 +2551,7 @@ export async function sendEditingMessageWorkflow(
       userInput: trimmed,
     });
 
-  const model = await getEditorModel();
+  const model = await getEditorAssessModel();
   if (model) {
     try {
       const structured = model.withStructuredOutput(EditingConversationReplySchema);
@@ -2663,7 +2682,7 @@ export async function generateEditorialRevisionPlanWorkflow(bookSlug: string, ch
     focusChapterKey: chapterKey ?? null,
   });
 
-  const model = await getEditorModel();
+  const model = await getEditorAssessModel();
   if (model) {
     try {
       const structured = model.withStructuredOutput(EditorialRevisionPlanReplySchema);

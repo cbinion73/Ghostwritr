@@ -102,7 +102,24 @@ export function StageRunPanel({
 
   return (
     <>
-      <form action={generateAction} onSubmit={() => setOpen(true)}>
+      <form
+        action={generateAction}
+        onSubmit={(event) => {
+          // Regenerating redoes every chapter from scratch — including ones
+          // that already have a good, committed result — which re-spends
+          // real tokens for no gain if the intent was just to fix one or two
+          // chapters. Stop/Retry (resume) or the per-item "Generate
+          // Selected" action are the cheap paths for that; this is the
+          // deliberate full-restart, so it gets a confirmation.
+          if (hasGenerated && !window.confirm(
+            `${regenerateLabel}? This re-runs every chapter from scratch, including ones already done — it will re-spend tokens on chapters that don't need it. For fixing just one chapter, use Stop + Retry or "Generate Selected" instead.`,
+          )) {
+            event.preventDefault();
+            return;
+          }
+          setOpen(true);
+        }}
+      >
         <SubmitButton
           className="btn"
           disabled={!canGenerate}

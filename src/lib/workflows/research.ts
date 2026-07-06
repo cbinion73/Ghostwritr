@@ -195,6 +195,82 @@ const AdjudicationSchema = z.object({
   ),
 });
 
+const PassagePrefilterSchema = z.object({
+  passages: z.array(z.string()),
+});
+
+const PASSAGE_PREFILTER_PROMPT = `You are a fast, literal passage-selector preparing a web page for a careful fact-extraction pass on one book chapter.
+
+Given the chapter's research needs and the page's full text, select and return the passages most likely to contain: statistics or data points, named facts or dates, direct quotes, concrete examples or case studies, and explanations of mechanism or origin relevant to the chapter.
+
+Rules:
+- Copy each passage VERBATIM from the source text — do not summarize, paraphrase, or rewrite anything.
+- Include a sentence of surrounding context before and after each passage so it can be understood on its own.
+- Err on the side of including a passage when unsure — a later, more careful pass will judge relevance and accuracy in detail. Losing a real fact here is worse than including one extra passage.
+- Return passages in the order they appear in the source.
+- Do not invent, infer, or add anything that is not literally present in the source text.
+- If the page has little or nothing relevant to the chapter, return fewer passages rather than padding with unrelated text.`;
+
+const PASSAGE_PREFILTER_CAP = 30000;
+
+/**
+ * Extraction (gpt-5.4, "high" reasoning) reading the full up-to-180k-char
+ * page is the priciest step in Research. This uses the cheap, previously
+ * unused "research:agent-2-extractor" role (gpt-5.4-mini) to pull out just
+ * the passages likely to matter first, so the expensive pass reads a few
+ * thousand words instead of the whole page.
+ *
+ * Fails open to the full page at every step (model missing, empty result,
+ * thrown error, or the source already being short) — a prefilter miss
+ * should never make extraction worse than it was before this existed, only
+ * sometimes not-cheaper.
+ */
+async function prefilterRelevantPassages(
+  chapter: ChapterContext,
+  source: FetchedSource,
+): Promise<string> {
+  const fullText = source.text.slice(0, 180000);
+  if (fullText.length <= PASSAGE_PREFILTER_CAP) {
+    return fullText;
+  }
+
+  const model = await getModelForRole("research:agent-2-extractor", {
+    temperature: 0.1,
+    maxOutputTokens: 8000,
+    timeoutMs: 60000,
+  });
+  if (!model) {
+    return fullText;
+  }
+
+  try {
+    const structuredModel = model.withStructuredOutput(PassagePrefilterSchema);
+    const result = await structuredModel.invoke([
+      new SystemMessage(PASSAGE_PREFILTER_PROMPT),
+      new HumanMessage(
+        JSON.stringify({
+          chapterTitle: chapter.chapterTitle,
+          chapterDescription: chapter.chapterDescription,
+          sourceText: fullText,
+        }),
+      ),
+    ]);
+
+    const passages = result.passages.map((passage) => passage.trim()).filter(Boolean);
+    if (passages.length === 0) {
+      return fullText;
+    }
+
+    return passages.join("\n...\n").slice(0, PASSAGE_PREFILTER_CAP);
+  } catch (error) {
+    console.warn(
+      `[research] passage prefilter failed for source ${source.id} (${source.title}), falling back to full page:`,
+      error instanceof Error ? error.message : error,
+    );
+    return fullText;
+  }
+}
+
 const QUESTION_SYSTEM_PROMPT = `You are building the research brief for one chapter of a nonfiction book.
 
 Return 8–14 focused research questions that would drive a deep, rigorous dossier. Cover these angles explicitly:
@@ -340,8 +416,14 @@ function getResearchModelName(purpose: ResearchModelPurpose) {
 
 function getResearchReasoningEffort(purpose: ResearchModelPurpose): ResearchReasoningEffort {
   if (purpose === "questions") {
+    // Generating 3-6 short search questions from a chapter title/description
+    // is a lightweight formulation task, not a grounding-critical one —
+    // "high" reasoning on gpt-5.4 here was paying flagship-reasoning prices
+    // for a job "low" handles fine. (Only reasoningEffort-supporting OpenAI
+    // roles are affected by this at all; verification routes to Haiku,
+    // which ignores this option entirely.)
     return (process.env.OPENAI_RESEARCH_QUESTION_REASONING ??
-      "high") as ResearchReasoningEffort;
+      "low") as ResearchReasoningEffort;
   }
 
   if (purpose === "verification") {
@@ -350,8 +432,12 @@ function getResearchReasoningEffort(purpose: ResearchModelPurpose): ResearchReas
   }
 
   if (purpose === "adjudication") {
+    // This is the single most expensive call in the pipeline (gpt-5.4 +
+    // reasoning effort), so it's worth trimming from the max tier — "high"
+    // is still a thorough, conservative tie-breaker for the ambiguous items
+    // that reach it; "xhigh" bought little beyond cost for that same job.
     return (process.env.OPENAI_RESEARCH_ADJUDICATION_REASONING ??
-      "xhigh") as ResearchReasoningEffort;
+      "high") as ResearchReasoningEffort;
   }
 
   return (process.env.OPENAI_RESEARCH_EXTRACTION_REASONING ??
@@ -936,6 +1022,48 @@ async function verifySourceIntegrity(source: FetchedSource): Promise<ChapterRese
   };
 }
 
+const FOCUSED_CONTEXT_WINDOW = 400; // chars of surrounding context on each side of a matched excerpt
+const FOCUSED_CONTEXT_CAP = 20000; // hard cap so many items can't balloon this back toward a full-page read
+
+/**
+ * Verification and adjudication only need to confirm specific claims against
+ * the source — extraction already paid for the one full-page read (up to
+ * 180k chars). Re-sending the whole page again for every follow-up check on
+ * the same source multiplies the most expensive input by 2-3x for no
+ * quality gain, so this builds a much smaller context: the text around each
+ * claim's evidence excerpt, deduped and capped.
+ */
+function buildFocusedSourceContext(
+  sourceText: string,
+  excerpts: Array<string | null | undefined>,
+): string {
+  const windows: string[] = [];
+  const seenRanges: Array<[number, number]> = [];
+
+  for (const excerpt of excerpts) {
+    const needle = (excerpt ?? "").trim().slice(0, 200);
+    if (needle.length < 12) continue;
+
+    const at = sourceText.indexOf(needle);
+    if (at === -1) continue;
+
+    const start = Math.max(0, at - FOCUSED_CONTEXT_WINDOW);
+    const end = Math.min(sourceText.length, at + needle.length + FOCUSED_CONTEXT_WINDOW);
+    if (seenRanges.some(([s, e]) => start < e && end > s)) continue;
+    seenRanges.push([start, end]);
+    windows.push(sourceText.slice(start, end));
+  }
+
+  if (windows.length === 0) {
+    // No excerpt matched verbatim (e.g. a paraphrased extraction) — fall
+    // back to a modest slice, not the full page, since we have no anchor
+    // telling us which part of a long page actually matters here.
+    return sourceText.slice(0, FOCUSED_CONTEXT_CAP);
+  }
+
+  return windows.join("\n...\n").slice(0, FOCUSED_CONTEXT_CAP);
+}
+
 async function extractItemsFromSource(
   chapter: ChapterContext,
   source: FetchedSource,
@@ -983,6 +1111,11 @@ async function extractItemsFromSource(
   try {
     const structuredModel = model.withStructuredOutput(ExtractedItemsSchema);
     const enhancedPrompt = enhancePromptWithQualityFeedback(EXTRACTION_SYSTEM_PROMPT, qualityFeedback);
+    // A cheap prefilter pass (gpt-5.4-mini) pulls the passages likely to
+    // matter before this expensive gpt-5.4 read, so it usually sees a few
+    // thousand words instead of the full page. Falls open to the full page
+    // (up to 180k chars) if the prefilter can't run or finds nothing.
+    const focusedSourceText = await prefilterRelevantPassages(chapter, source);
     const result = await structuredModel.invoke([
       new SystemMessage(enhancedPrompt),
       new HumanMessage(
@@ -995,10 +1128,7 @@ async function extractItemsFromSource(
             url: source.canonicalUrl ?? source.url,
             publisher: source.publisher,
             sourceTier: source.sourceTier,
-            // Was slice(0, 12000) — ~3k tokens, truncated mid-sentence and
-            // lost most long-form reporting. Claude Sonnet 4.6 has a 200k
-            // context window; send the full source up to a safety cap.
-            text: source.text.slice(0, 180000),
+            text: focusedSourceText,
           },
         }),
       ),
@@ -1100,8 +1230,13 @@ async function verifyItemsForSource(
             title: source.title,
             url: source.canonicalUrl ?? source.url,
             sourceTier: source.sourceTier,
-            // Was slice(0, 12000); same reasoning as extraction.
-            text: source.text.slice(0, 180000),
+            // Verification checks specific claims, not the whole page —
+            // extraction already read the full 180k-char text once. This
+            // sends only the context around each claim's excerpt.
+            text: buildFocusedSourceContext(
+              source.text,
+              items.map((item) => item.evidenceExcerpt ?? item.claimText),
+            ),
           },
           candidateItems: items.map((item) => ({
             itemId: item.id,
@@ -1277,7 +1412,13 @@ Rules:
             evidenceExcerpt: item.evidenceExcerpt,
             currentStatus: item.verificationStatus,
           })),
-          sourceText: source.text.slice(0, 180000),
+          // Adjudication is the priciest call in the pipeline (gpt-5.4 at
+          // "xhigh" reasoning) — same reasoning as verification applies even
+          // more here: only the disputed claims' own context is needed.
+          sourceText: buildFocusedSourceContext(
+            source.text,
+            ambiguousItems.map((item) => item.evidenceExcerpt ?? item.claimText),
+          ),
         }),
       ),
     ]);

@@ -834,7 +834,13 @@ async function enrichStory(
           },
           sourceTitle: source.title,
           sourceUrl: source.canonicalUrl ?? source.url,
-          sourceText: source.text.slice(0, 180000),
+          // Enrichment mines the article for more dialogue/sensory detail
+          // beyond what extraction already pulled, so (unlike verification)
+          // it does want a real second pass over the source — but no real
+          // web article runs 180k chars (~45k tokens); that cap only ever
+          // gets hit by unusually long pages and just burns tokens for no
+          // extra signal. 40k chars covers virtually any long-form piece.
+          sourceText: source.text.slice(0, 40000),
         }),
       ),
     ]);

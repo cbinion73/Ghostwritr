@@ -68,6 +68,7 @@ function toShelfBook(book: BookWithStages): ShelfBook {
         : "Nonfiction",
     pct: getProgress(stages),
     activeLabel: getActiveStageLabel(stages),
+    coverImageUrl: book.coverImageUrl,
   };
 }
 

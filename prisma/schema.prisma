@@ -298,6 +298,9 @@ model Book {
   metadataJson Json       @default("{}")
   ownerUserId  String?    @db.Uuid
   parentBookId String?    @db.Uuid
+  /// A real, designed spine photo/graphic uploaded for this book — when set,
+  /// the Library shelf renders it as-is instead of the procedural binding.
+  coverImageUrl String?
   /// Soft archive — hidden from the library shelf, restorable anytime.
   isArchived   Boolean    @default(false)
   archivedAt   DateTime?

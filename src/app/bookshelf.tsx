@@ -8,10 +8,16 @@
  * Book Studio opens.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { archiveBookAction, deleteBookAction, restoreBookAction } from "./actions";
+import {
+  archiveBookAction,
+  deleteBookAction,
+  removeBookCoverAction,
+  restoreBookAction,
+  uploadBookCoverAction,
+} from "./actions";
 
 export type ShelfBook = {
   slug: string;
@@ -20,7 +26,19 @@ export type ShelfBook = {
   workflowLabel: string;
   pct: number;
   activeLabel: string;
+  coverImageUrl?: string | null;
 };
+
+// A real, designed spine photo is rendered at a fixed height (matching the
+// tallest procedural spines) with width derived from its own aspect ratio —
+// real spines don't get the hash-driven size/lean variation since they're
+// not being faked.
+const REAL_SPINE_HEIGHT = 270;
+// Actual rendered width isn't known until the image loads client-side, so
+// shelf-packing (which runs before that) uses a typical-spine estimate. A
+// few px of drift in how full a shelf row looks is an acceptable trade-off
+// for keeping the shelf a plain server-renderable layout.
+const REAL_SPINE_ESTIMATED_WIDTH = 50;
 
 // ── Deterministic styling from the slug ──────────────────────────────────────
 
@@ -34,27 +52,40 @@ function hash(str: string) {
 }
 
 type Binding = {
-  base: string;      // spine color
+  base: string;      // spine color (fallback + drives borders/foil, photo carries the real surface color)
   dark: string;      // hinge/edge shade
   foil: string;      // title color
   label: boolean;    // paper label behind the title (cloth style)
   labelBg?: string;
   bands: boolean;    // raised leather bands
+  rules: boolean;    // thin gilt rule lines near head & tail
+  font: string;       // typeface for this binding
+  photo: string;      // macro material photo, tiled behind the lighting gradients
+  photoSize: number;  // tile size in px — leather grain reads bigger than cloth weave
 };
 
+const SERIF_STACKS = [
+  '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  '"Big Caslon", "Book Antiqua", Palatino, serif',
+  'Georgia, "Times New Roman", serif',
+  '"Baskerville", "Iowan Old Style", serif',
+];
+
 const BINDINGS: Binding[] = [
-  { base: "#5c1f1f", dark: "#3a1212", foil: "#d9b45c", label: false, bands: true },  // oxblood leather
-  { base: "#1f3d2b", dark: "#122619", foil: "#cfa84e", label: false, bands: true },  // forest leather
-  { base: "#1e2a44", dark: "#111a2c", foil: "#e8dcc0", label: false, bands: false }, // navy cloth
-  { base: "#4a1a2c", dark: "#2e0f1b", foil: "#d9b45c", label: false, bands: true },  // burgundy
-  { base: "#2b2b30", dark: "#19191d", foil: "#c0c4cc", label: false, bands: false }, // charcoal
-  { base: "#8a6a2f", dark: "#5c451d", foil: "#2b2115", label: false, bands: false }, // ochre buckram
-  { base: "#d9cdb4", dark: "#b3a685", foil: "#3a3226", label: false, bands: false }, // cream cloth
-  { base: "#7a3b22", dark: "#4e2414", foil: "#e8d5a0", label: false, bands: true },  // rust
-  { base: "#174a4a", dark: "#0d2e2e", foil: "#d9c98c", label: true, labelBg: "#efe6cf", bands: false }, // teal + label
-  { base: "#3d2543", dark: "#26152b", foil: "#d0b060", label: false, bands: true },  // plum
-  { base: "#4a4a28", dark: "#2e2e18", foil: "#e0d6b0", label: true, labelBg: "#e9e0c8", bands: false }, // olive + label
-  { base: "#4e3420", dark: "#2f1e11", foil: "#d9b45c", label: false, bands: true },  // brown leather
+  { base: "#5c1f1f", dark: "#3a1212", foil: "#d9b45c", label: false, bands: true, rules: true, font: SERIF_STACKS[0], photo: "/textures/leather-burgundy.jpg", photoSize: 170 },  // oxblood leather
+  { base: "#1f3d2b", dark: "#122619", foil: "#cfa84e", label: false, bands: true, rules: true, font: SERIF_STACKS[1], photo: "/textures/leather-forest.jpg", photoSize: 170 },  // forest leather
+  { base: "#1e2a44", dark: "#111a2c", foil: "#e8dcc0", label: false, bands: false, rules: true, font: SERIF_STACKS[2], photo: "/textures/cloth-navy.jpg", photoSize: 130 }, // navy cloth
+  { base: "#4a1a2c", dark: "#2e0f1b", foil: "#d9b45c", label: false, bands: true, rules: true, font: SERIF_STACKS[0], photo: "/textures/leather-plum.jpg", photoSize: 170 },  // burgundy
+  { base: "#2b2b30", dark: "#19191d", foil: "#c0c4cc", label: false, bands: false, rules: false, font: SERIF_STACKS[3], photo: "/textures/cloth-charcoal.jpg", photoSize: 130 }, // charcoal
+  { base: "#8a6a2f", dark: "#5c451d", foil: "#2b2115", label: false, bands: false, rules: false, font: SERIF_STACKS[2], photo: "/textures/cloth-olive.jpg", photoSize: 130 }, // ochre buckram
+  { base: "#d9cdb4", dark: "#b3a685", foil: "#3a3226", label: false, bands: false, rules: false, font: SERIF_STACKS[1], photo: "/textures/cloth-cream.jpg", photoSize: 130 }, // cream cloth
+  { base: "#7a3b22", dark: "#4e2414", foil: "#e8d5a0", label: false, bands: true, rules: true, font: SERIF_STACKS[0], photo: "/textures/leather-rust.jpg", photoSize: 170 },  // rust
+  { base: "#174a4a", dark: "#0d2e2e", foil: "#d9c98c", label: true, labelBg: "#efe6cf", bands: false, rules: false, font: SERIF_STACKS[3], photo: "/textures/cloth-navy.jpg", photoSize: 130 }, // teal + label
+  { base: "#3d2543", dark: "#26152b", foil: "#d0b060", label: false, bands: true, rules: true, font: SERIF_STACKS[1], photo: "/textures/leather-black.jpg", photoSize: 170 },  // plum
+  { base: "#4a4a28", dark: "#2e2e18", foil: "#e0d6b0", label: true, labelBg: "#e9e0c8", bands: false, rules: false, font: SERIF_STACKS[2], photo: "/textures/cloth-olive.jpg", photoSize: 130 }, // olive + label
+  { base: "#4e3420", dark: "#2f1e11", foil: "#d9b45c", label: false, bands: true, rules: true, font: SERIF_STACKS[0], photo: "/textures/leather-brown.jpg", photoSize: 170 },  // brown leather
+  { base: "#0d0d0f", dark: "#000000", foil: "#c9a24b", label: false, bands: false, rules: true, font: SERIF_STACKS[3], photo: "/textures/cloth-charcoal.jpg", photoSize: 130 }, // black cloth
+  { base: "#1a3a52", dark: "#0d2130", foil: "#d9c98c", label: false, bands: false, rules: true, font: SERIF_STACKS[2], photo: "/textures/cloth-slateblue.jpg", photoSize: 130 }, // slate blue
 ];
 
 type SpineSpec = {
@@ -63,17 +94,19 @@ type SpineSpec = {
   width: number;
   lean: number;       // degrees; most books stand straight
   fontSize: number;
+  showAuthor: boolean;
 };
 
 function specFor(book: ShelfBook): SpineSpec {
   const h = hash(book.slug);
   const binding = BINDINGS[h % BINDINGS.length];
-  const height = 225 + (Math.floor(h / 7) % 70);        // 225–294px
-  const width = 36 + (Math.floor(h / 13) % 24);         // 36–59px
+  const height = 230 + (Math.floor(h / 7) % 64);        // 230–294px
+  const width = 34 + (Math.floor(h / 13) % 27);         // 34–61px
   const leanRoll = Math.floor(h / 31) % 10;
   const lean = leanRoll === 3 ? 4.5 : leanRoll === 7 ? -3.5 : 0;
   const fontSize = book.title.length > 34 ? 10.5 : book.title.length > 22 ? 11.5 : 13;
-  return { binding, height, width, lean, fontSize };
+  const showAuthor = Boolean(book.subtitle) && width >= 42 && (Math.floor(h / 17) % 5) !== 0;
+  return { binding, height, width, lean, fontSize, showAuthor };
 }
 
 // ── Shelf packing: fill each shelf up to a fixed inner width ─────────────────
@@ -83,7 +116,7 @@ function packShelves(books: ShelfBook[], innerWidth: number) {
   let current: ShelfBook[] = [];
   let used = 0;
   for (const book of books) {
-    const w = specFor(book).width + 6;
+    const w = (book.coverImageUrl ? REAL_SPINE_ESTIMATED_WIDTH : specFor(book).width) + 2;
     if (used + w > innerWidth && current.length > 0) {
       shelves.push(current);
       current = [];
@@ -109,6 +142,8 @@ export function Bookshelf({
   const [hovered, setHovered] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [boxOpen, setBoxOpen] = useState(false);
+  const coverFormRef = useRef<HTMLFormElement>(null);
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
 
   const shelves = useMemo(() => packShelves(books, 860), [books]);
   const hoveredBook = books.find((b) => b.slug === hovered) ?? null;
@@ -140,9 +175,49 @@ export function Bookshelf({
             {/* Books standing on the shelf */}
             <div style={shelfBooksStyle}>
               {shelf.map((book) => {
+                const isOut = checkingOut === book.slug;
+
+                if (book.coverImageUrl) {
+                  return (
+                    <button
+                      key={book.slug}
+                      className={`gw-spine${isOut ? " gw-out" : ""}`}
+                      onClick={() => checkOut(book.slug)}
+                      onMouseEnter={() => setHovered(book.slug)}
+                      onMouseLeave={() => setHovered((v) => (v === book.slug ? null : v))}
+                      title={`${book.title} — check out`}
+                      style={{
+                        ...realSpineStyle,
+                        height: REAL_SPINE_HEIGHT,
+                        boxShadow: isOut
+                          ? "0 24px 30px rgba(0,0,0,0.55)"
+                          : hovered === book.slug
+                            ? "0 16px 22px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)"
+                            : "2px 3px 6px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.1)",
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={book.coverImageUrl} alt={book.title} style={realSpineImgStyle} draggable={false} />
+                      {/* A faint version of the same lighting used on procedural spines, so a
+                          real uploaded design still sits believably among the rest of the shelf. */}
+                      <span style={realSpineLightingStyle} aria-hidden />
+                      <span
+                        style={{
+                          ...pageBlockStyle,
+                          backgroundImage: [
+                            "linear-gradient(90deg, rgba(0,0,0,0.32) 0%, rgba(0,0,0,0) 55%)",
+                            "url(/textures/page-edge.jpg)",
+                          ].join(", "),
+                          backgroundSize: ["100% 100%", "auto 70px"].join(", "),
+                          backgroundRepeat: ["no-repeat", "repeat-y"].join(", "),
+                        }}
+                      />
+                    </button>
+                  );
+                }
+
                 const spec = specFor(book);
                 const b = spec.binding;
-                const isOut = checkingOut === book.slug;
                 return (
                   <button
                     key={book.slug}
@@ -159,21 +234,32 @@ export function Bookshelf({
                       transformOrigin: spec.lean > 0 ? "bottom right" : "bottom left",
                       marginLeft: spec.lean ? 10 : 0,
                       marginRight: spec.lean ? 10 : 0,
-                      background: [
-                        // Spine curvature: highlight near the left hinge, falloff to the right
-                        `linear-gradient(90deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 9%, rgba(0,0,0,0) 22%, rgba(0,0,0,0.18) 78%, rgba(0,0,0,0.38) 100%)`,
-                        // Head & tail shading
-                        `linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 5%, rgba(0,0,0,0) 94%, rgba(0,0,0,0.35) 100%)`,
-                        // Raised bands for leather bindings
-                        ...(b.bands
-                          ? [
-                              `linear-gradient(180deg, transparent 8%, rgba(255,255,255,0.14) 8.6%, rgba(0,0,0,0.22) 10%, transparent 10.6%, transparent 13%, rgba(255,255,255,0.14) 13.6%, rgba(0,0,0,0.22) 15%, transparent 15.6%, transparent 84%, rgba(255,255,255,0.12) 84.6%, rgba(0,0,0,0.2) 86%, transparent 86.6%)`,
-                            ]
-                          : []),
-                        b.base,
-                      ].join(", "),
+                      ...(() => {
+                        // Real macro photography of the binding material, tiled behind
+                        // semi-transparent lighting gradients so it reads as an actual
+                        // photographed surface with spine-curvature shading on top,
+                        // rather than a flat color fill.
+                        const gradientLayers = [
+                          // Spine curvature: highlight near the left hinge, falloff to the right
+                          `linear-gradient(90deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 9%, rgba(0,0,0,0) 22%, rgba(0,0,0,0.18) 78%, rgba(0,0,0,0.38) 100%)`,
+                          // Head & tail shading
+                          `linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 5%, rgba(0,0,0,0) 94%, rgba(0,0,0,0.35) 100%)`,
+                          // Raised bands for leather bindings
+                          ...(b.bands
+                            ? [
+                                `linear-gradient(180deg, transparent 8%, rgba(255,255,255,0.14) 8.6%, rgba(0,0,0,0.22) 10%, transparent 10.6%, transparent 13%, rgba(255,255,255,0.14) 13.6%, rgba(0,0,0,0.22) 15%, transparent 15.6%, transparent 84%, rgba(255,255,255,0.12) 84.6%, rgba(0,0,0,0.2) 86%, transparent 86.6%)`,
+                              ]
+                            : []),
+                        ];
+                        return {
+                          backgroundImage: [...gradientLayers, `url(${b.photo})`].join(", "),
+                          backgroundSize: [...gradientLayers.map(() => "100% 100%"), `${b.photoSize}px ${b.photoSize}px`].join(", "),
+                          backgroundRepeat: [...gradientLayers.map(() => "no-repeat"), "repeat"].join(", "),
+                          backgroundColor: b.base,
+                        };
+                      })(),
                       borderLeft: `1px solid ${b.dark}`,
-                      borderRight: `2px solid ${b.dark}`,
+                      borderRight: "none",
                       boxShadow: isOut
                         ? "0 24px 30px rgba(0,0,0,0.55)"
                         : hovered === book.slug
@@ -181,6 +267,27 @@ export function Bookshelf({
                           : "2px 3px 6px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.1)",
                     }}
                   >
+                    {/* Fore-edge page block — the sliver of paper visible at the spine's right edge */}
+                    <span
+                      style={{
+                        ...pageBlockStyle,
+                        backgroundImage: [
+                          "linear-gradient(90deg, rgba(0,0,0,0.32) 0%, rgba(0,0,0,0) 55%)",
+                          "url(/textures/page-edge.jpg)",
+                        ].join(", "),
+                        backgroundSize: ["100% 100%", "auto 70px"].join(", "),
+                        backgroundRepeat: ["no-repeat", "repeat-y"].join(", "),
+                      }}
+                    />
+
+                    {/* Gilt rule lines near head & tail, as on cloth/leather bindings */}
+                    {b.rules ? (
+                      <>
+                        <span style={{ ...giltRuleStyle, top: 15, background: b.foil }} />
+                        <span style={{ ...giltRuleStyle, bottom: 22, background: b.foil }} />
+                      </>
+                    ) : null}
+
                     {/* Paper label variant */}
                     {b.label ? (
                       <span
@@ -193,6 +300,7 @@ export function Bookshelf({
                         <span
                           style={{
                             ...spineTitleStyle,
+                            fontFamily: b.font,
                             color: "#3a3226",
                             fontSize: spec.fontSize - 1,
                             textShadow: "none",
@@ -206,14 +314,28 @@ export function Bookshelf({
                       <span
                         style={{
                           ...spineTitleStyle,
+                          fontFamily: b.font,
                           color: b.foil,
                           fontSize: spec.fontSize,
-                          maxHeight: spec.height - 56,
+                          maxHeight: spec.height - (spec.showAuthor ? 92 : 56),
                         }}
                       >
                         {book.title}
                       </span>
                     )}
+
+                    {/* Author line — a second, quieter vertical run beneath the title */}
+                    {spec.showAuthor ? (
+                      <span
+                        style={{
+                          ...spineAuthorStyle,
+                          fontFamily: b.font,
+                          color: b.label ? "#3a3226" : b.foil,
+                        }}
+                      >
+                        {book.subtitle}
+                      </span>
+                    ) : null}
                     {/* Publisher mark at the tail of the spine */}
                     <span style={{ ...tailMarkStyle, color: b.label ? "#efe6cf" : b.foil }}>
                       ✒
@@ -252,6 +374,41 @@ export function Bookshelf({
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
               <span style={plaqueHintStyle}>click the spine to check out →</span>
+              <form
+                ref={coverFormRef}
+                action={uploadBookCoverAction}
+                style={{ display: "inline" }}
+              >
+                <input name="slug" type="hidden" value={hoveredBook.slug} />
+                <input
+                  ref={coverFileInputRef}
+                  name="cover"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  style={{ display: "none" }}
+                  onChange={() => coverFormRef.current?.requestSubmit()}
+                />
+                <button
+                  type="button"
+                  style={plaqueDeleteStyle}
+                  title="Upload a real, designed spine photo — replaces the procedural binding"
+                  onClick={() => coverFileInputRef.current?.click()}
+                >
+                  {hoveredBook.coverImageUrl ? "replace photo" : "upload photo"}
+                </button>
+              </form>
+              {hoveredBook.coverImageUrl ? (
+                <form action={removeBookCoverAction} style={{ display: "inline" }}>
+                  <input name="slug" type="hidden" value={hoveredBook.slug} />
+                  <button
+                    type="submit"
+                    style={plaqueDeleteStyle}
+                    title="Remove the uploaded photo and go back to the procedural binding"
+                  >
+                    remove photo
+                  </button>
+                </form>
+              ) : null}
               <form action={archiveBookAction} style={{ display: "inline" }}>
                 <input name="slug" type="hidden" value={hoveredBook.slug} />
                 <button
@@ -360,13 +517,13 @@ const caseOuterStyle: React.CSSProperties = {
 const caseFrameStyle: React.CSSProperties = {
   padding: "26px 30px 12px",
   borderRadius: 10,
-  // Outer case: dark stained wood with side rails
+  // Outer case: deep burgundy-lacquered wood with side rails
   background: [
     "linear-gradient(90deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 3%, rgba(0,0,0,0) 97%, rgba(0,0,0,0.5) 100%)",
-    "linear-gradient(180deg, #3a2716 0%, #2b1c10 100%)",
+    "linear-gradient(180deg, #5c1524 0%, #3a0e18 100%)",
   ].join(", "),
   border: "10px solid transparent",
-  borderImage: "linear-gradient(180deg, #573d24, #241708) 1",
+  borderImage: "linear-gradient(180deg, #7a2233, #2e0b12) 1",
   boxShadow: "0 22px 44px rgba(0,0,0,0.55), inset 0 0 60px rgba(0,0,0,0.5)",
 };
 
@@ -378,12 +535,12 @@ const shelfBayStyle: React.CSSProperties = {
 const shelfBooksStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-end",
-  gap: 4,
+  gap: 2,
   minHeight: 300,
-  padding: "18px 8px 0",
-  // Shadowed back panel behind the books
+  padding: "18px 6px 0",
+  // Shadowed burgundy back panel behind the books
   background:
-    "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 40%, rgba(0,0,0,0.15) 100%)",
+    "linear-gradient(180deg, rgba(20,4,8,0.6) 0%, rgba(58,14,20,0.4) 40%, rgba(58,14,20,0.22) 100%)",
   borderRadius: "3px 3px 0 0",
 };
 
@@ -392,7 +549,7 @@ const shelfBoardStyle: React.CSSProperties = {
   borderRadius: 2,
   background: [
     "linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.04) 18%, rgba(0,0,0,0.15) 60%, rgba(0,0,0,0.45) 100%)",
-    "repeating-linear-gradient(90deg, #5a3f24 0px, #6b4c2c 34px, #573d22 78px, #634628 120px)",
+    "repeating-linear-gradient(90deg, #6e2233 0px, #7f2938 34px, #692030 78px, #78283a 120px)",
   ].join(", "),
   boxShadow: "0 5px 8px rgba(0,0,0,0.5)",
   marginBottom: 10,
@@ -407,9 +564,56 @@ const spineStyle: React.CSSProperties = {
   border: "none",
   borderRadius: "2px 2px 1px 1px",
   cursor: "pointer",
-  padding: "26px 0 20px",
+  padding: "26px 3px 20px 0",
   flexShrink: 0,
   outline: "none",
+};
+
+const realSpineStyle: React.CSSProperties = {
+  position: "relative",
+  display: "inline-block",
+  border: "none",
+  borderRadius: "2px 2px 1px 1px",
+  cursor: "pointer",
+  padding: 0,
+  flexShrink: 0,
+  outline: "none",
+  overflow: "hidden",
+  lineHeight: 0,
+};
+
+const realSpineImgStyle: React.CSSProperties = {
+  display: "block",
+  height: "100%",
+  width: "auto",
+};
+
+const realSpineLightingStyle: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  pointerEvents: "none",
+  background: [
+    "linear-gradient(90deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.03) 9%, rgba(0,0,0,0) 22%, rgba(0,0,0,0.1) 78%, rgba(0,0,0,0.22) 100%)",
+    "linear-gradient(180deg, rgba(0,0,0,0.16) 0%, rgba(0,0,0,0) 5%, rgba(0,0,0,0) 94%, rgba(0,0,0,0.2) 100%)",
+  ].join(", "),
+};
+
+const pageBlockStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 0,
+  right: 0,
+  bottom: 0,
+  width: 3,
+  borderRadius: "0 1px 1px 0",
+};
+
+const giltRuleStyle: React.CSSProperties = {
+  position: "absolute",
+  left: 3,
+  right: 6,
+  height: 1.5,
+  opacity: 0.55,
+  borderRadius: 1,
 };
 
 const spineTitleStyle: React.CSSProperties = {
@@ -423,6 +627,21 @@ const spineTitleStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
   textShadow: "0 1px 1px rgba(0,0,0,0.6), 0 0 6px rgba(255,255,255,0.08)",
   maxWidth: "100%",
+};
+
+const spineAuthorStyle: React.CSSProperties = {
+  writingMode: "vertical-rl",
+  fontWeight: 400,
+  fontStyle: "italic",
+  letterSpacing: "0.03em",
+  lineHeight: 1,
+  fontSize: 9.5,
+  opacity: 0.72,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  maxHeight: 30,
+  marginTop: 6,
 };
 
 const labelStyle: React.CSSProperties = {

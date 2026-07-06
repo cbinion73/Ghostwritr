@@ -4,6 +4,19 @@ import { db } from "@/lib/db";
 import { searchWeb } from "@/lib/web-access";
 import { fetchTopPageTexts, formatSearchResults } from "../_research-helpers";
 
+// Every chapter-draft save (write, retry, revise) creates a NEW artifact row
+// rather than updating an existing one, so a chapter that's been retried a
+// few times has several rows all "for" the same chapter. Strip revision
+// prefixes so retry drafts and manual revisions dedupe against their
+// original chapter instead of creating phantom duplicate entries.
+function normalizeChapterTitleForDedupe(raw: string): string {
+  return raw
+    .replace(/^(Revised|Updated|Edited|Final)[:\s–—-]+/i, "")
+    .replace(/\s*—\s*/g, ": ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ── Manifest helper functions ─────────────────────────────────────────────────
 
 function extractChapterFromManifest(manifest: string, chapterTitle: string): string | null {
@@ -235,7 +248,32 @@ export async function POST(
       },
     });
 
-    const savedDossiers = (currentBookStage?.artifacts ?? [])
+    let dossierArtifacts = currentBookStage?.artifacts ?? [];
+
+    // CHAPTER_DRAFT has no update-in-place — every write/retry/revise saves a
+    // NEW artifact row, so a chapter retried a few times has several rows
+    // "for" it here. Without this, every past attempt (not just real
+    // chapters) stays in this context forever, growing without bound as the
+    // book gets retried. Dedupe to one row per real chapter (keep the
+    // longest/most complete version, same as the EDITING assembly below),
+    // then cap to the most recent chapters so this can't outgrow a bounded
+    // context no matter how many chapters or retries the book accumulates.
+    const CHAPTER_DRAFT_CONTEXT_LIMIT = 6;
+    if (stageKey === "CHAPTER_DRAFT") {
+      const byChapter = new Map<string, (typeof dossierArtifacts)[number]>();
+      for (const a of dossierArtifacts) {
+        const text = a.versions[0]?.contentText;
+        if (!text || text.split(/\s+/).filter(Boolean).length < 100) continue; // skip stubs/failed saves
+        const key = normalizeChapterTitleForDedupe(a.title ?? "Chapter");
+        const existing = byChapter.get(key);
+        if (!existing || text.length > (existing.versions[0]?.contentText?.length ?? 0)) {
+          byChapter.set(key, a);
+        }
+      }
+      dossierArtifacts = Array.from(byChapter.values()).slice(-CHAPTER_DRAFT_CONTEXT_LIMIT);
+    }
+
+    const savedDossiers = dossierArtifacts
       .map((a) => {
         const text = a.versions[0]?.contentText;
         if (!text) return null;

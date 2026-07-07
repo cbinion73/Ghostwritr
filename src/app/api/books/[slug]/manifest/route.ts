@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { generateManifest } from "@/lib/workflows/manifest-generator";
+import { runWithLLMContext } from "@/lib/llm/call-context";
 
 export const maxDuration = 300;
 export const runtime = "nodejs";
@@ -37,7 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
 // POST — generate (or regenerate) the manifest, stream progress events
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const book = await db.book.findUnique({ where: { slug }, select: { id: true, titleWorking: true } });
   if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Delete any existing manifest artifacts so we start fresh
@@ -61,9 +62,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         // Pass onChunk so each LLM token is forwarded as a heartbeat SSE event.
         // This keeps the connection alive through nginx / reverse proxies that
         // would otherwise drop the stream after ~60s of silence.
-        const result = await generateManifest(book.id, (text) => {
-          send("chunk", { text });
-        });
+        // Wrapped in runWithLLMContext so this call actually gets logged to
+        // LLMCallLog — previously this route called generateManifest outside
+        // any ambient context, so every manifest generation's cost was
+        // silently unrecorded (found 2026-07-07 while trying to report the
+        // cost of a real manifest regeneration and finding zero rows).
+        const result = await runWithLLMContext(
+          { bookId: book.id, bookSlug: slug, bookTitle: book.titleWorking ?? undefined, stageKey: "MANIFEST" },
+          () =>
+            generateManifest(book.id, (text) => {
+              send("chunk", { text });
+            }),
+        );
         if (result.success) {
           send("complete", { message: "Manifest generated successfully.", content: result.content });
         } else {

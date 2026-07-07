@@ -670,7 +670,8 @@ Return only the structured critique. Be specific and tough.
       voiceFlags: result.voiceFlags ?? [],
       recommendations: result.recommendations ?? [],
     };
-  } catch {
+  } catch (err) {
+    console.error(`[chapter-draft] runAdversarialProseCritic failed for ${context.chapter?.chapterId ?? "unknown"}, falling back to deterministic critic:`, err);
     return fallback;
   }
 }
@@ -1321,7 +1322,8 @@ Hard rules:
     ]);
 
     return normalizeDraftResult(context, result);
-  } catch {
+  } catch (err) {
+    console.error(`[chapter-draft] enforceFinishedBookProse failed for ${context.chapter?.chapterId ?? "unknown"}, keeping prior draft:`, err);
     return draft;
   }
 }
@@ -1738,7 +1740,8 @@ Citation trace (required):
     ]);
 
     return normalizeDraftResult(context, result);
-  } catch {
+  } catch (err) {
+    console.error(`[chapter-draft] generateDraft failed for ${context.chapter?.chapterId ?? "unknown"}, using deterministic fallback draft:`, err);
     return fallback;
   }
 }
@@ -1836,7 +1839,8 @@ Rules:
           ? "needs_revision"
           : result.verdict,
     };
-  } catch {
+  } catch (err) {
+    console.error(`[chapter-draft] reviewDraft failed for ${context.chapter?.chapterId ?? "unknown"}, using deterministic fallback review:`, err);
     return {
       ...fallback,
       overallAssessment: critic.summary || fallback.overallAssessment,
@@ -1930,7 +1934,8 @@ ${frameworkSlots}
     ]);
 
     return normalizeDraftResult(context, result);
-  } catch {
+  } catch (err) {
+    console.error(`[chapter-draft] reviseDraft failed for ${context.chapter?.chapterId ?? "unknown"}, keeping prior draft:`, err);
     return draft;
   }
 }
@@ -1995,7 +2000,8 @@ Rules:
       ]);
 
       workingDraft = normalizeDraftResult(context, result);
-    } catch {
+    } catch (err) {
+      console.error(`[chapter-draft] tuneDraftToTarget attempt ${attempt + 1} failed for ${context.chapter?.chapterId ?? "unknown"}, forcing draft toward target deterministically:`, err);
       return forceDraftTowardTarget(context, workingDraft, chapterTarget);
     }
   }

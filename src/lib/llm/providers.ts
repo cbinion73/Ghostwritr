@@ -100,7 +100,16 @@ class CostLoggingHandler extends BaseCallbackHandler {
 
       const promptTokens = usage?.input_tokens ?? tokenUsage.promptTokens ?? 0;
       const completionTokens = usage?.output_tokens ?? tokenUsage.completionTokens ?? 0;
-      if (promptTokens === 0 && completionTokens === 0) return;
+      if (promptTokens === 0 && completionTokens === 0) {
+        // Silent no-op cost logging for a real call (usage extraction failed)
+        // is worse than a noisy console line — this is the exact shape of a
+        // 2026-07-07 investigation where chapter-draft:author/revise calls
+        // succeeded (real content saved) but never produced a cost row.
+        console.warn(
+          `[cost-logging] stageRole=${this.stageRole ?? "unknown"} model=${this.model} produced no extractable token usage — call was not logged. generation message present: ${Boolean(generation?.message)}, usage_metadata present: ${Boolean(generation?.message?.usage_metadata)}, llmOutput keys: ${Object.keys(output.llmOutput ?? {}).join(",") || "(none)"}`,
+        );
+        return;
+      }
 
       void logLLMCall({
         bookId: context.bookId,
@@ -116,14 +125,20 @@ class CostLoggingHandler extends BaseCallbackHandler {
         cacheCreationTokens: usage?.input_token_details?.cache_creation ?? 0,
         cacheReadTokens: usage?.input_token_details?.cache_read ?? 0,
         durationMs: startedAt ? Date.now() - startedAt : 0,
-      }).catch(() => {});
-    } catch {
-      // Logging must never break a workflow.
+      }).catch((err) => {
+        console.error(`[cost-logging] logLLMCall DB write failed for stageRole=${this.stageRole ?? "unknown"}:`, err);
+      });
+    } catch (err) {
+      // Logging must never break a workflow, but a silent catch here is
+      // exactly how the 2026-07-07 chapter-draft logging gap went
+      // undetected — surface it instead of swallowing it.
+      console.error(`[cost-logging] handleLLMEnd threw for stageRole=${this.stageRole ?? "unknown"}:`, err);
     }
   }
 
-  handleLLMError(_err: unknown, runId: string): void {
+  handleLLMError(err: unknown, runId: string): void {
     this.startTimes.delete(runId);
+    console.error(`[cost-logging] handleLLMError for stageRole=${this.stageRole ?? "unknown"}:`, err);
   }
 }
 

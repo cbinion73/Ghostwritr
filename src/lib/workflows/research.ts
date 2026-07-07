@@ -2075,6 +2075,23 @@ export async function runFullResearchWorkflow(
 
   for (const [index, chapter] of chapterSeeds.entries()) {
     if (await wasWorkflowCanceled(runId)) {
+      await updateStageForBook(book.id, StageKey.RESEARCH, {
+        status: StageStatus.READY_FOR_REVIEW,
+        metadataJson: {
+          automationStatus: "canceled",
+          currentAction: "Canceled by user",
+          totalChapters: allChapterSeeds.length,
+          completedChapters: preservedCompletedCount + completedChapterKeys.length,
+          failedChapters,
+          provisionalChapters,
+          currentChapterKey: null,
+          recentActivity: recentActivity(
+            undefined,
+            `Research run canceled after completing ${completedChapterKeys.length} of ${allChapterSeeds.length} chapters.`,
+          ),
+          lastRunAt: new Date().toISOString(),
+        },
+      });
       return {
         totalChapters: allChapterSeeds.length,
         completedChapterKeys,
@@ -2146,6 +2163,23 @@ export async function runFullResearchWorkflow(
     }
 
     if (await wasWorkflowCanceled(runId)) {
+      await updateStageForBook(book.id, StageKey.RESEARCH, {
+        status: StageStatus.READY_FOR_REVIEW,
+        metadataJson: {
+          automationStatus: "canceled",
+          currentAction: "Canceled by user",
+          totalChapters: allChapterSeeds.length,
+          completedChapters: preservedCompletedCount + completedChapterKeys.length,
+          failedChapters,
+          provisionalChapters,
+          currentChapterKey: null,
+          recentActivity: recentActivity(
+            undefined,
+            `Research run canceled after completing ${completedChapterKeys.length} of ${allChapterSeeds.length} chapters.`,
+          ),
+          lastRunAt: new Date().toISOString(),
+        },
+      });
       return {
         totalChapters: allChapterSeeds.length,
         completedChapterKeys,

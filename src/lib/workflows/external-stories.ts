@@ -243,20 +243,6 @@ async function getExtractionModel() {
   });
 }
 
-/**
- * Enrichment model: takes an already-extracted story and deepens the prose
- * with sensory, dialogue, and interiority grounded in the source text.
- * Warmer (0.7) and longer output to produce scene-grade material.
- */
-async function getEnrichmentModel() {
-  return getModelForRole("external-stories:enrich", {
-    temperature: 0.7,
-    maxOutputTokens: 8000,
-    timeoutMs: 90000,
-    reasoningEffort: "high",
-  });
-}
-
 function parseJson<T>(value: unknown, fallback: T): T {
   if (value && typeof value === "object") {
     return value as T;
@@ -682,7 +668,29 @@ CORE REQUIREMENTS for every story you return:
    - Every story must serve the chapter's thesis. "whyItMatters" should make that link concrete, not generic.
    - Classify storyType and storyFit only after you've written the narrative — the classification is the tail, not the dog.
 
+7. NO SECOND PASS WILL REVIEW THIS. Get it right the first time:
+   - The hook must be the single most arresting moment, not a generic opener — if your first draft of it is generic, rewrite it before returning.
+   - internalShift must be one crisp sentence: exactly what the protagonist stopped believing or started believing.
+   - Do not pad. Do not use em-dashes. Do not use consultant phrases ("at the end of the day", "it's worth noting"). If the source can't support a detail, leave the field sparse rather than inventing texture.
+
 Return between 1 and 5 story candidates per source — quality over quantity.`;
+
+// Free (no LLM call) integrity gate, mirroring research.ts's
+// verifySourceIntegrity — drops fetched pages that clearly don't match what
+// was searched for or are too thin to contain a real scene, before paying
+// for an extraction call on them.
+function passesContentIntegrityCheck(source: FetchedSource): boolean {
+  const searchTitle = String(source.metadata?.searchTitle ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3);
+  const normalizedTitle = source.title.toLowerCase().replace(/[^a-z0-9\s]+/g, " ");
+  const overlappingWords = searchTitle.filter((word) => normalizedTitle.includes(word));
+  const titleMatch = searchTitle.length === 0 || overlappingWords.length >= Math.min(2, searchTitle.length);
+  const contentMatch = source.text.length >= 400;
+  return titleMatch && contentMatch;
+}
 
 async function extractStories(
   chapter: ChapterSeed,
@@ -795,108 +803,6 @@ async function extractStories(
   }
 }
 
-const STORY_ENRICHMENT_PROMPT = `You are a narrative editor refining true stories for a nonfiction book chapter.
-
-You will receive one story that was already extracted from a source, plus the original source text. Your job is to deepen the story's texture and narrative quality WITHOUT inventing facts not supported by the source.
-
-Specifically:
-
-1. Rewrite the summary into a single 6–10 sentence narrative paragraph that reads like the first page of a scene. Lead with a concrete image or action. Use active verbs. Ground every sentence in something the source supports.
-
-2. Strengthen sensoryDetails — expand to 3–5 items if the source supports them. Prefer specific physical anchors (a lamp, a phone ringing, a posture, the temperature of a room) over abstractions.
-
-3. If the source contains dialogue, extract more of it into dialogueSnippets. If it only paraphrases speech, convert to tight reported speech you can quote from the source.
-
-4. Sharpen internalShift — what exactly did the protagonist stop believing or start believing. One crisp sentence.
-
-5. Rewrite hook if it is generic. The hook should be the single most arresting moment.
-
-6. Do NOT pad. Do NOT add em-dashes. Do NOT use consultant phrases. If the source cannot support a detail, leave that field as-is.
-
-Return the same story with the same classification, but with richer narrative fields.`;
-
-async function enrichStory(
-  chapter: ChapterSeed,
-  source: FetchedSource,
-  story: ChapterExternalStoryItem,
-): Promise<ChapterExternalStoryItem> {
-  const model = await getEnrichmentModel();
-  if (!model) return story;
-
-  const narrative = (story.metadata as { narrative?: Record<string, unknown> } | undefined)
-    ?.narrative;
-  if (!narrative) return story;
-
-  try {
-    const structured = model.withStructuredOutput(StorySchema);
-    const result = await structured.invoke([
-      new SystemMessage(STORY_ENRICHMENT_PROMPT),
-      new HumanMessage(
-        JSON.stringify({
-          chapterTitle: chapter.chapterTitle,
-          chapterDescription: chapter.chapterDescription,
-          story: {
-            id: story.id,
-            title: story.title,
-            storyType: story.storyType,
-            storyFit: story.storyFit,
-            leadershipTheme: story.leadershipTheme,
-            summary: story.summary,
-            whyItMatters: story.whyItMatters,
-            emotionalRole: story.emotionalRole,
-            narrative,
-          },
-          sourceTitle: source.title,
-          sourceUrl: source.canonicalUrl ?? source.url,
-          // Enrichment mines the article for more dialogue/sensory detail
-          // beyond what extraction already pulled, so (unlike verification)
-          // it does want a real second pass over the source — but no real
-          // web article runs 180k chars (~45k tokens); that cap only ever
-          // gets hit by unusually long pages and just burns tokens for no
-          // extra signal. 40k chars covers virtually any long-form piece.
-          sourceText: source.text.slice(0, 40000),
-        }),
-      ),
-    ]);
-
-    const enriched = result.stories[0];
-    if (!enriched) return story;
-
-    return {
-      ...story,
-      title: enriched.title,
-      summary: enriched.summary,
-      whyItMatters: enriched.whyItMatters,
-      emotionalRole: enriched.emotionalRole,
-      storyType: enriched.storyType as ExternalStoryType,
-      storyFit: enriched.storyFit as ExternalStoryFit,
-      metadata: {
-        ...(story.metadata ?? {}),
-        narrative: {
-          hook: enriched.hook,
-          setting: enriched.setting,
-          protagonistState: enriched.protagonistState,
-          inciting: enriched.inciting,
-          escalation: enriched.escalation,
-          turn: enriched.turn,
-          resolution: enriched.resolution,
-          meaning: enriched.meaning,
-          sensoryDetails: enriched.sensoryDetails,
-          dialogueSnippets: enriched.dialogueSnippets,
-          internalShift: enriched.internalShift,
-        },
-        enriched: true,
-      },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown enrichment error";
-    console.error(
-      `[external-stories] enrichment failed for story ${story.id}: ${message}`,
-    );
-    return story;
-  }
-}
-
 function buildDossier(chapter: ChapterSeed, sources: ChapterExternalStorySource[], stories: ChapterExternalStoryItem[]): ChapterExternalStoryDossier {
   const verifiedStories = stories.filter((story) => story.verificationStatus === "VERIFIED");
 
@@ -1000,11 +906,19 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
       message: `Fetched ${fetchedSources.length} pages from ${summarizeDomains(fetchedSources.map((source) => source.canonicalUrl ?? source.url))}`,
     });
 
+    // Free heuristic gate before paying for extraction — drops pages that
+    // don't match what was searched for or are too thin to hold a real scene.
+    const integritySources = fetchedSources.filter(passesContentIntegrityCheck);
+    if (integritySources.length === 0) {
+      throw new Error(
+        `All ${fetchedSources.length} fetched story pages for ${chapter.chapterTitle} failed the integrity check (title mismatch or too little content).`,
+      );
+    }
     await pulseExternalStoriesStage({
       bookId: book.id,
       currentChapterKey: chapter.chapterKey,
       currentAction: "Extracting story candidates",
-      message: `Extracting story candidates for ${chapter.chapterTitle}`,
+      message: `Extracting story candidates for ${chapter.chapterTitle} from ${integritySources.length} of ${fetchedSources.length} fetched pages (${fetchedSources.length - integritySources.length} dropped by integrity check)`,
     });
     await pulseExternalStoriesStage({
       bookId: book.id,
@@ -1013,27 +927,18 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
       message: `Calling ${resolveModelSpec("external-stories:extract")} to extract scene-grade story candidates`,
     });
     const extractedStoriesBySource = await Promise.all(
-      fetchedSources.map(async (source) => ({
+      integritySources.map(async (source) => ({
         source,
         stories: await extractStories(chapter, source, lens),
       })),
     );
 
-    await pulseExternalStoriesStage({
-      bookId: book.id,
-      currentChapterKey: chapter.chapterKey,
-      currentAction: "Enriching stories with sensory and dialogue detail",
-      message: `Calling ${resolveModelSpec("external-stories:enrich")} to deepen extracted stories`,
-    });
-    // Second pass: enrich each story with richer narrative texture. Grounded
-    // in the SAME source text so we don't invent facts.
-    const stories = (
-      await Promise.all(
-        extractedStoriesBySource.flatMap(({ source, stories: storyBatch }) =>
-          storyBatch.map((story) => enrichStory(chapter, source, story)),
-        ),
-      )
-    );
+    // Extraction already demands scene-grade depth (sensory detail, dialogue,
+    // draft-ready prose) in one pass — a second "enrichment" call used to
+    // re-run the same source through the same model asking for the same
+    // depth again, doubling both the call count and the source-text token
+    // cost for no measurable quality gain. Removed; see STORY_EXTRACTION_PROMPT.
+    const stories = extractedStoriesBySource.flatMap(({ stories: storyBatch }) => storyBatch);
 
     if (stories.length === 0) {
       throw new Error(
@@ -1056,7 +961,7 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
       metadata: {},
     }));
 
-    dossier = buildDossier(chapter, fetchedSources, stories);
+    dossier = buildDossier(chapter, integritySources, stories);
     await pulseExternalStoriesStage({
       bookId: book.id,
       currentChapterKey: chapter.chapterKey,
@@ -1068,7 +973,7 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
         `No external stories were admitted for ${chapter.chapterTitle}. The story vault is not strong enough to use downstream.`,
       );
     }
-    persistedSources = fetchedSources;
+    persistedSources = integritySources;
     persistedStories = stories;
   } catch (error) {
     const fallback = buildProvisionalStoryVault(
@@ -1096,7 +1001,7 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
     sources: persistedSources,
     stories: persistedStories,
     verifications,
-    modelName: `${resolveModelSpec("external-stories:extract")} + ${resolveModelSpec("external-stories:enrich")}`,
+    modelName: resolveModelSpec("external-stories:extract"),
     promptTemplateVersion: "external-stories-v2-narrative",
   });
 
@@ -1155,8 +1060,29 @@ export async function runFullExternalStoriesWorkflow(
   const completed: string[] = [];
   const failed: Array<{ chapterKey: string; message: string }> = [];
 
+  const markCanceled = async () => {
+    await updateStageForBook(book.id, StageKey.EXTERNAL_STORIES, {
+      status: StageStatus.READY_FOR_REVIEW,
+      metadataJson: {
+        automationStatus: "canceled",
+        currentAction: "Canceled by user",
+        totalChapters: allChapterSeeds.length,
+        completedChapters: preservedCompletedCount + completed.length,
+        failedChapters: failed,
+        provisionalChapters,
+        currentChapterKey: null,
+        recentActivity: recentActivity(
+          undefined,
+          `External stories run canceled after completing ${completed.length} of ${allChapterSeeds.length} chapters.`,
+        ),
+        lastRunAt: new Date().toISOString(),
+      },
+    });
+  };
+
   for (const [index, chapter] of chapterSeeds.entries()) {
     if (await wasWorkflowCanceled(runId)) {
+      await markCanceled();
       return { totalChapters: allChapterSeeds.length, completedChapterKeys: completed, failedChapters: failed, canceled: true };
     }
 
@@ -1174,6 +1100,7 @@ export async function runFullExternalStoriesWorkflow(
     }
 
     if (await wasWorkflowCanceled(runId)) {
+      await markCanceled();
       return { totalChapters: allChapterSeeds.length, completedChapterKeys: completed, failedChapters: failed, canceled: true };
     }
 

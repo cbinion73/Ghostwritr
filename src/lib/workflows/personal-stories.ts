@@ -104,10 +104,20 @@ function hasUsableOpenAIKey() {
 
 async function getChatModel() {
   // Routed via provider layer: Sonnet for interview-based story generation
+  //
+  // timeoutMs was 20000 (20s) — far too short for the encyclopedia-update
+  // call, which re-sends the full growing transcript (this session's cost
+  // audit found this role averaging ~147K input tokens/call) through
+  // structured output. Found 2026-07-07: a real 8-message interview timed
+  // out on effectively every turn and silently fell back to
+  // fallbackEncyclopediaUpdate, which hardcodes status "needs_detail" and
+  // pastes the raw user message into title/summary — meaning the author's
+  // real, complete stories were never actually processed by the model at
+  // all, they were just echoed back as unprocessed fragments every time.
   return getModelForRole("personal-stories:interview", {
     temperature: 0.35,
     maxOutputTokens: 4000,
-    timeoutMs: 20000,
+    timeoutMs: 90000,
   });
 }
 

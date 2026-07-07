@@ -31,6 +31,64 @@ interface ChapterDraftBmadPanelProps {
 
 // ── Outline parser ────────────────────────────────────────────────────────────
 
+// ── Structured (JSON) outline parser ─────────────────────────────────────────
+// Nonfiction Outline artifacts are committed as structured JSON
+// (sections[].chapters[]), not the markdown document the legacy parser below
+// expects — feeding JSON into that regex-based parser was silently
+// collapsing a real 16-chapter outline down to a single fallback "chapter".
+// This reads the real structure directly and returns the actual backend
+// chapterKey (chapter.id) instead of a synthetic ch-N placeholder, so
+// already-drafted chapters correctly match their existing artifacts instead
+// of always showing as pending.
+function parseStructuredOutlineChapters(
+  outline: string,
+): Array<{ key: string; title: string; excerpt: string }> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(outline);
+  } catch {
+    return null;
+  }
+
+  const sections = (parsed as { sections?: unknown })?.sections;
+  if (!Array.isArray(sections)) return null;
+
+  const chapters: Array<{ key: string; title: string; excerpt: string }> = [];
+  for (const section of sections) {
+    const sectionChapters = (section as { chapters?: unknown })?.chapters;
+    if (!Array.isArray(sectionChapters)) continue;
+    for (const chapter of sectionChapters) {
+      const c = chapter as Record<string, unknown>;
+      const key = typeof c.id === "string" ? c.id : null;
+      const title = typeof c.title === "string" ? c.title : null;
+      if (!key || !title) continue;
+
+      const paragraphSummaries = Array.isArray(c.paragraphs)
+        ? (c.paragraphs as Array<Record<string, unknown>>)
+            .map((p) => (typeof p.mainIdea === "string" ? `- ${p.mainIdea}` : null))
+            .filter((line): line is string => Boolean(line))
+            .join("\n")
+        : "";
+
+      const excerptLines = [
+        `Chapter: ${title}`,
+        typeof c.subtitle === "string" ? c.subtitle : null,
+        typeof c.bigIdea === "string" ? `Big idea: ${c.bigIdea}` : null,
+        typeof c.coreIdea === "string" ? `Core idea: ${c.coreIdea}` : null,
+        typeof c.description === "string" ? c.description : null,
+        typeof c.whatGetsConveyed === "string" ? `What it conveys: ${c.whatGetsConveyed}` : null,
+        typeof c.openingHook === "string" ? `Opening hook: ${c.openingHook}` : null,
+        typeof c.closingBridge === "string" ? `Closing bridge: ${c.closingBridge}` : null,
+        paragraphSummaries ? `Paragraph beats:\n${paragraphSummaries}` : null,
+      ].filter((line): line is string => Boolean(line));
+
+      chapters.push({ key, title, excerpt: excerptLines.join("\n\n") });
+    }
+  }
+
+  return chapters.length > 0 ? chapters : null;
+}
+
 function parseChapters(outline: string): Array<{ title: string; excerpt: string }> {
   if (!outline.trim()) return [];
 
@@ -198,11 +256,17 @@ export function ChapterDraftBmadPanel({
       // Build a map of DB-persisted chapters keyed by chapterKey
       const dbMap = new Map(data.chapters.map((c) => [c.chapterKey, c]));
 
-      // Parse the outline into the canonical chapter list
-      const parsed = outlineContent ? parseChapters(outlineContent) : [];
+      // Parse the outline into the canonical chapter list — try the
+      // structured JSON shape (real nonfiction Outline artifacts) first,
+      // since it also gives us the real chapterKey; fall back to the
+      // markdown parser (used by FICTION_DRAFT's SCENE_PLAN content) with
+      // synthetic keys when the outline isn't that JSON shape.
+      const structuredParsed = outlineContent ? parseStructuredOutlineChapters(outlineContent) : null;
+      const parsed: Array<{ key?: string; title: string; excerpt: string }> =
+        structuredParsed ?? (outlineContent ? parseChapters(outlineContent) : []);
 
       const merged: Chapter[] = parsed.map((p, idx) => {
-        const key = `ch-${idx + 1}`;
+        const key = p.key ?? `ch-${idx + 1}`;
         const dbEntry = dbMap.get(key);
         return {
           key,

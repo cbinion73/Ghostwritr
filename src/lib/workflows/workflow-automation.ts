@@ -293,7 +293,21 @@ async function runFictionAutopilot(
       autoApply: true,
       commitAfter: true,
     });
-    advancedStages.push("Editing loop completed and committed");
+    // runFullEditorialLoopWorkflow only commits when the readiness gate
+    // actually clears — claiming "committed" unconditionally here meant a
+    // manuscript that never satisfies the gate got the full assess -> plan
+    // -> Opus-polish cycle re-run on every autopilot tick indefinitely,
+    // since "advanced" is what tells the outer loop to keep going.
+    const editingStageAfterLoop = await stage(StageKey.EDITING);
+    if (editingStageAfterLoop?.status === StageStatus.COMMITTED) {
+      advancedStages.push("Editing loop completed and committed");
+    } else {
+      return {
+        status: "manual",
+        title: "Editing needs review",
+        detail: "The editorial loop ran a full assess/revise pass but the readiness gate did not clear for an automatic commit. Review the manuscript and commit Editing manually instead of letting autopilot keep re-running the same pass.",
+      };
+    }
   }
 
   if (advancedStages.length > 0) {
@@ -582,10 +596,24 @@ async function runNonfictionAutopilot(
       autoApply: true,
       commitAfter: true,
     });
+    // runFullEditorialLoopWorkflow only commits when the readiness gate
+    // actually clears — claiming "advanced" unconditionally here meant a
+    // manuscript that never satisfies the gate (e.g. persistently stale
+    // draft-quality flags) got the full assess -> plan -> Opus-polish cycle
+    // re-run on every autopilot tick indefinitely, since "advanced" is what
+    // tells the outer loop to keep going. Check the real outcome instead.
+    const editingStageAfterLoop = await stage(StageKey.EDITING);
+    if (editingStageAfterLoop?.status === StageStatus.COMMITTED) {
+      return {
+        status: "advanced",
+        title: "Editing committed",
+        detail: "The full manuscript was assembled, revised through the editorial loop, and committed with a ready publishing package.",
+      };
+    }
     return {
-      status: "advanced",
-      title: "Editing committed",
-      detail: "The full manuscript was assembled, revised through the editorial loop, and committed with a ready publishing package.",
+      status: "manual",
+      title: "Editing needs review",
+      detail: "The editorial loop ran a full assess/revise pass but the readiness gate did not clear for an automatic commit. Review the manuscript and commit Editing manually, or adjust it, instead of letting autopilot keep re-running the same pass.",
     };
   }
 

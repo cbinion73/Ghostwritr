@@ -223,6 +223,11 @@ const EditorialAssessmentSchema = z.object({
     }),
   ),
   nextActions: z.array(z.string()).default([]),
+  // The manuscript signature (see buildSourceDraftSignature) this assessment
+  // was actually generated against — lets generateEditorialAssessmentWorkflow
+  // skip a redundant ~73K-token full-manuscript LLM call when nothing has
+  // changed since the last assessment for the same mode/chapter.
+  sourceDraftSignature: z.string().default(""),
 });
 
 const EditorialPreferenceProfileSchema = z.object({
@@ -1791,6 +1796,30 @@ export async function generateEditorialAssessmentWorkflow(
   const preferences = getEditorialPreferenceProfile(stageMetadata);
   const draftQualityRollup = buildDraftQualityRollup(manuscript.chapters);
 
+  // Skip the ~73K-token full-manuscript assess call entirely when nothing
+  // has changed since the last assessment for this same mode/chapter scope
+  // — previously every call re-sent and re-assessed the whole manuscript
+  // unconditionally, even back-to-back with no intervening edits.
+  const currentDraftSignature = buildSourceDraftSignature(focusChapters);
+  const priorAssessmentVersions = await getEditingArtifactVersions(
+    book.id,
+    ArtifactType.EDITORIAL_ASSESSMENT,
+    1,
+  );
+  const priorAssessment = parseJsonWithSchema(
+    priorAssessmentVersions[0]?.contentJson,
+    EditorialAssessmentSchema,
+  );
+  if (
+    priorAssessment &&
+    priorAssessment.sourceDraftSignature &&
+    priorAssessment.sourceDraftSignature === currentDraftSignature &&
+    priorAssessment.mode === mode &&
+    (priorAssessment.chapterKey ?? null) === (chapterKey ?? null)
+  ) {
+    return priorAssessment;
+  }
+
   let assessment: EditorialAssessment = {
     assessedAt: new Date().toISOString(),
     mode,
@@ -1813,6 +1842,7 @@ export async function generateEditorialAssessmentWorkflow(
       `Generate a ${modeLabel(mode)} revision${chapterKey ? " for this chapter" : ""}.`,
       "Apply the accepted revision back into the manuscript assembly before committing Editing.",
     ],
+    sourceDraftSignature: currentDraftSignature,
   };
 
   const model = await getEditorAssessModel();
@@ -1857,8 +1887,10 @@ Produce a concise but serious editorial assessment in the requested mode.
         risks: result.risks ?? [],
         chapterNotes: result.chapterNotes ?? [],
         nextActions: result.nextActions ?? [],
+        sourceDraftSignature: currentDraftSignature,
       };
-    } catch {
+    } catch (err) {
+      console.error(`[editing] generateEditorialAssessmentWorkflow failed for ${bookSlug}, using deterministic fallback assessment:`, err);
       // Keep deterministic fallback assessment.
     }
   }
@@ -2088,6 +2120,19 @@ export async function applyManuscriptRevisionWorkflow(bookSlug: string, revision
       chapterText: candidate.revisedText,
       wordCount: countWords(candidate.revisedText),
       reviewSummary: candidate.changeSummary,
+      // The draft-quality signal that triggered this revision never gets
+      // re-measured after Opus rewrites the chapter — computeEditorialReadinessGate
+      // reads chaptersNeedingRevision straight off this flag, so leaving it
+      // stale here means a revised chapter can permanently block commit and
+      // the autopilot editorial loop keeps re-queuing it forever. Clear it
+      // and record the pass; a later real reassessment can re-flag it.
+      quality: chapter.quality
+        ? {
+            ...chapter.quality,
+            needsRevision: false,
+            revisionPasses: chapter.quality.revisionPasses + 1,
+          }
+        : chapter.quality,
     };
   });
 

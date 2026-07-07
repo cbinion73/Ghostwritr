@@ -61,6 +61,10 @@ export type EditorialAssessment = {
   risks: string[];
   chapterNotes: EditorialAssessmentChapterNote[];
   nextActions: string[];
+  /** Manuscript signature this assessment was generated against — see
+   * buildSourceDraftSignature in editing.ts. Empty string for assessments
+   * created before this field existed. */
+  sourceDraftSignature: string;
 };
 
 export type EditorialPreferenceProfile = {

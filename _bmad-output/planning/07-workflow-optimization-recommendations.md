@@ -88,3 +88,67 @@ a prompt tweak so the model returns IDs instead of text. This would let the
 digital-brain view (once item #6 above is resolved) show which specific
 facts and stories made it into the manuscript versus were left on the
 table.
+
+## 8. Stage-run status is not trustworthy (found 2026-07-07, live production debugging)
+
+While regenerating Research + External Stories for the "Dust" book under
+the new biblical lens, the run-status UI (stage panel, chapter workspace
+banner) repeatedly showed a state that did not match reality, and the only
+way to get ground truth was direct production database queries. Three
+distinct failure modes hit in one session:
+
+- **Stuck "running" forever after cancel.** Both `runFullResearchWorkflow`
+  and `runFullExternalStoriesWorkflow` returned early on cancellation
+  without ever calling `updateStageForBook` — fixed in commit `39821eb`,
+  but this class of bug (a code path that mutates `BookStage.status` in
+  most branches but not all) is easy to reintroduce anywhere the same
+  three-part pattern (start / per-chapter update / final update) is
+  hand-rolled per workflow file instead of shared.
+- **`BookStage.metadataJson` has no source-of-truth link to `WorkflowRun`.**
+  It's a mutable blob any code path can write to — including a one-off
+  diagnostic script calling `runChapterExternalStoriesWorkflow` directly
+  for an A/B test, which left the shared stage row showing `IN_PROGRESS`
+  with no corresponding `WorkflowRun` ever created. The UI had no way to
+  detect "this looks like a run but isn't one" and neither did the author.
+- **The stage panel does not auto-refresh.** It showed "Stage state:
+  running / Working on: Chapter 8" with an explicit "Refresh manually to
+  see the latest progress" caption — meaning the default experience is a
+  stale snapshot from page load, not a live view, so "is it actually
+  running right now" could not be answered without a manual reload (or,
+  in practice, without me running raw SQL on production).
+
+Net effect: the author could not distinguish running / idle / stale from
+the UI alone, for either question ("is it doing anything") or ("are the
+numbers I'm looking at current"), across a multi-hour real generation run.
+
+**Implementation sketch:**
+
+1. Make `WorkflowRun` (not `BookStage.metadataJson`) the authority for
+   "is a run active." The stage panel should query for a `QUEUED`/`RUNNING`
+   run row for the stage and render "no active run" when none exists,
+   regardless of what `metadataJson.automationStatus` last said.
+2. Auto-poll (short interval, e.g. 3–5s) or subscribe while a run is
+   active; stop polling and show a static "idle" state otherwise. No
+   "refresh manually" caption should ever be needed.
+3. Add a staleness check: if a `RUNNING` row's stage hasn't pulsed
+   (`updateStageForBook`/`pulse*Stage` call) in longer than some threshold
+   (e.g. 3x the typical per-chapter duration), surface it as "possibly
+   stuck" rather than a plain "running" — this is exactly the state that
+   hid the orphaned run from 2026-07-06.
+4. Surface live cost/tokens per run in the panel itself, pulling from
+   `LLMCallLog` grouped by `workflowRunId` (requires the workflows to
+   actually pass `workflowRunId` through to `logLLMCall` — currently only
+   true when called via the internal API route's `runWithLLMContext`
+   wrapper, not when a workflow function is invoked directly). This
+   removes the need to hand-query the production database to answer "what
+   has this run cost so far."
+5. Consider a lightweight guard (or at least a documented convention) so
+   ad-hoc diagnostic scripts calling workflow functions directly don't
+   silently mutate shared `BookStage` display state without a real
+   `WorkflowRun` backing them — e.g. require an explicit `runId` parameter
+   with no default, or log a loud warning when one isn't provided.
+
+This belongs under the P0 "Trust the machine" epic in
+`06-delivery-backlog.md` — it's the same category of stale-state/validation
+gap the epic already targets, just discovered against a real production run
+rather than in the abstract.

@@ -192,19 +192,28 @@ function hasUsableOpenAIKey() {
 
 async function getAuthorModel() {
   // Routed via provider layer: Sonnet for cost-effective drafting
+  //
+  // timeoutMs was 30000 (30s) — confirmed too short live on 2026-07-07: a
+  // real full chapter (large context, up to 16000 output tokens) routinely
+  // takes 90+ seconds, so this call was silently timing out and falling
+  // back to fallbackDraft (deterministic template prose) on a real
+  // production book. Same root cause as the Personal Stories timeout fix
+  // earlier this session — the console.error added to chapter-draft.ts's
+  // catch blocks is what made this visible instead of silent.
   return getModelForRole("chapter-draft:author", {
     temperature: 0.45,
     maxOutputTokens: 16000,
-    timeoutMs: 30000,
+    timeoutMs: 120000,
   });
 }
 
 async function getReviewerModel() {
   // Routed via provider layer: Sonnet for fast revision
+  // See getAuthorModel — same 30s-timeout bug, same fix.
   return getModelForRole("chapter-draft:revise", {
     temperature: 0.2,
     maxOutputTokens: 8000,
-    timeoutMs: 30000,
+    timeoutMs: 120000,
   });
 }
 

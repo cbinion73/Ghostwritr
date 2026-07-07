@@ -628,6 +628,73 @@ export async function seedPersonalStoriesInterview(bookSlug: string) {
   return getPersonalStoriesWorkspace(bookSlug);
 }
 
+/**
+ * Re-run the encyclopedia distillation over an EXISTING interview transcript
+ * without appending a new message — for books whose interview happened
+ * under the pre-fix prompt (see the encyclopedia-update system prompt above)
+ * and got every entry stuck at "needs_detail" despite the author having
+ * told complete, usable stories. Re-derives status/summary/etc. for the
+ * same transcript under the corrected prompt and commits the result so
+ * Chapter Draft picks it up immediately.
+ */
+export async function reprocessPersonalStoriesEncyclopediaWorkflow(bookSlug: string) {
+  const book = await getBookBySlugOrThrow(bookSlug);
+  const chapterBlueprints = await getCommittedChapterBlueprints(book.id);
+  if (chapterBlueprints.length === 0) {
+    throw new Error("Commit the paragraph-level Outline before reprocessing Personal Stories.");
+  }
+
+  const artifacts = await getPersonalStoriesArtifacts(book.id);
+  const chatArtifact = artifacts.find(
+    (artifact) => artifact.artifactType === ArtifactType.PERSONAL_STORY_CHAT,
+  );
+  const encyclopediaArtifact = artifacts.find(
+    (artifact) => artifact.artifactType === ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
+  );
+
+  const transcript = normalizeTranscript(chatArtifact?.versions[0]?.contentJson);
+  if (transcript.length === 0) {
+    throw new Error("No interview transcript exists yet for this book.");
+  }
+  const priorEncyclopedia = normalizeEncyclopedia(
+    parseJson<Partial<PersonalStoryEncyclopedia> | null>(
+      encyclopediaArtifact?.versions[0]?.contentJson,
+      null,
+    ),
+  );
+
+  const reprocessed = await generateEncyclopediaUpdate(
+    book.titleWorking ?? "Untitled Book",
+    transcript,
+    priorEncyclopedia,
+    chapterBlueprints,
+  );
+
+  await createPersonalStoriesArtifactVersion({
+    bookId: book.id,
+    artifactType: ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
+    title: "Personal Story Encyclopedia",
+    summary: `${reprocessed.entries.length} story candidates captured (reprocessed)`,
+    contentJson: reprocessed,
+    contentText: JSON.stringify(reprocessed, null, 2),
+    modelName: hasUsableOpenAIKey()
+      ? process.env.OPENAI_PERSONAL_STORIES_MODEL ?? "gpt-5.4"
+      : "local-fallback",
+    promptTemplateVersion: "personal-stories-encyclopedia-v2-reprocess",
+  });
+
+  const result = await commitPersonalStoriesWorkflow(bookSlug);
+
+  const before = priorEncyclopedia.entries.filter(
+    (e) => e.status === "candidate" || e.status === "strong",
+  ).length;
+  const after = reprocessed.entries.filter(
+    (e) => e.status === "candidate" || e.status === "strong",
+  ).length;
+
+  return { encyclopedia: reprocessed, usableBefore: before, usableAfter: after, commitResult: result };
+}
+
 export async function commitPersonalStoriesWorkflow(bookSlug: string) {
   const book = await getBookBySlugOrThrow(bookSlug);
   const chapterBlueprints = await getCommittedChapterBlueprints(book.id);

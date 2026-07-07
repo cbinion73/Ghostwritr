@@ -418,7 +418,13 @@ function findRelevantPersonalStories(
 
   const titleWords = chapterTitle.toLowerCase().split(/\W+/).filter(Boolean);
   return encyclopedia.entries
-    .filter((entry) => entry.status !== "not_applicable")
+    // "needs_detail" means the interview never actually distilled this into
+    // a usable story — often still raw, unedited interview transcript (found
+    // 2026-07-07: a book where every single entry was stuck at
+    // needs_detail, and the raw transcript text leaked directly into
+    // chapter prose because this filter only excluded not_applicable).
+    // Only candidate/strong are stories an author actually confirmed.
+    .filter((entry) => entry.status === "candidate" || entry.status === "strong")
     .filter((entry) => {
       const haystack = `${entry.title} ${entry.summary} ${entry.whyItMatters}`.toLowerCase();
       return (

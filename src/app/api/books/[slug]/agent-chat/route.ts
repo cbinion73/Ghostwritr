@@ -236,8 +236,35 @@ export async function POST(
     const contextSections = priorKeys
       .map((key) => {
         const stage = byKey.get(key);
-        const text = stage?.artifacts[0]?.versions[0]?.contentText;
+        let text = stage?.artifacts[0]?.versions[0]?.contentText;
         if (!text) return null;
+        // PERSONAL_STORIES entries carry a status the interview assigns
+        // ("candidate"/"strong" = a real, confirmed story; "needs_detail" =
+        // still raw/unprocessed interview transcript; "not_applicable" =
+        // rejected). This was previously dumped as raw JSON with no status
+        // filtering, so an unfinished interview's unedited transcript text
+        // (first-person interview answers, mid-sentence fragments) could
+        // leak verbatim into chapter prose — found 2026-07-07 after a book
+        // whose every entry was stuck at needs_detail did exactly that.
+        if (key === "PERSONAL_STORIES") {
+          try {
+            const parsed = JSON.parse(text) as {
+              entries?: Array<{ status?: string; title?: string; summary?: string; lesson?: string; whyItMatters?: string; storyType?: string; lifeArea?: string }>;
+            };
+            const usable = (parsed.entries ?? []).filter(
+              (e) => e.status === "candidate" || e.status === "strong",
+            );
+            text = usable.length > 0
+              ? usable
+                  .map((e) => `- ${e.title}\n  ${e.summary ?? ""}\n  Lesson: ${e.lesson ?? ""}`)
+                  .join("\n\n")
+              : null;
+          } catch {
+            // Not JSON (or unexpected shape) — leave text as-is rather than
+            // silently dropping a differently-formatted personal-story doc.
+          }
+          if (!text) return null;
+        }
         const title = stage?.artifacts[0]?.title ?? key.replace(/_/g, " ");
         return `=== ${title} (${key.replace(/_/g, " ")}) ===\n${text}`;
       })

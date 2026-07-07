@@ -415,6 +415,26 @@ Rules:
 - propose one sharp next question that deepens or broadens the interview
 - use chapterFitHints to point stories toward actual chapter titles or labels when possible
 - do not invent facts that were not implied by the transcript
+
+STATUS is not a formality — it is the gate that decides whether a story is
+ever actually usable in a chapter draft. Every entry stuck at "needs_detail"
+is silently excluded from every chapter, permanently, no matter how good the
+story is. Assign it deliberately:
+- "strong": the author told a complete story with a real arc (setup,
+  turn, resolution or insight) and concrete, specific detail (a place, a
+  person, a moment, an image). If your own reply to the author says
+  something like "that's on record" or "that's one of the strongest
+  you've given me," the entry MUST be "strong" or "candidate" — do not
+  tell the author a story is captured and then leave it at needs_detail.
+- "candidate": a real, usable story exists but is missing one dimension
+  (e.g. no clear resolution yet, or thin on sensory detail) — still
+  usable in a chapter, just not polished.
+- "needs_detail": genuinely just a fragment, a topic mentioned in
+  passing, or an answer that trailed off before becoming a story.
+- "not_applicable": the author explicitly said there's no story here.
+When the author signals the interview is ending ("let's stop here", "that's
+enough", "I'm done for now"), do not create a new entry from that message —
+it is a wrap-up instruction, not story material.
       `),
       new HumanMessage(
         JSON.stringify({

@@ -39,7 +39,7 @@ export async function POST(
     chapterKey?: string;
     chapterTitle?: string;
   };
-  const { messages, chapterContext, chapterTitle } = body;
+  const { messages, chapterContext, chapterKey, chapterTitle } = body;
   if (!Array.isArray(messages)) {
     return NextResponse.json({ error: "Missing messages" }, { status: 400 });
   }
@@ -189,7 +189,7 @@ The web research results below are pre-labelled with source tiers.${priorContext
       } finally {
         controller.close();
         if (promptTokens > 0 || completionTokens > 0) {
-          void logLLMCall({ bookId: book.id, bookSlug: slug, bookTitle: book.titleWorking ?? undefined, stageKey: "RESEARCH", stageRole: persona.stageRole, provider: modelSpec.provider, model: modelSpec.model, promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
+          void logLLMCall({ bookId: book.id, bookSlug: slug, bookTitle: book.titleWorking ?? undefined, stageKey: "RESEARCH", chapterKey, stageRole: persona.stageRole, provider: modelSpec.provider, model: modelSpec.model, promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
         }
       }
     },

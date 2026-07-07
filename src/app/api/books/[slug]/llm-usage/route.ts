@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCostBreakdownForBook, getTotalCostForBook } from "@/lib/llm/call-log";
+import { getCostBreakdownForBook, getCostByChapterAndStage, getTotalCostForBook } from "@/lib/llm/call-log";
 
 export async function GET(
   _req: Request,
@@ -14,9 +14,10 @@ export async function GET(
   });
   if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const [totalCost, breakdown] = await Promise.all([
+  const [totalCost, breakdown, byChapterAndStage] = await Promise.all([
     getTotalCostForBook(book.id),
     getCostBreakdownForBook(book.id),
+    getCostByChapterAndStage(book.id),
   ]);
 
   // Total token count
@@ -28,5 +29,6 @@ export async function GET(
     totalTokens,
     totalCalls,
     breakdown,
+    byChapterAndStage,
   });
 }

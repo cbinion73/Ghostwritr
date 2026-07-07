@@ -343,6 +343,7 @@ Wrap the final prose in the ARTIFACT block. The plan goes before the ARTIFACT, i
         stageKey,
         messages: [{ role: "user", content: prompt }],
         chapterContext: chapter.title,
+        chapterKey: chapter.key,
       }),
     });
 
@@ -436,6 +437,7 @@ Wrap the final prose in the ARTIFACT block. The plan goes before the ARTIFACT, i
           body: JSON.stringify({
             stageKey,
             chapterContext: chapter.title,
+        chapterKey: chapter.key,
             skipContext: true,   // saves ~54K input tokens — no manifest or prior stages needed
             messages: [
               {
@@ -509,6 +511,7 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same voice, sa
             body: JSON.stringify({
               stageKey,
               chapterContext: chapter.title,
+        chapterKey: chapter.key,
               messages: [{ role: "user", content: revPrompt }],
             }),
           });
@@ -772,6 +775,7 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
           stageKey,
           messages: [{ role: "user", content: prompt }],
           chapterContext: chapter.title,
+        chapterKey: chapter.key,
         }),
       });
       if (!res.ok || !res.body) throw new Error(`${res.status}`);

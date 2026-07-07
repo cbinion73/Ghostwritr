@@ -117,6 +117,7 @@ class CostLoggingHandler extends BaseCallbackHandler {
         bookTitle: context.bookTitle,
         stageKey: context.stageKey,
         workflowRunId: context.workflowRunId,
+        chapterKey: context.chapterKey,
         stageRole: this.stageRole ?? "unknown",
         provider: this.provider,
         model: this.model,

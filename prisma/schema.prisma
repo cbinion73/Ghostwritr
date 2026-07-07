@@ -775,6 +775,12 @@ model LLMCallLog {
   id                   String   @id @default(uuid()) @db.Uuid
   bookId               String   @db.Uuid
   workflowRunId        String?  @db.Uuid
+  /// The chapter this call was actually working on, when applicable (e.g.
+  /// "the-problem-becomes-visible-chapter-2"). Null for book-level calls
+  /// (Promise, Outline, Base Story, Editing, etc.) that aren't scoped to one
+  /// chapter. Populated via the ambient LLMCallContext for background
+  /// workflows, or passed directly by the conversational chat routes.
+  chapterKey           String?
   stageRole            String
   provider             String
   model                String
@@ -791,6 +797,7 @@ model LLMCallLog {
 
   @@index([bookId, createdAt])
   @@index([bookId, stageRole])
+  @@index([bookId, chapterKey])
   @@index([workflowRunId, createdAt])
 }
 

@@ -12,6 +12,7 @@ import {
   parseMetadataRecord,
 } from "../artifact-schemas";
 import { getModelForRole, resolveModelSpec, type StageRole } from "../llm/routing";
+import { getLLMCallContext, runWithLLMContext } from "../llm/call-context";
 import { resolveResearchLens, buildLensQueries, type ResearchLens } from "../research-lenses";
 import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
 import { normalizeBookSetupProfile } from "../book-setup-types";
@@ -1755,7 +1756,7 @@ async function pulseResearchStage(input: {
   });
 }
 
-export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: string) {
+async function runChapterResearchWorkflowImpl(bookSlug: string, chapterKey: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const [outlineVersion, paragraphVersion, baseStoryVersion] = await Promise.all([
     getCommittedOutline(book.id),
@@ -2016,6 +2017,24 @@ export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: s
     dossier,
     artifactVersionId: version.id,
   };
+}
+
+// Wraps the real implementation in a nested ambient LLM context tagging
+// every call this chapter makes with its chapterKey, for per-chapter cost
+// attribution (the stage/workflow-level context set by the caller — e.g.
+// the internal workflow-runs route — has no per-chapter granularity on its
+// own). Falls through untagged if no outer context exists (e.g. a script
+// calling this directly without runWithLLMContext) rather than fabricating
+// a bookId, matching the existing "only log when ambient context exists"
+// design.
+export async function runChapterResearchWorkflow(bookSlug: string, chapterKey: string) {
+  const outer = getLLMCallContext();
+  if (outer) {
+    return runWithLLMContext({ ...outer, chapterKey }, () =>
+      runChapterResearchWorkflowImpl(bookSlug, chapterKey),
+    );
+  }
+  return runChapterResearchWorkflowImpl(bookSlug, chapterKey);
 }
 
 type ResearchRunOptions = {

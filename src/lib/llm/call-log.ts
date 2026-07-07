@@ -16,6 +16,8 @@ export type LLMCallInput = {
   bookTitle?:   string;
   stageKey?:    string;   // e.g. "RESEARCH" — optional, shown in the flat log
   workflowRunId?: string;
+  /** The chapter this call was working on, when applicable — see LLMCallLog.chapterKey. */
+  chapterKey?:  string | null;
   stageRole:    string;
   provider:     string;
   model:        string;
@@ -35,6 +37,7 @@ interface CostLogEntry {
   bookSlug:         string;
   bookTitle:        string;
   stageKey:         string;
+  chapterKey:       string | null;
   stageRole:        string;
   provider:         string;
   model:            string;
@@ -85,6 +88,7 @@ export async function logLLMCall(input: LLMCallInput): Promise<void> {
     data: {
       bookId:           input.bookId,
       workflowRunId:    input.workflowRunId ?? null,
+      chapterKey:       input.chapterKey ?? null,
       stageRole:        input.stageRole,
       provider:         input.provider,
       model:            input.model,
@@ -104,6 +108,7 @@ export async function logLLMCall(input: LLMCallInput): Promise<void> {
     bookSlug:         input.bookSlug  ?? input.bookId,
     bookTitle:        input.bookTitle ?? "(untitled)",
     stageKey:         input.stageKey  ?? "",
+    chapterKey:       input.chapterKey ?? null,
     stageRole:        input.stageRole,
     provider:         input.provider,
     model:            input.model,
@@ -138,6 +143,34 @@ export async function getCostBreakdownForBook(
     orderBy: { _sum: { costUsd: "desc" } },
   });
   return rows.map((r) => ({
+    stageRole:   r.stageRole,
+    costUsd:     Number(r._sum.costUsd ?? 0),
+    totalTokens: r._sum.totalTokens ?? 0,
+    callCount:   r._count.id,
+  }));
+}
+
+/**
+ * Stage x chapter cost matrix — powers the cost-breakdown modal's table.
+ * Rows with no chapterKey (book-level stages: Promise, Outline, Base Story,
+ * Editing, etc.) are grouped under the synthetic key "(book-level)" rather
+ * than dropped, so the whole book's spend is still accounted for.
+ */
+export async function getCostByChapterAndStage(bookId: string): Promise<{
+  chapterKey: string;
+  stageRole: string;
+  costUsd: number;
+  totalTokens: number;
+  callCount: number;
+}[]> {
+  const rows = await db.lLMCallLog.groupBy({
+    by: ["chapterKey", "stageRole"],
+    where: { bookId },
+    _sum: { costUsd: true, totalTokens: true },
+    _count: { id: true },
+  });
+  return rows.map((r) => ({
+    chapterKey:  r.chapterKey ?? "(book-level)",
     stageRole:   r.stageRole,
     costUsd:     Number(r._sum.costUsd ?? 0),
     totalTokens: r._sum.totalTokens ?? 0,

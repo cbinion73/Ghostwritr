@@ -22,6 +22,8 @@ export type LLMCallContext = {
   bookTitle?:    string;
   stageKey?:     string;
   workflowRunId?: string;
+  /** The chapter currently being processed, for per-chapter cost attribution. */
+  chapterKey?:   string;
 };
 
 const storage = new AsyncLocalStorage<LLMCallContext>();

@@ -25,6 +25,7 @@ import {
 import { db } from "../db";
 import { getCraftNotes } from "../craft-ledger";
 import { getModelForRole } from "../llm/routing";
+import { getLLMCallContext, runWithLLMContext } from "../llm/call-context";
 import { buildCachedSystemBlocks } from "../llm/providers";
 import type { BaseStoryBundle, BaseStoryChapter } from "../base-story-types";
 import type { BookSetupProfile, WriterPersonaBlend } from "../book-setup-types";
@@ -2024,7 +2025,7 @@ Rules:
   return forceDraftTowardTarget(context, workingDraft, chapterTarget);
 }
 
-async function generateSingleChapterDraft(
+async function generateSingleChapterDraftImpl(
   bookId: string,
   promise: PromiseBrief,
   context: ChapterContext,
@@ -2195,6 +2196,38 @@ async function generateSingleChapterDraft(
       ...sourceAvailability,
     },
   };
+}
+
+// See runChapterResearchWorkflow in research.ts for why this wrapper exists —
+// tags every call this chapter makes with its chapterKey for per-chapter
+// cost attribution, nested inside whatever ambient context the caller set.
+async function generateSingleChapterDraft(
+  bookId: string,
+  promise: PromiseBrief,
+  context: ChapterContext,
+  baseStory: BaseStoryBundle | null,
+  personalStories: PersonalStoryEncyclopedia | null,
+  bookSetupProfile: BookSetupProfile | null,
+  chapterTarget: ChapterWordTarget | null,
+  workflowRunId?: string,
+) {
+  const outer = getLLMCallContext();
+  const args = [
+    bookId,
+    promise,
+    context,
+    baseStory,
+    personalStories,
+    bookSetupProfile,
+    chapterTarget,
+    workflowRunId,
+  ] as const;
+  if (outer) {
+    return runWithLLMContext({ ...outer, chapterKey: context.chapter.chapterId }, () =>
+      generateSingleChapterDraftImpl(...args),
+    );
+  }
+  return generateSingleChapterDraftImpl(...args);
 }
 
 function isDraftInsideTargetBand(wordCount: number, chapterTarget: ChapterWordTarget | null) {

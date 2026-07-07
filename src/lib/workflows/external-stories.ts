@@ -12,6 +12,7 @@ import {
   parseMetadataRecord,
 } from "../artifact-schemas";
 import { getModelForRole, resolveModelSpec } from "../llm/routing";
+import { getLLMCallContext, runWithLLMContext } from "../llm/call-context";
 import { resolveResearchLens, buildLensStoryQueries, type ResearchLens } from "../research-lenses";
 import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
 import { normalizeBookSetupProfile } from "../book-setup-types";
@@ -826,7 +827,7 @@ function buildDossier(chapter: ChapterSeed, sources: ChapterExternalStorySource[
   };
 }
 
-export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapterKey: string) {
+async function runChapterExternalStoriesWorkflowImpl(bookSlug: string, chapterKey: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const { chapterSeeds, baseStory } = await getChapterSeeds(book.id);
   if (!baseStory) {
@@ -1006,6 +1007,19 @@ export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapte
   });
 
   return { book, chapter, dossier, artifactVersionId: version.id };
+}
+
+// See runChapterResearchWorkflow in research.ts for why this wrapper exists —
+// tags every call this chapter makes with its chapterKey for per-chapter
+// cost attribution, nested inside whatever ambient context the caller set.
+export async function runChapterExternalStoriesWorkflow(bookSlug: string, chapterKey: string) {
+  const outer = getLLMCallContext();
+  if (outer) {
+    return runWithLLMContext({ ...outer, chapterKey }, () =>
+      runChapterExternalStoriesWorkflowImpl(bookSlug, chapterKey),
+    );
+  }
+  return runChapterExternalStoriesWorkflowImpl(bookSlug, chapterKey);
 }
 
 type ExternalStoriesRunOptions = {

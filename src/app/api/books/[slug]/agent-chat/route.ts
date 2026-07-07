@@ -153,8 +153,8 @@ export async function POST(
   });
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = await req.json() as { stageKey: StageKey; messages: ChatMessage[]; chapterContext?: string; skipContext?: boolean; polishMode?: boolean };
-  const { stageKey, messages, chapterContext, skipContext } = body;
+  const body = await req.json() as { stageKey: StageKey; messages: ChatMessage[]; chapterContext?: string; chapterKey?: string; skipContext?: boolean; polishMode?: boolean };
+  const { stageKey, messages, chapterContext, chapterKey, skipContext } = body;
 
   if (!stageKey || !Array.isArray(messages)) {
     return NextResponse.json({ error: "Missing stageKey or messages" }, { status: 400 });
@@ -804,6 +804,7 @@ PROSE VOICE RULES — these apply to every word you write. No exceptions.
             bookSlug:     slug,
             bookTitle:    book.titleWorking ?? undefined,
             stageKey:     stageKey,
+            chapterKey,
             stageRole:    persona.stageRole,
             provider:     modelSpec.provider,
             model:        modelSpec.model,

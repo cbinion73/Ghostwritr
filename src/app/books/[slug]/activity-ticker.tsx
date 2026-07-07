@@ -41,7 +41,6 @@ const ROLE_VERBS: Record<string, string> = {
   "research:agent-2-extractor": "reading sources",
   "research:agent-3-verifier": "verifying claims",
   "external-stories:extract": "finding stories",
-  "external-stories:enrich": "enriching stories",
   "base-story:author": "writing base story",
   "final-editor:assess": "editorial assessment",
   "final-editor:polish": "polishing prose",

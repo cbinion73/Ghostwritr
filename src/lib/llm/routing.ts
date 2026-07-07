@@ -32,7 +32,6 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 export type StageRole =
   // External Stories
   | "external-stories:extract"
-  | "external-stories:enrich"
   // Research
   | "research:questions"
   | "research:extract"
@@ -104,9 +103,14 @@ const ROLE_OUTPUT_TOKENS: Partial<Record<StageRole, number>> = {
 };
 
 const DEFAULT_ROUTING: Record<StageRole, string> = {
-  // --- External Stories: Claude for narrative extraction + enrichment ---
-  "external-stories:extract": "anthropic:claude-sonnet-4-6",
-  "external-stories:enrich": "anthropic:claude-sonnet-4-6",
+  // --- External Stories: Haiku for narrative extraction ---
+  // Story vault is intermediate material (Quill rewrites into final chapter
+  // prose later), not final copy — same relationship Research's dossier has
+  // to Quill. A/B tested against Sonnet 4.6 on a real chapter: ~4.6x faster,
+  // ~3x cheaper, comparably grounded prose. Tradeoff: Haiku is more prone to
+  // schema-classification slips (e.g. storyType/storyFit confusion), which
+  // drops that source's stories on a strict-schema parse failure.
+  "external-stories:extract": "anthropic:claude-haiku-4-5-20251001",
 
   // --- Research: Three-agent pipeline for verified claims ---
   // Legacy research roles (kept for compatibility)

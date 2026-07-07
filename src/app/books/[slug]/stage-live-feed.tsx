@@ -29,7 +29,6 @@ const ROLE_NARRATION: Record<string, string> = {
   "research:agent-2-extractor": "The extractor is pulling passages from sources",
   "research:agent-3-verifier": "The verifier is checking claims against excerpts",
   "external-stories:extract": "The story scout is extracting real-world cases",
-  "external-stories:enrich": "The story scout is enriching story candidates",
   "base-story:author": "The narrative agent is weaving the base story",
   "final-editor:assess": "The editor is assessing the manuscript",
   "final-editor:polish": "The editor is polishing prose",

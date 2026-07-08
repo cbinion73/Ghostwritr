@@ -107,16 +107,30 @@ function isErrorContent(text: string): boolean {
 function deduplicateChapters(
   artifacts: Array<{
     title: string | null;
+    metadataJson?: unknown;
     versions: Array<{ contentText: string | null }>;
   }>
 ): Map<string, string> {
-  const map = new Map<string, string>();
+  // Group by metadataJson.chapterKey, not title — a chapter can have two
+  // Artifact rows with two different titles (a plain agent-chat save writes
+  // a bare title; the structured author path writes "Chapter Draft: {key} -
+  // {title}"). Deduping by title alone lets both slip through as separate
+  // "chapters" in the exported manuscript. Fall back to title only when a
+  // row genuinely has no chapterKey tagged.
+  const byChapterKey = new Map<string, { titleKey: string; text: string }>();
   for (const a of artifacts) {
     const text = a.versions[0]?.contentText;
     if (!text || isErrorContent(text)) continue;
     const titleKey = (a.title ?? "Chapter").trim();
+    const meta = a.metadataJson as Record<string, string> | null | undefined;
+    const chapterKey = meta?.chapterKey ?? titleKey;
     // Overwrite on duplicate key — since artifacts are sorted createdAt asc,
-    // the last write per title is the most recently drafted version.
+    // the last write per chapter is the most recently drafted version.
+    byChapterKey.set(chapterKey, { titleKey, text });
+  }
+
+  const map = new Map<string, string>();
+  for (const { titleKey, text } of byChapterKey.values()) {
     map.set(titleKey, text);
   }
   return map;
@@ -155,7 +169,7 @@ export async function GET(
     // Load all chapter drafts (any status — REVIEW_READY chapters still have valid content)
     const chapterStage = await db.bookStage.findUnique({
       where: { bookId_stageKey: { bookId: book.id, stageKey: "CHAPTER_DRAFT" } },
-      select: { artifacts: { select: { title: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } }, orderBy: { createdAt: "asc" } } },
+      select: { artifacts: { select: { title: true, metadataJson: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } }, orderBy: { createdAt: "asc" } } },
     });
 
     // Build chapter map from drafts (deduped, latest per title, no errors)

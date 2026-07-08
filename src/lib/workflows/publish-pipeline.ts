@@ -87,6 +87,8 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
           id: true,
           title: true,
           status: true,
+          metadataJson: true,
+          updatedAt: true,
           versions: {
             select: { contentText: true },
             orderBy: { versionNumber: "desc" },
@@ -97,7 +99,24 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
       })
     : [];
 
-  const chapters: PipelineChapter[] = chapterArtifacts.map((a) => {
+  // A chapter can have more than one Artifact row (a plain agent-chat save
+  // and the structured author path each find-or-create differently) — group
+  // by chapterKey so the readiness table and word/chapter counts below don't
+  // double-count a chapter that has a duplicate.
+  const dedupedChapterArtifacts = (() => {
+    const byChapterKey = new Map<string, (typeof chapterArtifacts)[number]>();
+    for (const artifact of chapterArtifacts) {
+      const meta = artifact.metadataJson as Record<string, string> | null;
+      const chapterKey = meta?.chapterKey ?? artifact.id;
+      const existing = byChapterKey.get(chapterKey);
+      if (!existing || artifact.updatedAt > existing.updatedAt) {
+        byChapterKey.set(chapterKey, artifact);
+      }
+    }
+    return [...byChapterKey.values()];
+  })();
+
+  const chapters: PipelineChapter[] = dedupedChapterArtifacts.map((a) => {
     const text = a.versions[0]?.contentText ?? "";
     const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
     return {

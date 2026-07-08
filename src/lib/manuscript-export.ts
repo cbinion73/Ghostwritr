@@ -160,7 +160,10 @@ export async function buildManuscriptExportPayload(slug: string): Promise<Manusc
             id: true,
             title: true,
             metadataJson: true,
+            committedVersionId: true,
+            updatedAt: true,
             versions: {
+              where: { lifecycleState: "COMMITTED" },
               select: { contentText: true },
               orderBy: { versionNumber: "desc" },
               take: 1,
@@ -172,12 +175,28 @@ export async function buildManuscriptExportPayload(slug: string): Promise<Manusc
     });
 
     const rawChapters = chapterStage?.artifacts ?? [];
-    const draftedChapters = rawChapters.filter(
+
+    // A chapter can have more than one Artifact row (a plain agent-chat save
+    // and the structured author path each find-or-create differently) —
+    // without this, a duplicate would export the same chapter twice, once
+    // per version. Group by chapterKey and keep only the most recently
+    // updated committed row per chapter.
+    const byChapterKey = new Map<string, (typeof rawChapters)[number]>();
+    for (const artifact of rawChapters) {
+      const meta = artifact.metadataJson as Record<string, string> | null;
+      const chapterKey = meta?.chapterKey ?? artifact.id;
+      const existing = byChapterKey.get(chapterKey);
+      if (!existing || artifact.updatedAt > existing.updatedAt) {
+        byChapterKey.set(chapterKey, artifact);
+      }
+    }
+
+    const draftedChapters = [...byChapterKey.values()].filter(
       (a) => (a.versions[0]?.contentText?.trim().length ?? 0) > 0,
     );
 
     if (draftedChapters.length === 0) {
-      throw new Error("No chapter drafts exist yet. Finish drafting chapters before exporting the manuscript.");
+      throw new Error("No committed chapter drafts exist yet. Commit at least one chapter before exporting the manuscript.");
     }
 
     const chapters = draftedChapters.map((a, idx) => {

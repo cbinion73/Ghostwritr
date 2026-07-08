@@ -523,9 +523,18 @@ function getEditorialPreferenceProfile(metadata: Record<string, unknown>): Edito
 }
 
 async function getEditorModel() {
+  // Do not pass maxOutputTokens here -- getModelForRole only applies the
+  // routing table's per-role ceiling (16000 for final-editor:polish, sized
+  // for a full chapter rewrite) when the caller hasn't already specified
+  // one. This used to hardcode 4000, silently shadowing that higher
+  // ceiling. Confirmed live in production 2026-07-08 (Dust, cb584c9a...):
+  // a 2,955-word chapter came back as a 795-word "revision" that reads as
+  // complete (ends on a clean sentence) but is missing most of the
+  // chapter -- Opus ran out of room mid-rewrite well before the actual
+  // 4000-token cap would suggest, once the JSON wrapper (summary,
+  // rationale, changeSummary) is counted against the same budget.
   return getModelForRole("final-editor:polish", {
     temperature: 0.2,
-    maxOutputTokens: 4000,
     timeoutMs: 120000,
   });
 }
@@ -542,9 +551,11 @@ async function getEditorModel() {
  * chapter prose.
  */
 async function getEditorAssessModel() {
+  // Same fix as getEditorModel above -- let the routing table's 16000
+  // ceiling for final-editor:assess apply instead of shadowing it with a
+  // hardcoded 4000.
   return getModelForRole("final-editor:assess", {
     temperature: 0.2,
-    maxOutputTokens: 4000,
     timeoutMs: 120000,
   });
 }

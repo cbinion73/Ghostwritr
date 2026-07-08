@@ -807,13 +807,22 @@ async function extractStories(
 function buildDossier(chapter: ChapterSeed, sources: ChapterExternalStorySource[], stories: ChapterExternalStoryItem[]): ChapterExternalStoryDossier {
   const verifiedStories = stories.filter((story) => story.verificationStatus === "VERIFIED");
 
+  // `sources` is often actually FetchedSource[] (structurally assignable to
+  // ChapterExternalStorySource[]) carrying the full scraped page `html` and
+  // extracted `text` along for the ride — only needed transiently during
+  // extraction, not in the persisted dossier. See matching fix in
+  // research.ts's buildDossier for the OOM this caused.
+  const persistedSourceRegister: ChapterExternalStorySource[] = sources.map(
+    ({ text: _text, html: _html, ...source }: Partial<FetchedSource> & ChapterExternalStorySource) => source,
+  );
+
   return {
     chapterKey: chapter.chapterKey,
     chapterTitle: chapter.chapterTitle,
     chapterDescription: chapter.chapterDescription,
     storyGoal: `Collect an over-complete bank of true external stories that make ${chapter.chapterTitle} emotionally believable, memorable, and reusable across the book and downstream marketing.`,
     storyCandidates: stories,
-    sourceRegister: sources,
+    sourceRegister: persistedSourceRegister,
     storyTypesCovered: Array.from(new Set(verifiedStories.map((story) => story.storyType))),
     storyFitsCovered: Array.from(new Set(verifiedStories.map((story) => story.storyFit))),
     verificationSummary: {

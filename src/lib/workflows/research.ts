@@ -1541,6 +1541,17 @@ function buildDossier(
 
   const verifiedSources = sources.filter((source) => source.isVerified);
 
+  // `sources` here is often actually FetchedSource[] (structurally assignable
+  // to ChapterResearchSource[], so TS doesn't catch it) carrying the full
+  // scraped page `html` and extracted `text` along for the ride. Those are
+  // only needed transiently during extraction/verification, not in the
+  // persisted dossier — leaving them in blew a single chapter's
+  // sourceRegister up to 20-30MB of raw HTML (script tags and all), which
+  // caused OOM crashes when the dossier was loaded back into memory.
+  const persistedSourceRegister: ChapterResearchSource[] = sources.map(
+    ({ text: _text, html: _html, ...source }: Partial<FetchedSource> & ChapterResearchSource) => source,
+  );
+
   return {
     chapterKey: chapter.chapterKey,
     chapterTitle: chapter.chapterTitle,
@@ -1561,7 +1572,7 @@ function buildDossier(
         (item) => `Needs corroboration before admission: ${item.claimText}`,
       ),
     ],
-    sourceRegister: sources,
+    sourceRegister: persistedSourceRegister,
     verificationSummary: {
       totalSources: sources.length,
       verifiedSources: verifiedSources.length,

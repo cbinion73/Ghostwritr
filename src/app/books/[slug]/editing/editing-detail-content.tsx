@@ -226,6 +226,73 @@ export async function EditingDetailContent({
           </div>
         </section>
 
+        {/* Editing is really three separate operations at three different
+           cost tiers, but the rest of this screen presents them as ~15
+           flat, same-weight sections with no visual hierarchy between
+           "free and instant" and "rewrites your book with Opus." This
+           panel is the actual decision — everything below is detail. */}
+        <section className="glass-panel section-panel">
+          <div className="section-header">
+            <div>
+              <h3>Editorial Flow</h3>
+              <div className="muted">Three steps, in order. Each unlocks the next.</div>
+            </div>
+          </div>
+          <div className="workspace-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div className="card" style={{ opacity: workspace.manuscriptReady ? 1 : 0.55 }}>
+              <div className="label">Step 1 · Free, instant</div>
+              <h3 style={{ marginTop: 6 }}>Assemble Manuscript</h3>
+              <div className="muted" style={{ lineHeight: 1.6, minHeight: 60 }}>
+                Concatenates the committed chapter drafts into one document. No model call —
+                pure assembly.
+              </div>
+              <form action={assembleManuscript.bind(null, slug)} style={{ marginTop: 12 }}>
+                <button className="btn" type="submit" disabled={!workspace.manuscriptReady}>
+                  {workspace.manuscriptAssembly ? "✓ Reassemble" : "Assemble"}
+                </button>
+              </form>
+            </div>
+
+            <div className="card" style={{ opacity: workspace.manuscriptAssembly ? 1 : 0.55 }}>
+              <div className="label">Step 2 · Claude Sonnet</div>
+              <h3 style={{ marginTop: 6 }}>Generate Assessment</h3>
+              <div className="muted" style={{ lineHeight: 1.6, minHeight: 60 }}>
+                A structured, whole-book editorial read — strengths, risks, and what needs work.
+                Analytical, not a rewrite.
+              </div>
+              <form action={generateEditorialAssessment.bind(null, slug)} style={{ marginTop: 12 }}>
+                <input type="hidden" name="mode" value="structural-edit" />
+                <input type="hidden" name="chapterKey" value="" />
+                <button className="btn" type="submit" disabled={!workspace.manuscriptAssembly}>
+                  {workspace.latestAssessment ? "✓ Regenerate Assessment" : "Generate Assessment"}
+                </button>
+              </form>
+            </div>
+
+            <div className="card" style={{ opacity: workspace.manuscriptAssembly ? 1 : 0.55 }}>
+              <div className="label">Step 3 · Claude Opus</div>
+              <h3 style={{ marginTop: 6 }}>Revise &amp; Polish</h3>
+              <div className="muted" style={{ lineHeight: 1.6, minHeight: 60 }}>
+                Runs the full editorial loop: assess, plan, and rewrite the highest-leverage
+                chapters. This is the step that actually costs real money.
+              </div>
+              <form action={runFullEditorialLoop.bind(null, slug)} style={{ marginTop: 12 }}>
+                <input type="hidden" name="assessmentMode" value="structural-edit" />
+                <input type="hidden" name="planLimit" value="3" />
+                <input type="hidden" name="autoApply" value="on" />
+                <button className="btn btn-primary" type="submit" disabled={!workspace.manuscriptAssembly}>
+                  Run Full Editorial Loop
+                </button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <details style={{ marginTop: 4 }}>
+          <summary className="btn" style={{ display: "inline-block", cursor: "pointer" }}>
+            Advanced — full manuscript detail, history, and per-chapter tools
+          </summary>
+
         <section className="glass-panel section-panel">
           <div className="section-header">
             <div>
@@ -728,6 +795,7 @@ export async function EditingDetailContent({
             </article>
           </section>
         </section>
+        </details>
       </main>
 
       <aside className="glass-panel rightbar">

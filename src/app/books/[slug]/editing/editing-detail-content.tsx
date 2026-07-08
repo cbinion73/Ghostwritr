@@ -288,6 +288,26 @@ export async function EditingDetailContent({
           </div>
         </section>
 
+        {workspace.manuscriptAssembly ? (
+          <details open style={{ marginTop: 4 }}>
+            <summary className="btn" style={{ display: "inline-block", cursor: "pointer" }}>
+              Read Assembled Manuscript ({workspace.manuscriptAssembly.chapterCount} chapters,{" "}
+              {workspace.totalWords.toLocaleString()} words)
+            </summary>
+            <section className="glass-panel section-panel paper-wrap" style={{ marginTop: 12 }}>
+              <article className="paper manuscript-paper">
+                <div className="toc-kicker">Full Book · Before Assessment</div>
+                <h3>{workspace.book.titleWorking ?? "Untitled Book"}</h3>
+                <div className="manuscript-body">
+                  {assembledManuscript.split("\n\n").map((paragraph, index) => (
+                    <p key={`manuscript-reader-${index}`}>{paragraph}</p>
+                  ))}
+                </div>
+              </article>
+            </section>
+          </details>
+        ) : null}
+
         <details style={{ marginTop: 4 }}>
           <summary className="btn" style={{ display: "inline-block", cursor: "pointer" }}>
             Advanced — full manuscript detail, history, and per-chapter tools

@@ -129,8 +129,8 @@ function CostBreakdownModal({ slug, onClose }: { slug: string; onClose: () => vo
           border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: 10,
           boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-          maxWidth: "min(1100px, 92vw)",
-          maxHeight: "86vh",
+          maxWidth: "min(1600px, 96vw)",
+          maxHeight: "92vh",
           width: "100%",
           display: "flex",
           flexDirection: "column",
@@ -161,7 +161,7 @@ function CostBreakdownModal({ slug, onClose }: { slug: string; onClose: () => vo
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <thead>
                 <tr>
-                  <th style={{ ...headCellStyle, textAlign: "left" }}>Chapter</th>
+                  <th style={{ ...headCellStyle, textAlign: "left", position: "sticky", left: 0, background: "#1a1410" }}>Chapter</th>
                   {stages.map((stage) => (
                     <th key={stage} style={headCellStyle}>{stage.replace(/_/g, " ").toLowerCase()}</th>
                   ))}
@@ -171,7 +171,7 @@ function CostBreakdownModal({ slug, onClose }: { slug: string; onClose: () => vo
               <tbody>
                 {chapters.map((chapterKey) => (
                   <tr key={chapterKey} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                    <td style={{ ...rowLabelStyle, fontStyle: chapterKey === "(book-level)" ? "italic" : "normal", opacity: chapterKey === "(book-level)" ? 0.75 : 1 }}>
+                    <td style={{ ...rowLabelStyle, position: "sticky", left: 0, background: "#1a1410", fontStyle: chapterKey === "(book-level)" ? "italic" : "normal", opacity: chapterKey === "(book-level)" ? 0.75 : 1 }}>
                       {chapterKey}
                     </td>
                     {stages.map((stage) => {

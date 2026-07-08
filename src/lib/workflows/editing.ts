@@ -518,7 +518,7 @@ async function getEditorModel() {
   return getModelForRole("final-editor:polish", {
     temperature: 0.2,
     maxOutputTokens: 4000,
-    timeoutMs: 30000,
+    timeoutMs: 120000,
   });
 }
 
@@ -537,7 +537,7 @@ async function getEditorAssessModel() {
   return getModelForRole("final-editor:assess", {
     temperature: 0.2,
     maxOutputTokens: 4000,
-    timeoutMs: 30000,
+    timeoutMs: 120000,
   });
 }
 

@@ -167,8 +167,17 @@ export async function commitChapterParagraphPlan(bookId: string, chapterId: stri
   });
 
   // Update artifact
-  return db.artifact.update({
+  const updated = await db.artifact.update({
     where: { id: artifact.id },
     data: { committedVersionId: artifact.currentVersionId },
   });
+
+  // Only the committed version should persist — this artifact type is
+  // already find-or-create by chapterId (no duplicate-artifact risk), so
+  // just prune the losing draft versions on this one artifact.
+  await db.artifactVersion.deleteMany({
+    where: { artifactId: artifact.id, id: { not: artifact.currentVersionId } },
+  });
+
+  return updated;
 }

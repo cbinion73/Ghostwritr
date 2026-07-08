@@ -2,6 +2,7 @@ import { ActorType, ArtifactStatus, ArtifactType, Prisma, StageKey, StageStatus 
 
 import { db } from "../db";
 import { getStageForBook } from "./books";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type CreateFictionArtifactVersionInput = {
   bookId: string;
@@ -176,6 +177,14 @@ export async function commitFictionArtifact(bookId: string, stageKey: StageKey, 
         status: ArtifactStatus.COMMITTED,
         committedVersionId: artifact.currentVersionId,
       },
+    });
+
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: stage.id,
+      artifactType,
+      keepArtifactId: artifact.id,
+      keepVersionId: artifact.currentVersionId,
     });
 
     await tx.bookStage.update({

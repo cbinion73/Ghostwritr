@@ -11,6 +11,7 @@ import {
 import { db } from "../db";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type UpsertBaseStoryInput = {
   bookId: string;
@@ -132,15 +133,17 @@ export async function commitBaseStory(bookId: string) {
   const defaultUser = await ensureDefaultLocalUser();
 
   return db.$transaction(async (tx) => {
-    const artifact = await tx.artifact.findFirst({
+    const candidates = await tx.artifact.findMany({
       where: {
         bookId,
         stageId: stage.id,
         artifactType: ArtifactType.BASE_STORY,
         currentVersionId: { not: null },
       },
+      orderBy: { updatedAt: "desc" },
     });
 
+    const artifact = candidates[0];
     if (!artifact?.currentVersionId) {
       throw new Error("No base story version available to commit.");
     }
@@ -156,6 +159,16 @@ export async function commitBaseStory(bookId: string) {
         committedVersionId: artifact.currentVersionId,
         status: ArtifactStatus.COMMITTED,
       },
+    });
+
+    // Base Story is one-per-book — only the committed version/artifact
+    // should persist.
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: stage.id,
+      artifactType: ArtifactType.BASE_STORY,
+      keepArtifactId: artifact.id,
+      keepVersionId: artifact.currentVersionId,
     });
 
     await tx.bookStage.update({

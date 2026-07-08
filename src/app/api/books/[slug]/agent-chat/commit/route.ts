@@ -5,6 +5,24 @@ import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
 import { notifyStageCommitted, triggerPreLaunch, syncBookToJarvis, notifyPostProductionCommitted } from "@/lib/jarvis/client";
 import { scheduleStructuredExtraction } from "@/lib/workflows/structured-extraction";
+import { pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
+
+// Chapter-scoped stages tag their title as "{prefix}: {chapterKey} - {chapterTitle}"
+// — parse the key out so a chat-committed dossier can be matched against the
+// structured author path's Artifact for the same chapter (which does tag
+// metadataJson.chapterKey), not just against its own title.
+const CHAPTER_TITLE_PREFIX: Partial<Record<StageKey, string>> = {
+  RESEARCH: "Research Pack: ",
+  EXTERNAL_STORIES: "External Stories: ",
+};
+
+function parseChapterKeyFromTitle(stageKey: StageKey, title: string): string | null {
+  const prefix = CHAPTER_TITLE_PREFIX[stageKey];
+  if (!prefix || !title.startsWith(prefix)) return null;
+  const remainder = title.slice(prefix.length);
+  const separatorIndex = remainder.indexOf(" - ");
+  return separatorIndex >= 0 ? remainder.slice(0, separatorIndex) : remainder;
+}
 
 interface ArtifactDraft {
   type: string;
@@ -122,14 +140,21 @@ export async function POST(
     });
 
     const now = new Date();
+    const chapterKey = parseChapterKeyFromTitle(stageKey, artifact.title);
 
-    // Find-or-create the Artifact by title to prevent duplicate dossiers from
-    // rapid saves / double-clicks / network retries.
+    // Find-or-create the Artifact. Chapter-scoped stages match by
+    // chapterKey first (so this chat commit lands on the same Artifact the
+    // structured author path uses for that chapter, not a second one), then
+    // fall back to an exact title match for everything else.
     const existingArtifact = await db.artifact.findFirst({
       where: {
         stageId: bookStage.id,
-        title: artifact.title,
+        OR: [
+          ...(chapterKey ? [{ metadataJson: { path: ["chapterKey"], equals: chapterKey } }] : []),
+          { title: artifact.title },
+        ],
       },
+      orderBy: { updatedAt: "desc" },
       select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
     });
 
@@ -148,6 +173,7 @@ export async function POST(
           artifactType,
           title: artifact.title,
           status: "COMMITTED",
+          ...(chapterKey ? { metadataJson: { chapterKey } } : {}),
         },
       });
       targetArtifactId = newArtifact.id;
@@ -171,6 +197,19 @@ export async function POST(
     await db.artifact.update({
       where: { id: targetArtifactId },
       data: { committedVersionId: newVersion.id },
+    });
+
+    // Only the committed version/artifact should persist for this stage
+    // (or this chapter, for chapter-scoped stages) — prunes both the
+    // artifact's own earlier draft versions and any duplicate Artifact row
+    // the structured author path created for the same chapterKey.
+    await pruneToSingleCommittedArtifact(db, {
+      bookId: book.id,
+      stageId: bookStage.id,
+      artifactType,
+      keepArtifactId: targetArtifactId,
+      keepVersionId: newVersion.id,
+      chapterKey,
     });
 
     // Research / External Stories dossiers also get a background structured

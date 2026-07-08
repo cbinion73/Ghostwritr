@@ -11,6 +11,7 @@ import {
 import { db } from "../db";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type UpsertPromiseArtifactInput = {
   bookId: string;
@@ -158,6 +159,8 @@ export async function commitPromiseArtifact(params: {
   versionId: string;
 }) {
   return db.$transaction(async (tx) => {
+    const artifact = await tx.artifact.findUniqueOrThrow({ where: { id: params.artifactId } });
+
     await tx.artifactVersion.update({
       where: { id: params.versionId },
       data: {
@@ -166,7 +169,7 @@ export async function commitPromiseArtifact(params: {
       },
     });
 
-    return tx.artifact.update({
+    const updated = await tx.artifact.update({
       where: { id: params.artifactId },
       data: {
         committedVersionId: params.versionId,
@@ -174,6 +177,16 @@ export async function commitPromiseArtifact(params: {
         status: ArtifactStatus.COMMITTED,
       },
     });
+
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId: artifact.bookId,
+      stageId: artifact.stageId,
+      artifactType: artifact.artifactType,
+      keepArtifactId: artifact.id,
+      keepVersionId: params.versionId,
+    });
+
+    return updated;
   });
 }
 
@@ -216,6 +229,14 @@ export async function commitPromiseStageBundle(bookId: string) {
           committedVersionId: artifact.currentVersionId,
           status: ArtifactStatus.COMMITTED,
         },
+      });
+
+      await pruneToSingleCommittedArtifact(tx, {
+        bookId,
+        stageId: promiseStage.id,
+        artifactType: artifact.artifactType,
+        keepArtifactId: artifact.id,
+        keepVersionId: artifact.currentVersionId,
       });
     }
 

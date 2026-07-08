@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ArtifactType, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
 
 // POST — commit all per-chapter edits and advance EDITING → TYPESET
 export async function POST(
@@ -47,7 +48,11 @@ export async function POST(
     lastVersionId = version.id;
   }
 
-  // Also commit the polished CHAPTER_DRAFT artifacts
+  // Also commit the polished CHAPTER_DRAFT artifacts. A chapter can have
+  // more than one Artifact row here (a plain agent-chat save and the
+  // structured author/regenerate path each find-or-create by a different
+  // title) — group by chapterKey so exactly one wins per chapter instead of
+  // committing every duplicate simultaneously.
   const draftStage = await db.bookStage.findUnique({
     where: { bookId_stageKey: { bookId: book.id, stageKey: "CHAPTER_DRAFT" } },
     include: {
@@ -57,17 +62,43 @@ export async function POST(
     },
   });
   if (draftStage) {
+    const byChapterKey = new Map<string, typeof draftStage.artifacts>();
     for (const artifact of draftStage.artifacts) {
-      const version = artifact.versions[0];
+      const chapterKey = (artifact.metadataJson as Record<string, string> | null)?.chapterKey ?? artifact.id;
+      const group = byChapterKey.get(chapterKey) ?? [];
+      group.push(artifact);
+      byChapterKey.set(chapterKey, group);
+    }
+
+    for (const group of byChapterKey.values()) {
+      const [winner] = [...group].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      const version = winner.versions[0];
       if (!version) continue;
+
       await db.artifactVersion.update({
         where: { id: version.id },
         data: { lifecycleState: "COMMITTED", committedAt: now },
       });
       await db.artifact.update({
-        where: { id: artifact.id },
+        where: { id: winner.id },
         data: { status: "COMMITTED", committedVersionId: version.id },
       });
+
+      const chapterKey = (winner.metadataJson as Record<string, string> | null)?.chapterKey ?? null;
+      if (chapterKey) {
+        await pruneToSingleCommittedArtifact(db, {
+          bookId: book.id,
+          stageId: draftStage.id,
+          artifactType: ArtifactType.CHAPTER_DRAFT,
+          keepArtifactId: winner.id,
+          keepVersionId: version.id,
+          chapterKey,
+        });
+      } else {
+        await db.artifactVersion.deleteMany({
+          where: { artifactId: winner.id, id: { not: version.id } },
+        });
+      }
     }
   }
 

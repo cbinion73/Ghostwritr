@@ -23,6 +23,7 @@ import { db } from "../db";
 import { sanitizeUnknown, stripNullChars } from "../sanitize";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type CreateResearchPackVersionInput = {
   bookId: string;
@@ -582,20 +583,26 @@ export async function commitResearchPack(bookId: string, chapterKey: string) {
   const defaultUser = await ensureDefaultLocalUser();
 
   return db.$transaction(async (tx) => {
-    const artifact = await tx.artifact.findFirst({
+    // Match on metadataJson.chapterKey first (set by createResearchPackVersion
+    // below) and fall back to title-prefix only for legacy rows that predate
+    // it — same duplicate-Artifact-row risk as Chapter Draft applies here:
+    // a plain agent-chat save and this structured path can each produce
+    // their own Artifact for the same chapter.
+    const candidates = await tx.artifact.findMany({
       where: {
         bookId,
         stageId: researchStage.id,
         artifactType: ArtifactType.RESEARCH_PACK,
-        title: {
-          startsWith: `Research Pack: ${chapterKey} - `,
-        },
-        currentVersionId: {
-          not: null,
-        },
+        OR: [
+          { metadataJson: { path: ["chapterKey"], equals: chapterKey } },
+          { title: { startsWith: `Research Pack: ${chapterKey} - ` } },
+        ],
+        currentVersionId: { not: null },
       },
+      orderBy: { updatedAt: "desc" },
     });
 
+    const artifact = candidates[0];
     if (!artifact?.currentVersionId) {
       throw new Error(`No research pack version available to commit for ${chapterKey}`);
     }
@@ -614,6 +621,16 @@ export async function commitResearchPack(bookId: string, chapterKey: string) {
         committedVersionId: artifact.currentVersionId,
         status: ArtifactStatus.COMMITTED,
       },
+    });
+
+    // Only the committed version/artifact should persist for this chapter.
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: researchStage.id,
+      artifactType: ArtifactType.RESEARCH_PACK,
+      keepArtifactId: artifact.id,
+      keepVersionId: artifact.currentVersionId,
+      chapterKey,
     });
 
     await tx.decision.create({

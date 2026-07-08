@@ -11,6 +11,7 @@ import {
 import { db } from "../db";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type UpsertOutlineArtifactInput = {
   bookId: string;
@@ -227,6 +228,14 @@ export async function commitOutlineExpansionBundle(bookId: string) {
       },
     });
 
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: outlineStage.id,
+      artifactType: ArtifactType.OUTLINE_EXPANSION,
+      keepArtifactId: artifact.id,
+      keepVersionId: artifact.currentVersionId,
+    });
+
     await tx.decision.create({
       data: {
         bookId,
@@ -356,6 +365,14 @@ export async function commitOutlineStageBundle(
         committedVersionId: artifact.currentVersionId,
         status: ArtifactStatus.COMMITTED,
       },
+    });
+
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: outlineStage.id,
+      artifactType: ArtifactType.OUTLINE,
+      keepArtifactId: artifact.id,
+      keepVersionId: artifact.currentVersionId,
     });
 
     await tx.bookStage.update({

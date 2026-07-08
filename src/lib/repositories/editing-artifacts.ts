@@ -11,6 +11,7 @@ import {
 import { db } from "../db";
 import { ensureDefaultLocalUser } from "../users";
 import { getStageForBook } from "./books";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type EditingArtifactType =
   | "EDITORIAL_ASSESSMENT"
@@ -251,6 +252,19 @@ export async function commitEditingArtifact(
         currentVersionId: artifact.currentVersionId,
         status: ArtifactStatus.COMMITTED,
       },
+    });
+
+    // Every type this is actually called with (PROVENANCE_REPORT,
+    // MARKETING_HANDOFF_PACKAGE, MANUSCRIPT_ASSEMBLY, PUBLISHING_PACKAGE) is
+    // one-per-book — safe to prune without a chapterKey. MANUSCRIPT_REVISION
+    // is intentionally multi-instance (one per pending chapter revision) and
+    // is committed through its own dedicated route, never through here.
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: stage.id,
+      artifactType,
+      keepArtifactId: artifact.id,
+      keepVersionId: artifact.currentVersionId,
     });
 
     await tx.bookStage.update({

@@ -3,6 +3,7 @@ import type { StageKey } from "@prisma/client";
 import { StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
 
 interface ApproveBody {
   stageKey: StageKey;
@@ -62,6 +63,14 @@ export async function POST(
           committedArtifactVersionId: version.id,
           committedAt: now,
         },
+      });
+
+      await pruneToSingleCommittedArtifact(db, {
+        bookId: book.id,
+        stageId: bookStage.id,
+        artifactType: artifact.artifactType,
+        keepArtifactId: artifact.id,
+        keepVersionId: version.id,
       });
     } else {
       // No artifact yet — just mark committed

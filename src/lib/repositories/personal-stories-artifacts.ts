@@ -11,6 +11,7 @@ import {
 import { db } from "../db";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type UpsertPersonalStoryArtifactInput = {
   bookId: string;
@@ -195,6 +196,19 @@ export async function commitPersonalStoriesStageBundle(bookId: string) {
           status: ArtifactStatus.COMMITTED,
         },
       });
+
+      // Only PERSONAL_STORY_ENCYCLOPEDIA is one-per-book. PERSONAL_STORY_CHAT
+      // is deliberately multi-instance — one dossier per chapter interview,
+      // saved via save-dossier — so it must never be pruned here.
+      if (artifact.artifactType === ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA) {
+        await pruneToSingleCommittedArtifact(tx, {
+          bookId,
+          stageId: stage.id,
+          artifactType: ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
+          keepArtifactId: artifact.id,
+          keepVersionId: artifact.currentVersionId,
+        });
+      }
     }
 
     const primaryArtifact = artifacts.find(

@@ -66,21 +66,39 @@ export async function POST(
 
     const now = new Date();
 
-    // Save the artifact as COMMITTED — it's finished content, not a draft
-    const newArtifact = await db.artifact.create({
-      data: {
-        bookId: book.id,
-        stageId: bookStage.id,
-        artifactType,
-        title: artifact.title,
-        status: "COMMITTED",
-      },
+    // Find-or-create by title (one dossier per interview/chapter title) so
+    // re-saving the same chapter's dossier versions the existing artifact
+    // instead of creating a second "committed" one for the same subject.
+    const existingArtifact = await db.artifact.findFirst({
+      where: { bookId: book.id, stageId: bookStage.id, artifactType, title: artifact.title },
+      select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
     });
 
+    let targetArtifactId: string;
+    let nextVersionNumber: number;
+
+    if (existingArtifact) {
+      targetArtifactId = existingArtifact.id;
+      nextVersionNumber = (existingArtifact.versions[0]?.versionNumber ?? 0) + 1;
+    } else {
+      const created = await db.artifact.create({
+        data: {
+          bookId: book.id,
+          stageId: bookStage.id,
+          artifactType,
+          title: artifact.title,
+          status: "COMMITTED",
+        },
+      });
+      targetArtifactId = created.id;
+      nextVersionNumber = 1;
+    }
+
+    // Save the artifact as COMMITTED — it's finished content, not a draft
     const newVersion = await db.artifactVersion.create({
       data: {
-        artifactId: newArtifact.id,
-        versionNumber: 1,
+        artifactId: targetArtifactId,
+        versionNumber: nextVersionNumber,
         lifecycleState: "COMMITTED",
         contentJson: { text: artifact.content },
         contentText: artifact.content,
@@ -90,8 +108,13 @@ export async function POST(
     });
 
     await db.artifact.update({
-      where: { id: newArtifact.id },
-      data: { committedVersionId: newVersion.id },
+      where: { id: targetArtifactId },
+      data: { committedVersionId: newVersion.id, currentVersionId: newVersion.id, status: "COMMITTED" },
+    });
+
+    // Only the committed version should persist for this dossier.
+    await db.artifactVersion.deleteMany({
+      where: { artifactId: targetArtifactId, id: { not: newVersion.id } },
     });
 
     // Stage intentionally stays IN_PROGRESS — author has more chapters to interview

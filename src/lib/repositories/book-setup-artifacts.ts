@@ -3,6 +3,7 @@ import { ActorType, ArtifactStatus, ArtifactType, Prisma, StageKey } from "@pris
 import type { BookSetupProfile } from "../book-setup-types";
 import { db } from "../db";
 import { getStageForBook } from "./books";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 export async function getBookSetupVersions(bookId: string, limit = 6) {
   const artifact = await db.artifact.findFirst({
@@ -146,6 +147,14 @@ export async function commitBookSetup(bookId: string) {
         committedVersionId: version.id,
         status: ArtifactStatus.COMMITTED,
       },
+    });
+
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: stage.id,
+      artifactType: ArtifactType.BOOK_SETUP_PROFILE,
+      keepArtifactId: artifact.id,
+      keepVersionId: version.id,
     });
 
     return tx.bookStage.update({

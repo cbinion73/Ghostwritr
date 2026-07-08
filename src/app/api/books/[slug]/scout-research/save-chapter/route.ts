@@ -66,21 +66,45 @@ export async function POST(
     create: { bookId: book.id, stageKey: "RESEARCH", status: StageStatus.IN_PROGRESS },
   });
 
-  const artifact = await db.artifact.create({
-    data: {
+  // Find-or-create by chapterKey — creating unconditionally used to spawn a
+  // second Artifact for the same chapter every time this was saved again,
+  // leaving two competing "committed" research packs once approve-all ran
+  // (the same bug found and fixed for Chapter Draft's chat-save route).
+  const existingArtifact = await db.artifact.findFirst({
+    where: {
       bookId: book.id,
       stageId: bookStage.id,
       artifactType: ArtifactType.RESEARCH_PACK,
-      title: chapterTitle,
-      status: "REVIEW_READY",
-      metadataJson: { chapterKey, chapterTitle },
+      metadataJson: { path: ["chapterKey"], equals: chapterKey },
     },
+    select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
   });
+
+  let targetArtifactId: string;
+  let nextVersionNumber: number;
+
+  if (existingArtifact) {
+    targetArtifactId = existingArtifact.id;
+    nextVersionNumber = (existingArtifact.versions[0]?.versionNumber ?? 0) + 1;
+  } else {
+    const created = await db.artifact.create({
+      data: {
+        bookId: book.id,
+        stageId: bookStage.id,
+        artifactType: ArtifactType.RESEARCH_PACK,
+        title: chapterTitle,
+        status: "REVIEW_READY",
+        metadataJson: { chapterKey, chapterTitle },
+      },
+    });
+    targetArtifactId = created.id;
+    nextVersionNumber = 1;
+  }
 
   const version = await db.artifactVersion.create({
     data: {
-      artifactId: artifact.id,
-      versionNumber: 1,
+      artifactId: targetArtifactId,
+      versionNumber: nextVersionNumber,
       lifecycleState: "REVIEW_READY",
       contentJson: { text: content },
       contentText: content,
@@ -89,8 +113,8 @@ export async function POST(
   });
 
   await db.artifact.update({
-    where: { id: artifact.id },
-    data: { currentVersionId: version.id },
+    where: { id: targetArtifactId },
+    data: { currentVersionId: version.id, title: chapterTitle, status: "REVIEW_READY" },
   });
 
   // Background pass: parse the dossier text into structured ResearchItem/
@@ -103,5 +127,5 @@ export async function POST(
     dossierText: content,
   });
 
-  return NextResponse.json({ success: true, artifactId: artifact.id });
+  return NextResponse.json({ success: true, artifactId: targetArtifactId });
 }

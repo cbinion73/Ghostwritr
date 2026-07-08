@@ -23,6 +23,7 @@ import { db, withDbRetry } from "../db";
 import { sanitizeUnknown, stripNullChars } from "../sanitize";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type CreateExternalStoryPackVersionInput = {
   bookId: string;
@@ -420,16 +421,21 @@ export async function commitExternalStoryPack(bookId: string, chapterKey: string
   const defaultUser = await ensureDefaultLocalUser();
 
   return db.$transaction(async (tx) => {
-    const artifact = await tx.artifact.findFirst({
+    const candidates = await tx.artifact.findMany({
       where: {
         bookId,
         stageId: stage.id,
         artifactType: ArtifactType.EXTERNAL_STORY_PACK,
-        title: { startsWith: `External Stories: ${chapterKey} - ` },
+        OR: [
+          { metadataJson: { path: ["chapterKey"], equals: chapterKey } },
+          { title: { startsWith: `External Stories: ${chapterKey} - ` } },
+        ],
         currentVersionId: { not: null },
       },
+      orderBy: { updatedAt: "desc" },
     });
 
+    const artifact = candidates[0];
     if (!artifact?.currentVersionId) {
       throw new Error(`No external story pack version available to commit for ${chapterKey}`);
     }
@@ -442,6 +448,16 @@ export async function commitExternalStoryPack(bookId: string, chapterKey: string
     await tx.artifact.update({
       where: { id: artifact.id },
       data: { committedVersionId: artifact.currentVersionId, status: ArtifactStatus.COMMITTED },
+    });
+
+    // Only the committed version/artifact should persist for this chapter.
+    await pruneToSingleCommittedArtifact(tx, {
+      bookId,
+      stageId: stage.id,
+      artifactType: ArtifactType.EXTERNAL_STORY_PACK,
+      keepArtifactId: artifact.id,
+      keepVersionId: artifact.currentVersionId,
+      chapterKey,
     });
 
     await tx.decision.create({

@@ -221,7 +221,7 @@ const EditorialAssessmentSchema = z.object({
       observation: z.string(),
       priority: z.enum(["high", "medium", "low"]),
     }),
-  ),
+  ).default([]),
   nextActions: z.array(z.string()).default([]),
   // The manuscript signature (see buildSourceDraftSignature) this assessment
   // was actually generated against — lets generateEditorialAssessmentWorkflow
@@ -396,6 +396,14 @@ const EditorialAssessmentReplySchema = z.object({
   assessmentSummary: z.string(),
   strengths: z.array(z.string()).default([]),
   risks: z.array(z.string()).default([]),
+  // Every sibling array field here defaults to [] -- chapterNotes was the
+  // one exception, so a whole-book assessment (no chapterKey focus) that
+  // reasonably omitted per-chapter notes failed Zod validation entirely,
+  // discarding an otherwise good, expensive LLM response and silently
+  // falling back to the generic deterministic assessment. Confirmed live
+  // in production 2026-07-08 (Dust, cb584c9a...): a detailed, specific
+  // assessment (named actual repeated passages, an embedded planning
+  // artifact leaking into Chapter 7, etc.) thrown away over this.
   chapterNotes: z.array(
     z.object({
       chapterKey: z.string(),
@@ -403,7 +411,7 @@ const EditorialAssessmentReplySchema = z.object({
       observation: z.string(),
       priority: z.enum(["high", "medium", "low"]),
     }),
-  ),
+  ).default([]),
   nextActions: z.array(z.string()).default([]),
 });
 

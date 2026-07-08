@@ -2036,6 +2036,35 @@ Rewrite only the chapters you are given.
         ),
       ]);
 
+      const modelChangedChapters = (result.changedChapters ?? [])
+        .map((candidate) => {
+          const original = manuscript.chapters.find((chapter) => chapter.chapterKey === candidate.chapterKey);
+          if (!original) {
+            return null;
+          }
+
+          return {
+            chapterKey: candidate.chapterKey,
+            chapterLabel: candidate.chapterLabel || original.chapterLabel,
+            originalText: original.chapterText,
+            revisedText: candidate.revisedText,
+            changeSummary: candidate.changeSummary,
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+      if (modelChangedChapters.length === 0) {
+        console.error(
+          `[editing] generateManuscriptRevisionWorkflow for ${bookSlug}: model returned ${result.changedChapters?.length ?? 0} changedChapters, none matched a real chapterKey; keeping deterministic (unrewritten) fallback instead of failing the pass.`,
+        );
+      }
+
+      // Same shape as the revision-plan bug fixed 2026-07-08: the model can
+      // return a well-formed response with zero (or all-mismatched-key)
+      // changedChapters, which used to silently overwrite the always-
+      // populated deterministic fallback above and throw downstream
+      // ("No rewritten chapters were generated for this revision pass.").
+      // Keep the deterministic changedChapters as a floor.
       revision = {
         revisedAt: new Date().toISOString(),
         mode,
@@ -2046,25 +2075,10 @@ Rewrite only the chapters you are given.
           [result.rationale, revisionBrief ? `Target outcome: ${revisionBrief}` : null]
             .filter(Boolean)
             .join("\n\n"),
-        changedChapters: (result.changedChapters ?? [])
-          .map((candidate) => {
-            const original = manuscript.chapters.find((chapter) => chapter.chapterKey === candidate.chapterKey);
-            if (!original) {
-              return null;
-            }
-
-            return {
-              chapterKey: candidate.chapterKey,
-              chapterLabel: candidate.chapterLabel || original.chapterLabel,
-              originalText: original.chapterText,
-              revisedText: candidate.revisedText,
-              changeSummary: candidate.changeSummary,
-            };
-          })
-          .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+        changedChapters: modelChangedChapters.length > 0 ? modelChangedChapters : revision.changedChapters,
       };
-    } catch {
-      // Keep deterministic fallback revision.
+    } catch (err) {
+      console.error(`[editing] generateManuscriptRevisionWorkflow failed for ${bookSlug}, using deterministic fallback revision:`, err);
     }
   }
 

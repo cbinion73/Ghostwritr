@@ -142,6 +142,26 @@ export async function EditingDetailContent({
     workspace.chapters,
   );
 
+  // This screen has ~15 sections and most of their forms stay disabled
+  // until manuscript assembly exists — without a single "do this next"
+  // pointer, it reads as a wall of greyed-out cards. Compute the one
+  // action that actually moves things forward right now.
+  const nextStep = workspace.blockingReason || !workspace.manuscriptReady
+    ? null // already covered by the blocking/readiness message above
+    : !workspace.manuscriptAssembly
+      ? "Click “Assemble Manuscript” below — nothing else on this page unlocks until the full manuscript exists."
+      : !workspace.latestAssessment
+        ? "Click “Generate Assessment” in the Editorial Engine section for a structured read before revising anything."
+        : workspace.revisionQueue.some(
+              (entry) =>
+                !workspace.appliedRevisionIds.includes(entry.id) &&
+                !workspace.rejectedRevisionIds.includes(entry.id),
+            )
+          ? "You have a pending revision in the Revision Queue — scroll down to Apply or Reject it."
+          : !workspace.revisionPlan
+            ? "Generate a Revision Plan to prioritize what to fix next, or jump straight to a specific chapter with Generate Revision."
+            : "Manuscript looks caught up — keep revising, or Commit Editing Stage when you're satisfied.";
+
   return (
     <div className="page-shell" style={{ gridTemplateColumns: "minmax(0,1fr) 360px", flex: 1, minHeight: 0, overflow: "auto" }}>
       <main className="main-column">
@@ -161,6 +181,11 @@ export async function EditingDetailContent({
             ) : !workspace.manuscriptReady ? (
               <div className="muted" style={{ marginTop: 10 }}>
                 Finish drafting every chapter before the editorial pass can begin.
+              </div>
+            ) : null}
+            {nextStep ? (
+              <div className="recommendation" style={{ marginTop: 12, fontWeight: 600 }}>
+                Next step: {nextStep}
               </div>
             ) : null}
             {staleDependency ? (

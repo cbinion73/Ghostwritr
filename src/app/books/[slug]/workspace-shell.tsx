@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { StageKey, StageStatus } from "@prisma/client";
@@ -112,29 +112,67 @@ export function WorkspaceShell({
 
   // Poll while any stage is running (or an overnight build session is live,
   // so the Morning Report appears without a manual reload). router.refresh()
-  // re-runs the ENTIRE current stage's server component tree — for
-  // Research/External Stories/Chapter Draft that means reloading and
-  // JSON-parsing every saved dossier/draft in full, which got expensive
-  // enough with a few oversized dossiers still in the database to visibly
-  // stall a concurrent background generation (confirmed in production: the
-  // repeated full reload was competing with — and delaying — the actual
-  // research run for the CPU/event-loop time to process its own fetch
-  // timeouts). Those three stages now have their own lightweight
-  // StageRunPanel that polls a small progress endpoint instead of the full
-  // page, so skip the expensive whole-page refresh while one of them is
-  // selected — it would just be redundant, more costly work anyway.
+  // re-runs page.tsx, which builds the server-rendered detail for EVERY
+  // unlocked stage (not just the selected one — see src/app/books/[slug]/
+  // page.tsx), reloading and JSON-parsing every saved dossier/draft across
+  // Research, External Stories, Chapter Draft, etc. every single tick. That
+  // was cheap when dossiers were small, but got severe enough with a few
+  // oversized ones in the database to OOM-crash production (2026-07-08) —
+  // even while sitting on an unrelated tab like Editing, since a running
+  // Editing stage alone was enough to keep the blind 3s router.refresh()
+  // loop firing.
+  //
+  // Fix: poll the cheap stage-status endpoint (keys + statuses only, no
+  // artifact content) and only pay for the expensive router.refresh() when
+  // a status actually changed — not on every tick of a run that can take
+  // 30-120s+. Research/External Stories/Chapter Draft still skip this
+  // entirely; they have their own lightweight StageRunPanel that polls its
+  // own small progress endpoint, so a status-change refresh here would just
+  // be redundant, more costly work on top of what they're already doing.
   const STAGES_WITH_OWN_LIVE_PANEL = new Set<StageKey>([
     "RESEARCH",
     "EXTERNAL_STORIES",
     "CHAPTER_DRAFT",
   ] as StageKey[]);
   const hasRunning = stages.some((s) => s.status === "IN_PROGRESS") || overnightActive;
+  const lastKnownStatuses = useRef<string>("");
+  useEffect(() => {
+    lastKnownStatuses.current = stages.map((s) => `${s.key}:${s.status}`).sort().join(",");
+  }, [stages]);
+  // router.refresh() itself causes a re-render, and useRouter()'s returned
+  // object isn't guaranteed to keep a stable identity across renders —
+  // depending on `router` directly re-triggers this effect on every refresh
+  // it just performed, tearing down and recreating the interval before it
+  // ever waits out its 3s delay (confirmed in local testing: polling fired
+  // in a tight loop instead of every 3s). Route through a ref instead so
+  // the interval survives its own refresh calls.
+  const routerRef = useRef(router);
+  useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
   useEffect(() => {
     if (!hasRunning) return;
     if (STAGES_WITH_OWN_LIVE_PANEL.has(selectedKey)) return;
-    const id = setTimeout(() => router.refresh(), 3000);
-    return () => clearTimeout(id);
-  }, [hasRunning, stages, router, selectedKey]);
+    let cancelled = false;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/books/${slug}/stage-status`, { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { stages: { key: string; status: string }[] };
+        const latest = data.stages.map((s) => `${s.key}:${s.status}`).sort().join(",");
+        if (latest !== lastKnownStatuses.current) {
+          lastKnownStatuses.current = latest;
+          routerRef.current.refresh();
+        }
+      } catch {
+        // Transient poll failure — try again next tick.
+      }
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [hasRunning, selectedKey, slug]);
 
   // Advance to a specific stage (called by AgentChatPanel after commit/approve)
   const advanceTo = useCallback((key: StageKey) => {

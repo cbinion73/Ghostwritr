@@ -74,15 +74,10 @@ export function WorkbookSplitPanel({ slug, bookTitle, onStageAdvance, onSkip }: 
 
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
 
-  // ── Auto-start from first pending on mount ────────────────────────────────
-  useEffect(() => {
-    if (!initialized) return;
-    if (runningRef.current) return;
-    const firstPending = chapters.findIndex((c) => c.status === "pending");
-    if (firstPending === -1) return;
-    void runFromIndex(firstPending);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, chapters.length]);
+  // Auto-start on mount was removed 2026-07-08 — simply opening this tab
+  // could silently kick off real LLM calls with no user action. Starting
+  // the workbook split now always requires an explicit click on
+  // "Edit chapters" / "Retry errors" below.
 
   // ── Split a single chapter ────────────────────────────────────────────────
   const splitChapter = useCallback(async (

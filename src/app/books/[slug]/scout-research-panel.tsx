@@ -177,19 +177,25 @@ export function ScoutResearchPanel({
       .catch(() => setChapters(initial));
   }, [slug, outlineContent]);
 
-  // ── Auto-start loop when chapters are loaded ──────────────────────────────
+  // Loop start (removed as an auto-firing effect 2026-07-08 — it used to run
+  // whenever `chapters` loaded with any pending entry, with no status gate
+  // at all, so simply opening this tab could silently kick off real LLM
+  // calls. Starting research now always requires an explicit click on
+  // "Start research" below.)
   useEffect(() => {
-    if (chapters.length === 0 || isRunning || runningRef.current || allDone) return;
+    if (chapters.length === 0 || allDone) return;
+    if (chapters.every((c) => c.status !== "pending")) setAllDone(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapters.length]);
+
+  const startResearch = () => {
+    if (isRunning || runningRef.current) return;
     const firstPending = chapters.findIndex((c) => c.status === "pending");
-    if (firstPending === -1) {
-      setAllDone(true);
-      return;
-    }
+    if (firstPending === -1) { setAllDone(true); return; }
     runningRef.current = true;
     setIsRunning(true);
     void runLoop(chapters, firstPending);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chapters.length]);
+  };
 
   // ── Research loop ─────────────────────────────────────────────────────────
   const runLoop = useCallback(async (initialChapters: ResearchChapter[], startIdx: number) => {
@@ -398,6 +404,14 @@ export function ScoutResearchPanel({
           {errorCount > 0 && <span style={errorBadgeStyle}> · {errorCount} error{errorCount !== 1 ? "s" : ""}</span>}
         </div>
       </div>
+
+      {!isRunning && !allDone && chapters.some((c) => c.status === "pending") && (
+        <div style={{ padding: "0 24px 12px" }}>
+          <button style={commitBtnStyle} onClick={startResearch}>
+            ▶ Start research
+          </button>
+        </div>
+      )}
 
       {/* Chapter list */}
       <div style={chapterListStyle}>

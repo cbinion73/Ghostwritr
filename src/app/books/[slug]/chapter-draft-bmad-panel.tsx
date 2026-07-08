@@ -304,18 +304,14 @@ export function ChapterDraftBmadPanel({
   // Keep chaptersRef in sync for use inside callbacks
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
 
-  // ── Auto-start when stage is IN_PROGRESS and there are pending chapters ─────
-  useEffect(() => {
-    if (!initialized) return;
-    if (status !== "IN_PROGRESS" && status !== "READY_FOR_REVIEW") return;
-    if (runningRef.current) return;
-
-    const firstPending = chapters.findIndex((c) => c.status === "pending");
-    if (firstPending === -1) return;
-
-    void runFromIndex(firstPending);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, chapters.length]);
+  // Auto-start (silently resuming drafting whenever the stage was left
+  // IN_PROGRESS/READY_FOR_REVIEW) was removed 2026-07-08: opening this tab
+  // could silently re-fire real chapter-draft generation with no user
+  // action, and was a likely contributor to the concurrent-duplicate-
+  // generation bug seen in production (multiple chapter-draft:author calls
+  // for the same chapter within seconds of each other). Starting/resuming
+  // drafting now always requires an explicit click on "Edit chapters" /
+  // "Generate all" / "Retry" below.
 
   // ── Write a single chapter via SSE stream ───────────────────────────────────
   const writeChapter = useCallback(async (chapter: Chapter, abort: AbortController): Promise<{ content: string; completenessNote?: string } | null> => {

@@ -43,19 +43,27 @@ export async function getChapterArtifactVersions(
   artifactType: ArtifactType,
   limit = 6,
 ) {
+  // Some chapters are committed through the plain conversational
+  // agent-chat path rather than createChapterArtifactVersion() below, which
+  // writes a bare chapter title (e.g. "Holy Interruptions") instead of the
+  // "Chapter Draft: {chapterKey} - {chapterTitle}" format — so the
+  // title-prefix match here missed 12 of 16 chapters for a real production
+  // book (confirmed 2026-07-08) despite every one of them having a correct
+  // metadataJson.chapterKey. Match on that instead; it's set by every write
+  // path, and ordering by most-recently-updated Artifact naturally picks up
+  // the latest regeneration when a chapter has been redrafted more than once
+  // (each redraft under this scenario creates a new Artifact row rather than
+  // a new version of the existing one).
   const artifact = await db.artifact.findFirst({
     where: {
       bookId,
       artifactType,
-      title: {
-        startsWith: `${
-          artifactType === ArtifactType.CHAPTER_DRAFT ? "Chapter Draft" : "Chapter Review"
-        }: ${chapterKey} - `,
-      },
+      metadataJson: { path: ["chapterKey"], equals: chapterKey },
       stage: {
         stageKey: StageKey.CHAPTER_DRAFT,
       },
     },
+    orderBy: { updatedAt: "desc" },
     include: {
       versions: {
         orderBy: { versionNumber: "desc" },
@@ -68,18 +76,19 @@ export async function getChapterArtifactVersions(
 }
 
 export async function getCommittedChapterDraft(bookId: string, chapterKey: string) {
+  // See getChapterArtifactVersions above — match by metadataJson.chapterKey,
+  // not title prefix, for the same reason.
   const artifact = await db.artifact.findFirst({
     where: {
       bookId,
       artifactType: ArtifactType.CHAPTER_DRAFT,
-      title: {
-        startsWith: `Chapter Draft: ${chapterKey} - `,
-      },
+      metadataJson: { path: ["chapterKey"], equals: chapterKey },
       stage: {
         stageKey: StageKey.CHAPTER_DRAFT,
       },
       committedVersionId: { not: null },
     },
+    orderBy: { updatedAt: "desc" },
     include: {
       versions: {
         where: { lifecycleState: ArtifactStatus.COMMITTED },

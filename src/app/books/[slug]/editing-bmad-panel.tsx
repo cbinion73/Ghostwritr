@@ -88,16 +88,13 @@ export function EditingBmadPanel({ slug, status, bookTitle, onStageAdvance }: Ed
 
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
 
-  // ── Auto-start when IN_PROGRESS and there are pending chapters ───────────────
-  useEffect(() => {
-    if (!initialized) return;
-    if (status !== "IN_PROGRESS" && status !== "READY_FOR_REVIEW") return;
-    if (runningRef.current) return;
-    const firstPending = chapters.findIndex((c) => c.status === "pending");
-    if (firstPending === -1) return;
-    void runFromIndex(firstPending);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, chapters.length]);
+  // Auto-start (silently resuming editing whenever the stage was left
+  // IN_PROGRESS) was removed 2026-07-08: a crash mid-run left this stage
+  // stuck at IN_PROGRESS with no real generation underway, and simply
+  // opening the Editing tab would silently re-fire a real Opus edit pass
+  // with no user action. Starting/resuming editing now always requires an
+  // explicit click on "Edit chapters" / "Edit full book" / "Retry errors"
+  // below.
 
   // ── Edit a single chapter via SSE ────────────────────────────────────────────
   const editChapter = useCallback(async (

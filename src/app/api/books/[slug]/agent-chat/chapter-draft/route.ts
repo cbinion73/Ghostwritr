@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
+import { ActorType, ArtifactStatus, ArtifactType, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 
 const CHAPTER_STAGE_KEYS: StageKey[] = ["CHAPTER_DRAFT", "FICTION_DRAFT"];
@@ -86,21 +86,47 @@ export async function POST(
     create: { bookId: book.id, stageKey, status: StageStatus.IN_PROGRESS },
   });
 
-  const artifact = await db.artifact.create({
-    data: {
+  // Find-or-create by chapterKey — this used to always create a new
+  // Artifact row, so every chat save for the same chapter produced a
+  // separate, competing "committed" draft once approve-all ran. Matching by
+  // metadataJson.chapterKey (not title, which the structured author path
+  // formats differently) keeps one Artifact per chapter across both paths.
+  const existingArtifact = await db.artifact.findFirst({
+    where: {
       bookId: book.id,
       stageId: bookStage.id,
       artifactType,
-      title: chapterTitle,
-      status: "REVIEW_READY",
-      metadataJson: { chapterKey, chapterTitle },
+      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      status: { not: ArtifactStatus.SUPERSEDED },
     },
+    select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
   });
+
+  let targetArtifactId: string;
+  let nextVersionNumber: number;
+
+  if (existingArtifact) {
+    targetArtifactId = existingArtifact.id;
+    nextVersionNumber = (existingArtifact.versions[0]?.versionNumber ?? 0) + 1;
+  } else {
+    const created = await db.artifact.create({
+      data: {
+        bookId: book.id,
+        stageId: bookStage.id,
+        artifactType,
+        title: chapterTitle,
+        status: "REVIEW_READY",
+        metadataJson: { chapterKey, chapterTitle },
+      },
+    });
+    targetArtifactId = created.id;
+    nextVersionNumber = 1;
+  }
 
   const version = await db.artifactVersion.create({
     data: {
-      artifactId: artifact.id,
-      versionNumber: 1,
+      artifactId: targetArtifactId,
+      versionNumber: nextVersionNumber,
       lifecycleState: "REVIEW_READY",
       contentJson: { text: content },
       contentText: content,
@@ -109,11 +135,11 @@ export async function POST(
   });
 
   await db.artifact.update({
-    where: { id: artifact.id },
-    data: { currentVersionId: version.id },
+    where: { id: targetArtifactId },
+    data: { currentVersionId: version.id, title: chapterTitle, status: "REVIEW_READY" },
   });
 
-  return NextResponse.json({ success: true, artifactId: artifact.id });
+  return NextResponse.json({ success: true, artifactId: targetArtifactId });
 }
 
 // PATCH — update an existing chapter draft with new content

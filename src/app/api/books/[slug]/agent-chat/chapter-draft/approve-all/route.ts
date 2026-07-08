@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { StageStatus } from "@prisma/client";
+import { ArtifactStatus, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
 
@@ -43,8 +43,26 @@ export async function POST(
   const now = new Date();
   let lastVersionId: string | null = null;
 
+  // A chapter can have more than one Artifact row (a plain agent-chat save
+  // and the structured author/regenerate path each find-or-create by a
+  // different title, so neither sees the other's row). Group by chapterKey
+  // so exactly one wins the commit per chapter instead of committing every
+  // duplicate simultaneously — the runner-up(s) are superseded, not left
+  // sitting there as a second "committed" source for the same chapter.
+  const byChapterKey = new Map<string, typeof bookStage.artifacts>();
   for (const artifact of bookStage.artifacts) {
-    const version = artifact.versions[0];
+    if (artifact.status === "SUPERSEDED") continue;
+    const chapterKey = (artifact.metadataJson as Record<string, string> | null)?.chapterKey ?? artifact.id;
+    const group = byChapterKey.get(chapterKey) ?? [];
+    group.push(artifact);
+    byChapterKey.set(chapterKey, group);
+  }
+
+  for (const group of byChapterKey.values()) {
+    const [winner, ...duplicates] = [...group].sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+    );
+    const version = winner.versions[0];
     if (!version) continue;
 
     await db.artifactVersion.update({
@@ -52,10 +70,21 @@ export async function POST(
       data: { lifecycleState: "COMMITTED", committedAt: now },
     });
     await db.artifact.update({
-      where: { id: artifact.id },
+      where: { id: winner.id },
       data: { status: "COMMITTED", committedVersionId: version.id },
     });
     lastVersionId = version.id;
+
+    for (const duplicate of duplicates) {
+      await db.artifactVersion.updateMany({
+        where: { artifactId: duplicate.id, lifecycleState: { not: ArtifactStatus.SUPERSEDED } },
+        data: { lifecycleState: ArtifactStatus.SUPERSEDED },
+      });
+      await db.artifact.update({
+        where: { id: duplicate.id },
+        data: { status: ArtifactStatus.SUPERSEDED },
+      });
+    }
   }
 
   await db.bookStage.update({

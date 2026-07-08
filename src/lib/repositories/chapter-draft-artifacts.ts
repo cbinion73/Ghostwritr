@@ -62,6 +62,12 @@ export async function getChapterArtifactVersions(
       stage: {
         stageKey: StageKey.CHAPTER_DRAFT,
       },
+      // A chapter can briefly have more than one Artifact row (the plain
+      // agent-chat save path and the structured author path don't share one)
+      // until commitChapterDraft supersedes the losers. Excluding SUPERSEDED
+      // here means a stale duplicate can never win this lookup again just
+      // because it happens to have a later updatedAt.
+      status: { not: ArtifactStatus.SUPERSEDED },
     },
     orderBy: { updatedAt: "desc" },
     include: {
@@ -77,7 +83,7 @@ export async function getChapterArtifactVersions(
 
 export async function getCommittedChapterDraft(bookId: string, chapterKey: string) {
   // See getChapterArtifactVersions above — match by metadataJson.chapterKey,
-  // not title prefix, for the same reason.
+  // not title prefix, for the same reason, and exclude SUPERSEDED duplicates.
   const artifact = await db.artifact.findFirst({
     where: {
       bookId,
@@ -87,6 +93,7 @@ export async function getCommittedChapterDraft(bookId: string, chapterKey: strin
         stageKey: StageKey.CHAPTER_DRAFT,
       },
       committedVersionId: { not: null },
+      status: { not: ArtifactStatus.SUPERSEDED },
     },
     orderBy: { updatedAt: "desc" },
     include: {
@@ -99,6 +106,46 @@ export async function getCommittedChapterDraft(bookId: string, chapterKey: strin
   });
 
   return artifact?.versions[0] ?? null;
+}
+
+/**
+ * A chapterKey can end up with more than one Artifact row (plain agent-chat
+ * saves and the structured author/regenerate path each find-or-create by a
+ * different title, so they never see each other). Call this after committing
+ * whichever one wins so exactly one COMMITTED artifact remains per chapter —
+ * the rest are marked SUPERSEDED rather than deleted, so history/versions
+ * are still inspectable if something needs to be recovered.
+ */
+async function supersedeDuplicateChapterArtifacts(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  chapterKey: string,
+  artifactType: ArtifactType,
+  keepArtifactId: string,
+) {
+  const duplicates = await tx.artifact.findMany({
+    where: {
+      bookId,
+      artifactType,
+      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      id: { not: keepArtifactId },
+      status: { not: ArtifactStatus.SUPERSEDED },
+    },
+    select: { id: true },
+  });
+
+  for (const duplicate of duplicates) {
+    await tx.artifactVersion.updateMany({
+      where: { artifactId: duplicate.id, lifecycleState: { not: ArtifactStatus.SUPERSEDED } },
+      data: { lifecycleState: ArtifactStatus.SUPERSEDED },
+    });
+    await tx.artifact.update({
+      where: { id: duplicate.id },
+      data: { status: ArtifactStatus.SUPERSEDED },
+    });
+  }
+
+  return duplicates.length;
 }
 
 export async function createChapterArtifactVersion(input: CreateChapterArtifactVersionInput) {
@@ -184,16 +231,24 @@ export async function commitChapterDraft(bookId: string, chapterKey: string) {
   const defaultUser = await ensureDefaultLocalUser();
 
   return db.$transaction(async (tx) => {
-    const artifact = await tx.artifact.findFirst({
+    // Match by metadataJson.chapterKey, not title prefix — the plain
+    // agent-chat chapter-draft save path writes a bare title, so a title
+    // match here would silently miss any chapter last saved through that
+    // path. Order by updatedAt desc so the most recently written draft is
+    // the one that wins when a chapter has more than one Artifact row.
+    const candidates = await tx.artifact.findMany({
       where: {
         bookId,
         stageId: stage.id,
         artifactType: ArtifactType.CHAPTER_DRAFT,
-        title: { startsWith: `Chapter Draft: ${chapterKey} - ` },
+        metadataJson: { path: ["chapterKey"], equals: chapterKey },
         currentVersionId: { not: null },
+        status: { not: ArtifactStatus.SUPERSEDED },
       },
+      orderBy: { updatedAt: "desc" },
     });
 
+    const artifact = candidates[0];
     if (!artifact?.currentVersionId) {
       throw new Error("No chapter draft version available to commit.");
     }
@@ -215,11 +270,17 @@ export async function commitChapterDraft(bookId: string, chapterKey: string) {
       },
     });
 
+    // Any other Artifact row for this same chapterKey is a duplicate from
+    // the other write path — supersede it now so exactly one committed
+    // draft remains and future lookups can't pick it back up.
+    await supersedeDuplicateChapterArtifacts(tx, bookId, chapterKey, ArtifactType.CHAPTER_DRAFT, artifact.id);
+
     const totalDraftArtifacts = await tx.artifact.count({
       where: {
         bookId,
         stageId: stage.id,
         artifactType: ArtifactType.CHAPTER_DRAFT,
+        status: { not: ArtifactStatus.SUPERSEDED },
       },
     });
     const committedDraftArtifacts = await tx.artifact.count({
@@ -228,6 +289,7 @@ export async function commitChapterDraft(bookId: string, chapterKey: string) {
         stageId: stage.id,
         artifactType: ArtifactType.CHAPTER_DRAFT,
         committedVersionId: { not: null },
+        status: { not: ArtifactStatus.SUPERSEDED },
       },
     });
 

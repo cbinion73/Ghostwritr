@@ -17,6 +17,7 @@ import {
 import { BookWorkflowType } from "@prisma/client";
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { getEditingWorkspace } from "@/lib/workflows/editing";
+import { SubmitButton } from "@/app/components/submit-button";
 
 const EDITORIAL_MODES = [
   { value: "structural-edit", label: "Structural Edit" },
@@ -247,9 +248,11 @@ export async function EditingDetailContent({
                 pure assembly.
               </div>
               <form action={assembleManuscript.bind(null, slug)} style={{ marginTop: 12 }}>
-                <button className="btn" type="submit" disabled={!workspace.manuscriptReady}>
-                  {workspace.manuscriptAssembly ? "✓ Reassemble" : "Assemble"}
-                </button>
+                <SubmitButton
+                  label={workspace.manuscriptAssembly ? "✓ Reassemble" : "Assemble"}
+                  pendingLabel="Assembling…"
+                  disabled={!workspace.manuscriptReady}
+                />
               </form>
             </div>
 
@@ -263,9 +266,11 @@ export async function EditingDetailContent({
               <form action={generateEditorialAssessment.bind(null, slug)} style={{ marginTop: 12 }}>
                 <input type="hidden" name="mode" value="structural-edit" />
                 <input type="hidden" name="chapterKey" value="" />
-                <button className="btn" type="submit" disabled={!workspace.manuscriptAssembly}>
-                  {workspace.latestAssessment ? "✓ Regenerate Assessment" : "Generate Assessment"}
-                </button>
+                <SubmitButton
+                  label={workspace.latestAssessment ? "✓ Regenerate Assessment" : "Generate Assessment"}
+                  pendingLabel="Assessing the manuscript… (usually 1-2 min)"
+                  disabled={!workspace.manuscriptAssembly}
+                />
               </form>
             </div>
 
@@ -280,9 +285,12 @@ export async function EditingDetailContent({
                 <input type="hidden" name="assessmentMode" value="structural-edit" />
                 <input type="hidden" name="planLimit" value="3" />
                 <input type="hidden" name="autoApply" value="on" />
-                <button className="btn btn-primary" type="submit" disabled={!workspace.manuscriptAssembly}>
-                  Run Full Editorial Loop
-                </button>
+                <SubmitButton
+                  className="btn btn-primary"
+                  label="Run Full Editorial Loop"
+                  pendingLabel="Running the full loop… (several minutes)"
+                  disabled={!workspace.manuscriptAssembly}
+                />
               </form>
             </div>
           </div>

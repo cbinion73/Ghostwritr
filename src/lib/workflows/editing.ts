@@ -2771,6 +2771,12 @@ Create a pragmatic revision plan.
         ),
       ]);
 
+      const modelChapterQueue = (result.chapterQueue ?? []).map((item) => ({
+        ...item,
+        targetOutcome: item.targetOutcome ?? item.reason,
+        preserveNotes: item.preserveNotes ?? [],
+      }));
+
       plan = {
         generatedAt: new Date().toISOString(),
         focus: chapterKey ? "chapter-specific" : "whole-book",
@@ -2779,14 +2785,20 @@ Create a pragmatic revision plan.
         globalObjectives: result.globalObjectives ?? [],
         coherenceRisks: result.coherenceRisks ?? [],
         passes: result.passes ?? [],
-        chapterQueue: (result.chapterQueue ?? []).map((item) => ({
-          ...item,
-          targetOutcome: item.targetOutcome ?? item.reason,
-          preserveNotes: item.preserveNotes ?? [],
-        })),
+        // The model sometimes returns a fully-formed narrative (summary,
+        // objectives, risks -- even naming specific chapters and issues)
+        // but an empty chapterQueue array: a structurally valid response
+        // that's still useless downstream. Confirmed in production
+        // 2026-07-08: a rich, chapter-specific summary paired with zero
+        // chapterQueue entries, which made executeEditorialRevisionPlanWorkflow
+        // throw immediately ("Generate a revision plan before executing
+        // it.") even though a plan had just been generated. Keep the
+        // deterministic one-entry-per-chapter queue as a floor rather than
+        // let an empty model queue silently discard it.
+        chapterQueue: modelChapterQueue.length > 0 ? modelChapterQueue : plan.chapterQueue,
       };
-    } catch {
-      // keep deterministic plan
+    } catch (err) {
+      console.error(`[editing] generateEditorialRevisionPlanWorkflow failed for ${bookSlug}, using deterministic fallback plan:`, err);
     }
   }
 

@@ -562,14 +562,24 @@ async function loadNonfictionEditingChapters(bookId: string) {
       const review = reviewVersions[0]
         ? parseJson<ChapterReviewBundle | null>(reviewVersions[0].contentJson, null)
         : null;
+      // Some chapters were committed through the plain conversational
+      // agent-chat path rather than the structured chapter-draft flow, so
+      // their contentJson is a bare `{ text }` blob instead of a full
+      // ChapterDraftBundle -- draft.chapterText comes back undefined even
+      // though the prose is right there under a different key. Same
+      // fallback shape already handled for Research/External Stories in
+      // chapter-linked-notes.ts.
+      const rawDraftContent = draftVersions[0]?.contentJson as { text?: unknown } | null | undefined;
+      const resolvedChapterText =
+        draft?.chapterText ?? (typeof rawDraftContent?.text === "string" ? rawDraftContent.text : "");
 
       chapters.push({
         chapterKey: chapter.chapterId,
         chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
         sectionTitle: section.sectionTitle,
-        wordCount: countWords(draft?.chapterText),
+        wordCount: countWords(resolvedChapterText),
         reviewSummary: review?.overallAssessment ?? null,
-        chapterText: draft?.chapterText ?? "",
+        chapterText: resolvedChapterText,
         quality: draft?.quality ?? null,
       });
     }

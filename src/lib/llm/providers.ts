@@ -48,6 +48,18 @@ function openAISupportsCustomTemperature(model: string): boolean {
   return !normalized.startsWith("gpt-5");
 }
 
+// Confirmed in production 2026-07-08: claude-opus-4-8 rejects `temperature`
+// outright ("`temperature` is deprecated for this model", 400
+// invalid_request_error) on every call, which silently exhausted all
+// retries and fell through to whatever fallback the caller had (or, for
+// final-editor:polish with no fallback, just failed the whole editorial
+// loop). Same shape as openAISupportsCustomTemperature above -- only pass
+// temperature to Anthropic models confirmed to still accept it.
+function anthropicSupportsCustomTemperature(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized !== "claude-opus-4-8";
+}
+
 /**
  * Constructor-level callback that auto-logs every LLM call to LLMCallLog —
  * but ONLY when an ambient LLM call context is present (i.e. inside a
@@ -217,7 +229,7 @@ export async function getModel(
     const { ChatAnthropic } = mod as typeof import("@langchain/anthropic");
     return new ChatAnthropic({
       model,
-      temperature: temperature ?? 0.4,
+      ...(anthropicSupportsCustomTemperature(model) ? { temperature: temperature ?? 0.4 } : {}),
       maxTokens: options.maxOutputTokens ?? 8192,
       maxRetries,
       callbacks,

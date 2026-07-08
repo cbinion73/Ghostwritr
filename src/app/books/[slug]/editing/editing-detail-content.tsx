@@ -1,11 +1,8 @@
 import {
-  applyManuscriptRevision,
   assembleManuscript,
   commitEditingStage,
   expandDraftTowardTarget,
   generateEditorialAssessment,
-  generateManuscriptRevision,
-  rejectManuscriptRevision,
   updateEditorialPreferences,
 } from "./actions";
 
@@ -13,15 +10,7 @@ import { BookWorkflowType } from "@prisma/client";
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { getEditingWorkspace } from "@/lib/workflows/editing";
 import { SubmitButton } from "@/app/components/submit-button";
-
-const EDITORIAL_MODES = [
-  { value: "structural-edit", label: "Structural Edit" },
-  { value: "clarity-pass", label: "Clarity Pass" },
-  { value: "pacing-pass", label: "Pacing Pass" },
-  { value: "continuity-pass", label: "Continuity Pass" },
-  { value: "voice-consistency-pass", label: "Voice Consistency" },
-  { value: "line-edit", label: "Line Edit" },
-] as const;
+import { ChapterRevisionRow } from "./chapter-revision-row";
 
 /**
  * The Editing room — the real editorial pass content, shared between the
@@ -194,72 +183,27 @@ export async function EditingDetailContent({
               const rejected = revisionEntry ? workspace.rejectedRevisionIds.includes(revisionEntry.id) : false;
               const pending = Boolean(revisionEntry) && !applied && !rejected;
               const rowState: "unrevised" | "pending" | "applied" = applied ? "applied" : pending ? "pending" : "unrevised";
+              const chapterNote = workspace.latestAssessment?.chapterNotes.find(
+                (note) => note.chapterKey === chapter.chapterKey,
+              )?.observation ?? null;
 
               return (
-                <div key={chapter.chapterKey} style={chapterCardStyle(rowState)}>
-                  <div style={chapterRowStyle}>
-                    <div style={chapterNumStyle}>{index + 1}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={chapterTitleStyle}>{chapter.chapterLabel}</div>
-                      <div style={wordCountStyle}>
-                        {chapter.wordCount.toLocaleString()} words
-                        {rejected && !pending ? " · rejected previously" : ""}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                      <StatusPip state={rowState} />
-                      <span style={statusLabelStyle}>
-                        {applied ? "Applied" : pending ? "Pending review" : "Not revised"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {changed && (pending || applied) ? (
-                    <div style={{ padding: "0 16px 14px" }}>
-                      <div style={{ ...wordCountStyle, marginTop: 0 }}>{changed.changeSummary}</div>
-                      <details style={{ marginTop: 8 }}>
-                        <summary style={readSummaryStyle}>Read proposed revision</summary>
-                        <div style={{ marginTop: 10 }}>
-                          <div style={compareLabelStyle}>Before</div>
-                          <ChapterReader content={changed.originalText} />
-                          <div style={{ ...compareLabelStyle, marginTop: 16 }}>After</div>
-                          <ChapterReader content={changed.revisedText} />
-                        </div>
-                      </details>
-                      {pending ? (
-                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                          <form action={applyManuscriptRevision.bind(null, slug)}>
-                            <input type="hidden" name="revisionVersionId" value={revisionEntry!.id} />
-                            <SubmitButton className="btn btn-primary" label="Apply" pendingLabel="Applying…" />
-                          </form>
-                          <form action={rejectManuscriptRevision.bind(null, slug)}>
-                            <input type="hidden" name="revisionVersionId" value={revisionEntry!.id} />
-                            <SubmitButton label="Reject" pendingLabel="Rejecting…" />
-                          </form>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <form
-                      action={generateManuscriptRevision.bind(null, slug)}
-                      style={{ padding: "0 16px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}
-                    >
-                      <input type="hidden" name="chapterKey" value={chapter.chapterKey} />
-                      <select name="mode" defaultValue="structural-edit" style={modeSelectStyle}>
-                        {EDITORIAL_MODES.map((mode) => (
-                          <option key={mode.value} value={mode.value}>
-                            {mode.label}
-                          </option>
-                        ))}
-                      </select>
-                      <SubmitButton
-                        label="Revise"
-                        pendingLabel="Revising… (usually 1-2 min)"
-                        disabled={!workspace.manuscriptAssembly}
-                      />
-                    </form>
-                  )}
-                </div>
+                <ChapterRevisionRow
+                  key={chapter.chapterKey}
+                  slug={slug}
+                  index={index}
+                  chapterKey={chapter.chapterKey}
+                  chapterLabel={chapter.chapterLabel}
+                  wordCount={chapter.wordCount}
+                  qualityScore={chapter.quality?.score ?? null}
+                  manuscriptReady={workspace.manuscriptAssembly != null}
+                  rowState={rejected && !pending ? "unrevised" : rowState}
+                  changeSummary={changed?.changeSummary ?? null}
+                  originalText={changed?.originalText ?? chapter.chapterText}
+                  revisedText={pending || applied ? (changed?.revisedText ?? null) : null}
+                  revisionVersionId={revisionEntry?.id ?? null}
+                  chapterNote={chapterNote}
+                />
               );
             })}
           </div>
@@ -316,102 +260,3 @@ const stepThreeSubtitleStyle: React.CSSProperties = {
   marginTop: 4,
 };
 
-function chapterCardStyle(state: "unrevised" | "pending" | "applied"): React.CSSProperties {
-  return {
-    borderRadius: 8,
-    border: `1px solid ${
-      state === "applied" ? "rgba(74,124,89,0.3)" : state === "pending" ? "rgba(212,160,23,0.3)" : "rgba(45,36,29,0.1)"
-    }`,
-    background: state === "applied" ? "rgba(74,124,89,0.04)" : state === "pending" ? "rgba(212,160,23,0.04)" : "#fff",
-  };
-}
-
-const chapterRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  padding: "12px 16px",
-};
-
-const chapterNumStyle: React.CSSProperties = {
-  width: 28,
-  height: 28,
-  borderRadius: 6,
-  background: "rgba(45,36,29,0.06)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 12,
-  fontWeight: 600,
-  color: "#6f6256",
-  flexShrink: 0,
-};
-
-const chapterTitleStyle: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 500,
-  color: "#2d241d",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const wordCountStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#8a7a6a",
-  marginTop: 2,
-};
-
-const statusLabelStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#8a7a6a",
-  whiteSpace: "nowrap",
-};
-
-const readSummaryStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#B8793A",
-  cursor: "pointer",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-};
-
-const compareLabelStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#8a7a6a",
-  marginBottom: 6,
-  fontStyle: "italic",
-};
-
-const modeSelectStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-  padding: "4px 8px",
-  borderRadius: 5,
-  border: "1px solid rgba(45,36,29,0.15)",
-  background: "transparent",
-  color: "#6f6256",
-};
-
-function StatusPip({ state }: { state: "unrevised" | "pending" | "applied" }) {
-  const cfg =
-    state === "applied"
-      ? { color: "#4a7c59", label: "◆" }
-      : state === "pending"
-        ? { color: "#d4a017", label: "◐" }
-        : { color: "#8a7a6a", label: "●" };
-  return <span style={{ color: cfg.color, fontSize: 14 }}>{cfg.label}</span>;
-}
-
-function ChapterReader({ content }: { content: string }) {
-  const paragraphs = content.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-  return (
-    <div style={{ fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif', fontSize: 13, lineHeight: 1.7, color: "#2d241d" }}>
-      {paragraphs.map((p, i) => (
-        <p key={i} style={{ margin: "0 0 12px" }}>
-          {p}
-        </p>
-      ))}
-    </div>
-  );
-}

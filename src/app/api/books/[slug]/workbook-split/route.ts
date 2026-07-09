@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { ActorType, ArtifactType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { isLikelyGarbageChapterContent } from "@/lib/repositories/artifact-lifecycle";
+import { getCommittedOutlineExpansion } from "@/lib/repositories/outline-artifacts";
+import type { ParagraphOutline } from "@/lib/paragraph-outline-types";
 
 // GET — returns all CHAPTER_DRAFT chapters with their current content
 export async function GET(
@@ -24,19 +26,28 @@ export async function GET(
     },
   });
 
+  // The real chapter list is the committed outline, not "whatever artifacts
+  // happen to exist" — confirmed live: one artifact carried a chapterKey
+  // ("ch-1") that doesn't correspond to any outline chapter at all (real,
+  // coherent prose, but orphaned legacy content from an earlier abandoned
+  // chapter structure, not part of this book). Filtering only on "has some
+  // chapterKey" let it back in as a synthetic 17th chapter.
+  const committedOutlineVersion = await getCommittedOutlineExpansion(book.id);
+  const outline = committedOutlineVersion?.contentJson as ParagraphOutline | undefined;
+  const realChapterOrder = (outline?.sections ?? []).flatMap((section) =>
+    section.chapters.map((chapter) => chapter.chapterId),
+  );
+  const realChapterKeys = new Set(realChapterOrder);
+
   // A chapter can still have more than one Artifact row until it's next
   // committed (the dedup fix only prunes duplicates at commit time, it
   // doesn't retroactively clean up existing ones) — group by chapterKey and
   // prefer the most recently updated candidate that isn't an API error blob
   // or the deterministic fallback text, same as Chapter Draft's own commit
   // logic. Without this, split ran on error blobs and duplicate rows.
-  // Artifacts with no real chapterKey in metadata aren't a chapter at all —
-  // they're orphaned rows from some earlier write path (confirmed live: one
-  // such row, unrelated to any of the 16 real outline chapters, was showing
-  // up as a synthetic 17th "chapter"). Skip them rather than inventing a key.
   const rawArtifacts = (draftStage?.artifacts ?? []).filter((a) => {
     const meta = a.metadataJson as Record<string, string> | null;
-    return typeof meta?.chapterKey === "string" && meta.chapterKey.trim().length > 0;
+    return typeof meta?.chapterKey === "string" && realChapterKeys.has(meta.chapterKey);
   });
   const byChapterKey = new Map<string, (typeof rawArtifacts)[number]>();
   rawArtifacts.forEach((a) => {
@@ -56,15 +67,19 @@ export async function GET(
     }
   });
 
-  const chapters = [...byChapterKey.values()].map((a) => {
-    const meta = a.metadataJson as Record<string, string>;
-    return {
-      chapterKey: meta.chapterKey,
-      chapterTitle: a.title,
-      sourceDraftId: a.id,
-      sourceContent: a.versions[0]?.contentText ?? "",
-    };
-  });
+  // Order by real book order, not artifact createdAt.
+  const chapters = realChapterOrder
+    .map((chapterKey) => byChapterKey.get(chapterKey))
+    .filter((a): a is NonNullable<typeof a> => Boolean(a))
+    .map((a) => {
+      const meta = a.metadataJson as Record<string, string>;
+      return {
+        chapterKey: meta.chapterKey,
+        chapterTitle: a.title,
+        sourceDraftId: a.id,
+        sourceContent: a.versions[0]?.contentText ?? "",
+      };
+    });
 
   return NextResponse.json({
     chapters,

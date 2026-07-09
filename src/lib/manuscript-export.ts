@@ -88,7 +88,10 @@ export async function convertHtmlToDocx(html: string, filenameBase: string): Pro
 
   try {
     await writeFile(htmlPath, html, "utf8");
-    await execFileAsync("textutil", ["-convert", "docx", htmlPath, "-output", docxPath]);
+    // `textutil` is macOS-only and doesn't exist on the Linux production
+    // container — confirmed live, this silently failed every docx export.
+    // pandoc does the same html->docx conversion and is cross-platform.
+    await execFileAsync("pandoc", [htmlPath, "-o", docxPath]);
     return await readFile(docxPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -242,13 +245,26 @@ export async function buildManuscriptExportPayload(slug: string): Promise<Manusc
           ? parseArtifactWithSchema(reviewVersions[0].contentJson, ChapterReviewBundleSchema)
           : null;
 
+        // Some chapters were committed through the plain conversational
+        // agent-chat path rather than the structured chapter-draft flow, so
+        // their contentJson is a bare `{ text }` blob instead of a full
+        // ChapterDraftBundle -- draft.chapterText comes back undefined even
+        // though the prose is right there under a different key. Confirmed
+        // live: this made every Dust chapter register as empty, so
+        // draftedChapterCount was 0 and the whole export threw "No chapter
+        // drafts exist yet" despite 16 real committed chapters. Same
+        // fallback shape already handled in loadNonfictionEditingChapters.
+        const rawDraftContent = draftVersions[0]?.contentJson as { text?: unknown } | null | undefined;
+        const resolvedChapterText =
+          draft?.chapterText ?? (typeof rawDraftContent?.text === "string" ? rawDraftContent.text : "");
+
         return {
           chapterKey: chapter.chapterId,
           chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
           sectionTitle: section.sectionTitle,
-          wordCount: countWords(draft?.chapterText),
+          wordCount: countWords(resolvedChapterText),
           reviewSummary: review?.overallAssessment ?? null,
-          chapterText: draft?.chapterText ?? "",
+          chapterText: resolvedChapterText,
         };
       }),
     ),

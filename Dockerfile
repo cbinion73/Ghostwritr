@@ -1,7 +1,12 @@
 FROM node:22-slim
 
-# Install OpenSSL for Prisma
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# Install OpenSSL for Prisma; zip/unzip for Publish Package export and book
+# archive import/export; pandoc for HTML->DOCX conversion. All three were
+# confirmed missing in production — several export routes were written
+# against macOS's `textutil` and the assumption that `zip`/`unzip` exist,
+# neither of which node:22-slim provides, so every docx/zip export was
+# silently failing (or producing empty output) with no error surfaced.
+RUN apt-get update -y && apt-get install -y openssl zip unzip pandoc && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

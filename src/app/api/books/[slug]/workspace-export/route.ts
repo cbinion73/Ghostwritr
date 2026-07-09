@@ -2,92 +2,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
 import { buildKdpDocx } from "@/lib/kdp-docx-export";
+import { buildManuscriptExportPayload } from "@/lib/manuscript-export";
+import { buildManuscriptMarkdown, sanitizeManuscriptFilename } from "@/lib/manuscript-document";
 
 export const runtime = "nodejs";
-
-/**
- * Normalize a chapter title to its bare content for fuzzy matching.
- * Strips the chapter number/label prefix and all punctuation so that
- * "Chapter 1: Trust — The Soil Everything Grows From" and
- * "Chapter 1 — Trust: The Soil Everything Grows From" produce the same key.
- */
-function normalizeTitleCore(title: string): string {
-  return title
-    .replace(/^(chapter\s+\d+|introduction|prologue|epilogue|conclusion|closing|glossary|acknowledgments|afterword|foreword|preface)\s*[—:–\-]+\s*/i, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * Extract chapter titles from the [TABLE OF CONTENTS] block in TYPESET front matter.
- * Returns them in document order so we can sort chapters to match.
- */
-function extractTocOrder(typesetContent: string): string[] {
-  const tocMatch = typesetContent.match(/\[TABLE OF CONTENTS\]([\s\S]*?)(?:\[|$)/);
-  if (!tocMatch) return [];
-  return tocMatch[1]
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-}
-
-/**
- * Sort chapter map entries by TOC order.
- * Entries not found in the TOC are appended at the end.
- * Entries whose title doesn't resemble a real chapter (no ":" separator and
- * not "Introduction", "Closing", "Conclusion", "Afterword", "Prologue",
- * "Epilogue") are filtered out to avoid test artifacts.
- */
-function sortByToc(
-  chapterMap: Map<string, string>,
-  tocOrder: string[]
-): Array<[string, string]> {
-  const normalize = (s: string) =>
-    s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
-
-  const entries = Array.from(chapterMap.entries());
-
-  // Filter out entries that look like test artifacts (no chapter numbering,
-  // no Introduction/Closing/etc., and not present in the TOC)
-  const CHAPTER_PATTERNS = /^(introduction|prologue|epilogue|closing|conclusion|afterword|foreword|preface|chapter\s+\d+)/i;
-  const inToc = new Set(tocOrder.map(normalize));
-
-  const validEntries = entries.filter(([title]) => {
-    if (CHAPTER_PATTERNS.test(title)) return true;
-    if (inToc.has(normalize(title))) return true;
-    // Check if any TOC entry substantially matches this title
-    for (const tocEntry of tocOrder) {
-      if (normalize(tocEntry).includes(normalize(title).slice(0, 20)) ||
-          normalize(title).includes(normalize(tocEntry).slice(0, 20))) {
-        return true;
-      }
-    }
-    return false;
-  });
-
-  if (tocOrder.length === 0) return validEntries;
-
-  // Sort by position in TOC
-  validEntries.sort(([a], [b]) => {
-    const aNorm = normalize(a);
-    const bNorm = normalize(b);
-    let aIdx = -1;
-    let bIdx = -1;
-    tocOrder.forEach((toc, i) => {
-      const tocNorm = normalize(toc);
-      if (aIdx === -1 && (tocNorm === aNorm || tocNorm.includes(aNorm.slice(0, 25)) || aNorm.includes(tocNorm.slice(0, 25)))) aIdx = i;
-      if (bIdx === -1 && (tocNorm === bNorm || tocNorm.includes(bNorm.slice(0, 25)) || bNorm.includes(tocNorm.slice(0, 25)))) bIdx = i;
-    });
-    if (aIdx === -1 && bIdx === -1) return 0;
-    if (aIdx === -1) return 1;
-    if (bIdx === -1) return -1;
-    return aIdx - bIdx;
-  });
-
-  return validEntries;
-}
 
 /** Skip API error payloads that got saved as artifact content during API outages */
 function isErrorContent(text: string): boolean {
@@ -154,88 +72,20 @@ export async function GET(
   const title = book.titleWorking ?? "Untitled Book";
 
   if (format === "manuscript" || format === "docx") {
-    // Load TYPESET front/back matter
-    const typesetStage = await db.bookStage.findUnique({
-      where: { bookId_stageKey: { bookId: book.id, stageKey: "TYPESET" } },
-      select: { artifacts: { where: { status: "COMMITTED" }, select: { versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } }, orderBy: { createdAt: "desc" }, take: 1 } },
-    });
+    // Previously this route had its own independent chapter-sourcing logic
+    // (title-based dedup, TOC-block extraction from a legacy TYPESET
+    // artifact, chapter-pattern regex filtering) that had drifted out of
+    // sync with the real data shape — confirmed live: it produced a docx
+    // with zero chapter content, because it dropped every chapter whose
+    // title didn't match a "Chapter N:" pattern AND wasn't found in a TOC
+    // block that no longer exists for books using the current commit path.
+    // Use the one already-correct, chapterKey-based pipeline (same as
+    // Publish Package) instead of maintaining a second implementation.
+    const payload = await buildManuscriptExportPayload(slug);
 
-    // Load Reed revision artifacts (title starts with "Revised:")
-    const editingStage = await db.bookStage.findUnique({
-      where: { bookId_stageKey: { bookId: book.id, stageKey: "EDITING" } },
-      select: { artifacts: { where: { status: "COMMITTED" }, select: { title: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } }, orderBy: { createdAt: "asc" } } },
-    });
-
-    // Load all chapter drafts (any status — REVIEW_READY chapters still have valid content)
-    const chapterStage = await db.bookStage.findUnique({
-      where: { bookId_stageKey: { bookId: book.id, stageKey: "CHAPTER_DRAFT" } },
-      select: { artifacts: { select: { title: true, metadataJson: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } }, orderBy: { createdAt: "asc" } } },
-    });
-
-    // Build chapter map from drafts (deduped, latest per title, no errors)
-    const chapterMap = deduplicateChapters(chapterStage?.artifacts ?? []);
-
-    const typesetContent = typesetStage?.artifacts[0]?.versions[0]?.contentText ?? "";
-
-    // Extract TOC order early so revision matching can validate against it
-    const tocOrder = extractTocOrder(typesetContent);
-    const tocNormSet = new Set(tocOrder.map(normalizeTitleCore));
-
-    // Overlay Reed revisions: artifacts whose title starts with "Revised:"
-    for (const rev of (editingStage?.artifacts ?? [])) {
-      if (!rev.title?.startsWith("Revised:")) continue;
-      const revText = rev.versions[0]?.contentText;
-      if (!revText || isErrorContent(revText)) continue;
-
-      // Normalize Reed title: "Revised: Chapter 2 — How..." → "Chapter 2 — How..."
-      const revStripped = rev.title.replace(/^Revised:\s*/, "").trim();
-      const revCore = normalizeTitleCore(revStripped);
-
-      // Match by normalizing both titles to their bare content
-      // (strips chapter number, punctuation, colon/dash variations)
-      // e.g. "Chapter 1: Trust — The Soil..." and "Chapter 1 — Trust: The Soil..."
-      // both normalize to "trust the soil everything grows from"
-      let matched = false;
-      for (const chapterTitle of chapterMap.keys()) {
-        if (
-          chapterTitle === revStripped ||
-          normalizeTitleCore(chapterTitle) === revCore
-        ) {
-          chapterMap.set(chapterTitle, revText);
-          matched = true;
-          break;
-        }
-      }
-      // Only add as standalone if it's a real section in the TOC —
-      // prevents revision artifacts with non-chapter titles ("Callout Markers Applied", etc.)
-      // from polluting the chapter list
-      if (!matched && tocNormSet.has(revCore)) {
-        chapterMap.set(revStripped, revText);
-      }
-    }
-    const orderedChapterEntries = sortByToc(chapterMap, tocOrder);
-
-    const chapterBlocks = orderedChapterEntries
-      .map(([t, text]) => `## ${t}\n\n${text}`);
-
-    const backMatterMarker = "=== BACK MATTER ===";
-    const frontMatterRaw = typesetContent.includes(backMatterMarker)
-      ? typesetContent.split(backMatterMarker)[0].replace("=== FRONT MATTER ===", "").trim()
-      : typesetContent.replace("=== FRONT MATTER ===", "").trim();
-    const backMatterRaw = typesetContent.includes(backMatterMarker)
-      ? typesetContent.split(backMatterMarker)[1]?.trim() ?? ""
-      : "";
-
-    const parts: string[] = [];
-    if (frontMatterRaw) parts.push(frontMatterRaw);
-    if (chapterBlocks.length > 0) parts.push(chapterBlocks.join("\n\n---\n\n"));
-    if (backMatterRaw) parts.push(backMatterRaw);
-
-    const manuscriptMd = parts.join("\n\n---\n\n");
-    const manuscriptFilename = title.replace(/[^a-z0-9\s]/gi, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 60) + "-manuscript.md";
+    const manuscriptFilename = sanitizeManuscriptFilename(title) + "-manuscript.md";
 
     if (format === "docx") {
-      // ── Build KDP-formatted DOCX ─────────────────────────────────────────
       const meta = (await db.book.findUnique({ where: { slug }, select: { metadataJson: true } }))?.metadataJson as Record<string, unknown> | null;
       const authorName = (meta?.authorName as string) ?? (meta?.authorBioShort as string)?.split(".")[0] ?? "Author";
 
@@ -243,11 +93,11 @@ export async function GET(
         title,
         subtitle: book.subtitle,
         author: authorName,
-        typesetContent,
-        chapters: orderedChapterEntries.map(([t, body]) => ({ title: t, body })),
+        typesetContent: "",
+        chapters: payload.chapters.map((c) => ({ title: c.chapterLabel, body: c.chapterText })),
       });
 
-      const docxFilename = title.replace(/[^a-z0-9\s]/gi, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 60) + "-manuscript.docx";
+      const docxFilename = sanitizeManuscriptFilename(title) + "-manuscript.docx";
 
       return new Response(docxBuffer as unknown as BodyInit, {
         headers: {
@@ -256,6 +106,8 @@ export async function GET(
         },
       });
     }
+
+    const manuscriptMd = buildManuscriptMarkdown(payload);
 
     return new Response(manuscriptMd || "No content available.", {
       headers: {

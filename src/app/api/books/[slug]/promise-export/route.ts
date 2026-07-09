@@ -26,7 +26,10 @@ async function convertHtmlToDocx(html: string, filenameBase: string): Promise<Bu
 
   try {
     await writeFile(htmlPath, html, "utf8");
-    await execFileAsync("textutil", ["-convert", "docx", htmlPath, "-output", docxPath]);
+    // `textutil` is macOS-only and doesn't exist on the Linux production
+    // container — confirmed live, this silently failed every docx export.
+    // pandoc does the same html->docx conversion and is cross-platform.
+    await execFileAsync("pandoc", [htmlPath, "-o", docxPath]);
     return await readFile(docxPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });

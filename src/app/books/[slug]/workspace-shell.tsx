@@ -106,6 +106,24 @@ export function WorkspaceShell({
   const router = useRouter();
   const [selectedKey, setSelectedKey] = useState<StageKey>(defaultStageKey);
 
+  // Clicking a stage in the sidebar only ever updated this local state, never
+  // the URL — so a refresh always fell back to the server's hardcoded
+  // default (Chapter Draft) instead of wherever the author actually was.
+  // page.tsx already prioritizes a ?stage= query param when present; this
+  // just keeps that param in sync so refresh preserves it. Uses the plain
+  // history API, not router.replace/push — this page is force-dynamic, so
+  // a router navigation would re-run the server fetch (getBookSpine + every
+  // detail panel) on every single tab click, turning today's instant
+  // client-side switch into a network round-trip. history.replaceState
+  // only changes what the URL bar shows; it doesn't touch React Router.
+  const selectStage = useCallback(
+    (key: StageKey) => {
+      setSelectedKey(key);
+      window.history.replaceState(null, "", `/books/${slug}?stage=${key}`);
+    },
+    [slug],
+  );
+
   const selectedStage = stages.find((s) => s.key === selectedKey) ?? stages[0];
 
   // Poll while any stage is running (or an overnight build session is live,
@@ -175,8 +193,8 @@ export function WorkspaceShell({
   // Advance to a specific stage (called by AgentChatPanel after commit/approve)
   const advanceTo = useCallback((key: StageKey) => {
     const target = stages.find((s) => s.key === key);
-    if (target && !target.locked) setSelectedKey(key);
-  }, [stages]);
+    if (target && !target.locked) selectStage(key);
+  }, [stages, selectStage]);
 
   return (
     <div style={shellStyle}>
@@ -197,7 +215,7 @@ export function WorkspaceShell({
               <button
                 key={s.key}
                 style={navPillStyle(isActive, isLocked, isDone)}
-                onClick={() => { if (!isLocked) setSelectedKey(s.key as StageKey); }}
+                onClick={() => { if (!isLocked) selectStage(s.key as StageKey); }}
                 disabled={isLocked}
                 title={isLocked ? `${s.label} (locked)` : s.label}
               >
@@ -293,7 +311,7 @@ export function WorkspaceShell({
           selectedKey={selectedKey}
           onSelect={(key) => {
             const stage = stages.find((s) => s.key === key);
-            if (!stage?.locked) setSelectedKey(key);
+            if (!stage?.locked) selectStage(key);
           }}
         />
 

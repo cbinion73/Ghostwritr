@@ -2300,7 +2300,6 @@ export async function commitEditingStageWorkflow(bookSlug: string) {
   if (!assembly) {
     throw new Error("Assemble the full manuscript before committing the Editing stage.");
   }
-  const currentDraftSignature = buildSourceDraftSignature(chapters);
   if (
     assembly.chapterCount !== chapters.length ||
     chapters.some((chapter, index) => assembly.chapters[index]?.chapterKey !== chapter.chapterKey)
@@ -2309,9 +2308,51 @@ export async function commitEditingStageWorkflow(bookSlug: string) {
       "The manuscript assembly is stale. Reassemble the manuscript so Editing matches the latest chapter drafts before committing.",
     );
   }
-  if (assembly.sourceDraftSignature !== currentDraftSignature) {
+
+  // A chapter with an applied revision is SUPPOSED to diverge from its raw
+  // Chapter Draft text — that's the point of Revise & Polish. Comparing the
+  // whole manuscript against a single frozen signature (the old approach)
+  // treated every revised chapter as "stale" the moment the underlying
+  // Chapter Draft artifacts changed for any reason (e.g. deduplication
+  // cleanup), which would have made Commit either permanently blocked or
+  // "fixed" by reassembling — which silently rebuilds every chapter from
+  // raw Chapter Draft text and discards every applied revision. Compare
+  // per chapter instead, and skip the comparison entirely for chapters an
+  // applied revision already covers.
+  const appliedRevisionIdsForStaleCheck = Array.isArray(
+    parseJson<Record<string, unknown>>(stage?.metadataJson, {}).appliedRevisionIds,
+  )
+    ? (parseJson<Record<string, unknown>>(stage?.metadataJson, {}).appliedRevisionIds as unknown[]).filter(
+        (entry): entry is string => typeof entry === "string",
+      )
+    : [];
+  const revisedChapterKeys = new Set<string>();
+  for (const revisionVersionId of appliedRevisionIdsForStaleCheck) {
+    const revisionVersion = await getEditingArtifactVersionById(revisionVersionId);
+    const revision = parseJsonWithSchema(revisionVersion?.contentJson, ManuscriptRevisionSchema);
+    for (const changed of revision?.changedChapters ?? []) {
+      revisedChapterKeys.add(changed.chapterKey);
+    }
+  }
+
+  const chapterSignature = (chapterKey: string, chapterText: string, quality: { score: number } | null | undefined) =>
+    `${chapterKey}:${countWords(chapterText)}:${chapterText}:${quality?.score ?? "na"}`;
+
+  const staleChapterLabels = chapters
+    .filter((chapter) => !revisedChapterKeys.has(chapter.chapterKey))
+    .filter((chapter) => {
+      const assemblyChapter = assembly.chapters.find((c) => c.chapterKey === chapter.chapterKey);
+      if (!assemblyChapter) return true;
+      return (
+        chapterSignature(chapter.chapterKey, chapter.chapterText, chapter.quality) !==
+        chapterSignature(assemblyChapter.chapterKey, assemblyChapter.chapterText, assemblyChapter.quality)
+      );
+    })
+    .map((chapter) => chapter.chapterLabel);
+
+  if (staleChapterLabels.length > 0) {
     throw new Error(
-      "The chapter drafts changed after the current manuscript assembly was created. Reassemble the manuscript before committing Editing.",
+      `These chapters changed after the manuscript was assembled and have no applied revision covering them: ${staleChapterLabels.join(", ")}. Reassemble the manuscript before committing Editing.`,
     );
   }
 

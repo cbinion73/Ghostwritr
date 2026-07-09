@@ -32,6 +32,12 @@ type CreateEditingArtifactVersionInput = {
   modelName?: string;
   workflowRunId?: string;
   preserveStageCommit?: boolean;
+  /** MANUSCRIPT_REVISION only — every chapter used to share one Artifact
+   * row, so a chapter's revision could get pushed out of any windowed
+   * fetch once enough OTHER chapters were revised afterward (confirmed
+   * live: 6 of 16 already-applied revisions became invisible this way).
+   * Passing chapterKey gives each chapter its own Artifact instead. */
+  chapterKey?: string | null;
 };
 
 function artifactLabel(type: EditingArtifactType) {
@@ -110,6 +116,17 @@ export async function getCurrentEditingArtifactVersionIdsForBooks(
   return byBook;
 }
 
+/**
+ * Every "Generate Revision" click for any chapter shares one MANUSCRIPT_REVISION
+ * Artifact row and appends a new version — so looking a specific revision up
+ * by scanning a `take`-limited window (as apply/reject used to) silently
+ * fails once more than `take` revisions have been generated for the book,
+ * even though the row is still right there. Fetch it directly instead.
+ */
+export async function getEditingArtifactVersionById(versionId: string) {
+  return db.artifactVersion.findUnique({ where: { id: versionId } });
+}
+
 export async function getEditingArtifactVersions(
   bookId: string,
   artifactType: EditingArtifactType,
@@ -151,6 +168,9 @@ export async function createEditingArtifactVersion(input: CreateEditingArtifactV
         bookId: input.bookId,
         stageId: stage.id,
         artifactType: input.artifactType,
+        ...(input.chapterKey
+          ? { metadataJson: { path: ["chapterKey"], equals: input.chapterKey } }
+          : {}),
       },
     })) ??
     (await db.artifact.create({
@@ -161,6 +181,7 @@ export async function createEditingArtifactVersion(input: CreateEditingArtifactV
         title: artifactLabel(input.artifactType),
         summary: input.summary,
         status: ArtifactStatus.DRAFT,
+        ...(input.chapterKey ? { metadataJson: { chapterKey: input.chapterKey } } : {}),
       },
     }));
 

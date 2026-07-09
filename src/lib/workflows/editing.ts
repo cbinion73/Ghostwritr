@@ -30,6 +30,7 @@ import { getChapterArtifactVersions } from "../repositories/chapter-draft-artifa
 import {
   commitEditingArtifact,
   createEditingArtifactVersion,
+  getEditingArtifactVersionById,
   getEditingArtifactVersions,
   getLatestEditingArtifactVersion,
 } from "../repositories/editing-artifacts";
@@ -2128,6 +2129,12 @@ Rewrite only the chapters you are given.
     contentText: JSON.stringify(revision, null, 2),
     promptTemplateVersion: "editing-revision-v1",
     modelName: model ? "final-editor:polish" : "deterministic-fallback",
+    // Give each single-chapter revision (the only case the current UI
+    // generates) its own Artifact so it can never crowd out another
+    // chapter's revision — see the chapterKey doc comment on
+    // CreateEditingArtifactVersionInput. A genuine multi-chapter batch has
+    // no single chapter to key by, so it keeps the shared-artifact behavior.
+    chapterKey: selectedChapterKeys.length === 1 ? selectedChapterKeys[0] : null,
   });
 
   return revision;
@@ -2139,8 +2146,7 @@ export async function applyManuscriptRevisionWorkflow(bookSlug: string, revision
     book.id,
     ArtifactType.MANUSCRIPT_ASSEMBLY,
   );
-  const revisionVersions = await getEditingArtifactVersions(book.id, ArtifactType.MANUSCRIPT_REVISION, 20);
-  const revisionVersion = revisionVersions.find((version) => version.id === revisionVersionId);
+  const revisionVersion = await getEditingArtifactVersionById(revisionVersionId);
   const manuscript = parseJsonWithSchema(manuscriptVersion?.contentJson, ManuscriptAssemblySchema);
   const revision = parseJsonWithSchema(revisionVersion?.contentJson, ManuscriptRevisionSchema);
 
@@ -2244,8 +2250,7 @@ export async function rejectManuscriptRevisionWorkflow(bookSlug: string, revisio
   const book = await getBookBySlugOrThrow(bookSlug);
   const stage = await getStageForBook(book.id, StageKey.EDITING);
   const metadata = parseJson<Record<string, unknown>>(stage?.metadataJson, {});
-  const revisionVersions = await getEditingArtifactVersions(book.id, ArtifactType.MANUSCRIPT_REVISION, 20);
-  const revisionVersion = revisionVersions.find((version) => version.id === revisionVersionId);
+  const revisionVersion = await getEditingArtifactVersionById(revisionVersionId);
   const revision = parseJsonWithSchema(revisionVersion?.contentJson, ManuscriptRevisionSchema);
   const preferences = getEditorialPreferenceProfile(metadata);
   const rejectedRevisionIds = Array.isArray(metadata.rejectedRevisionIds)
@@ -3051,7 +3056,15 @@ export async function getEditingWorkspace(bookSlug: string) {
     ArtifactType.EDITORIAL_ASSESSMENT,
     5,
   );
-  const revisionVersions = await getEditingArtifactVersions(book.id, ArtifactType.MANUSCRIPT_REVISION, 10);
+  // Every "Generate Revision" click for any chapter shares one Artifact row
+  // and appends a new version, so a small take limit here silently drops
+  // older chapters' revisions from the queue once enough other chapters get
+  // revised afterward — confirmed live: 6 of 16 chapters' already-applied
+  // revisions stopped showing up once the 10-version window filled with
+  // other chapters' revisions, even though appliedRevisionIds still had
+  // every one of them recorded. Large headroom here is the immediate fix;
+  // generateManuscriptRevisionWorkflow below is the structural one.
+  const revisionVersions = await getEditingArtifactVersions(book.id, ArtifactType.MANUSCRIPT_REVISION, 500);
   const manuscriptAssembly = manuscriptVersion?.contentJson
     ? parseJsonWithSchema(manuscriptVersion.contentJson, ManuscriptAssemblySchema)
     : null;

@@ -7,6 +7,7 @@ import {
 
 import { db } from "../db";
 import type { ChapterParagraphPlan } from "../paragraph-outline-types";
+import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type SaveChapterParagraphInput = {
   bookId: string;
@@ -33,17 +34,19 @@ export async function saveChapterParagraphPlan(input: SaveChapterParagraphInput)
     throw new Error("OUTLINE stage not found for book");
   }
 
-  // Find or create artifact for this chapter
-  // Note: We store chapter metadata in the artifact and filter by it
+  // Find or create artifact for this chapter — match by metadataJson.chapterId,
+  // not "title contains chapterId": the title is `Paragraph Plan: {chapterTitle}`,
+  // which never actually contains chapterId, so this match never succeeded and
+  // every single save created a brand new artifact (confirmed in production:
+  // 80 rows for 16 real chapters, 5 identical-titled duplicates each).
   let artifact = await db.artifact.findFirst({
     where: {
       bookId: input.bookId,
       stageId: stage.id,
       artifactType: "CHAPTER_PARAGRAPH_PLAN" as any,
-      title: {
-        contains: input.chapterId,
-      },
+      metadataJson: { path: ["chapterId"], equals: input.chapterId },
     },
+    orderBy: { updatedAt: "desc" },
   });
 
   if (!artifact) {
@@ -132,10 +135,9 @@ export async function getChapterParagraphPlan(bookId: string, chapterId: string)
       bookId,
       stageId: stage.id,
       artifactType: "CHAPTER_PARAGRAPH_PLAN" as any,
-      title: {
-        contains: chapterId,
-      },
+      metadataJson: { path: ["chapterId"], equals: chapterId },
     },
+    orderBy: { updatedAt: "desc" },
     include: {
       versions: {
         orderBy: { versionNumber: "desc" },
@@ -149,6 +151,11 @@ export async function getChapterParagraphPlan(bookId: string, chapterId: string)
  * Commit a chapter's paragraph plan
  */
 export async function commitChapterParagraphPlan(bookId: string, chapterId: string) {
+  const stage = await db.bookStage.findFirst({ where: { bookId, stageKey: "OUTLINE" } });
+  if (!stage) {
+    throw new Error("OUTLINE stage not found for book");
+  }
+
   const artifact = await getChapterParagraphPlan(bookId, chapterId);
 
   if (!artifact || !artifact.currentVersionId) {
@@ -172,11 +179,17 @@ export async function commitChapterParagraphPlan(bookId: string, chapterId: stri
     data: { committedVersionId: artifact.currentVersionId },
   });
 
-  // Only the committed version should persist — this artifact type is
-  // already find-or-create by chapterId (no duplicate-artifact risk), so
-  // just prune the losing draft versions on this one artifact.
-  await db.artifactVersion.deleteMany({
-    where: { artifactId: artifact.id, id: { not: artifact.currentVersionId } },
+  // Only the committed version/artifact should persist — the find-or-create
+  // above was broken until this fix, so real production data can still have
+  // several duplicate Artifact rows per chapterId; prune them here too.
+  await pruneToSingleCommittedArtifact(db, {
+    bookId,
+    stageId: stage.id,
+    artifactType: ArtifactType.CHAPTER_PARAGRAPH_PLAN,
+    keepArtifactId: artifact.id,
+    keepVersionId: artifact.currentVersionId,
+    chapterKey: chapterId,
+    chapterKeyField: "chapterId",
   });
 
   return updated;

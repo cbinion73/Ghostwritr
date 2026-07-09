@@ -29,9 +29,12 @@ export async function pruneToSingleCommittedArtifact(
     /** Pass for chapter/item-scoped artifact types (Research, External
      * Stories, Chapter Draft, etc.); omit for one-per-book artifact types. */
     chapterKey?: string | null;
+    /** metadataJson field name to match chapterKey against — defaults to
+     * "chapterKey". Chapter Paragraph Plan uses "chapterId" instead. */
+    chapterKeyField?: string;
   },
 ) {
-  const { bookId, stageId, artifactType, keepArtifactId, keepVersionId, chapterKey } = params;
+  const { bookId, stageId, artifactType, keepArtifactId, keepVersionId, chapterKey, chapterKeyField = "chapterKey" } = params;
 
   // 1. Delete every other version of the artifact that just got committed —
   // earlier drafts/review-ready attempts that lost the commit.
@@ -47,7 +50,7 @@ export async function pruneToSingleCommittedArtifact(
       artifactType,
       id: { not: keepArtifactId },
       ...(chapterKey
-        ? { metadataJson: { path: ["chapterKey"], equals: chapterKey } }
+        ? { metadataJson: { path: [chapterKeyField], equals: chapterKey } }
         : {}),
     },
     select: { id: true },

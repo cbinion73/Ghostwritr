@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { ActorType } from "@prisma/client";
+import { ActorType, ArtifactType } from "@prisma/client";
 import { db } from "@/lib/db";
+import { isLikelyGarbageChapterContent } from "@/lib/repositories/artifact-lifecycle";
 
 // GET — returns all CHAPTER_DRAFT chapters with their current content
 export async function GET(
@@ -16,17 +17,49 @@ export async function GET(
     select: {
       status: true,
       artifacts: {
+        where: { artifactType: ArtifactType.CHAPTER_DRAFT },
         include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
         orderBy: { createdAt: "asc" },
       },
     },
   });
 
-  const chapters = (draftStage?.artifacts ?? []).map((a, idx) => {
+  // A chapter can still have more than one Artifact row until it's next
+  // committed (the dedup fix only prunes duplicates at commit time, it
+  // doesn't retroactively clean up existing ones) — group by chapterKey and
+  // prefer the most recently updated candidate that isn't an API error blob
+  // or the deterministic fallback text, same as Chapter Draft's own commit
+  // logic. Without this, split ran on error blobs and duplicate rows.
+  // Artifacts with no real chapterKey in metadata aren't a chapter at all —
+  // they're orphaned rows from some earlier write path (confirmed live: one
+  // such row, unrelated to any of the 16 real outline chapters, was showing
+  // up as a synthetic 17th "chapter"). Skip them rather than inventing a key.
+  const rawArtifacts = (draftStage?.artifacts ?? []).filter((a) => {
     const meta = a.metadataJson as Record<string, string> | null;
-    const chapterKey = meta?.chapterKey ?? `ch-${idx + 1}`;
+    return typeof meta?.chapterKey === "string" && meta.chapterKey.trim().length > 0;
+  });
+  const byChapterKey = new Map<string, (typeof rawArtifacts)[number]>();
+  rawArtifacts.forEach((a) => {
+    const meta = a.metadataJson as Record<string, string>;
+    const chapterKey = meta.chapterKey;
+    const existing = byChapterKey.get(chapterKey);
+    if (!existing) {
+      byChapterKey.set(chapterKey, a);
+      return;
+    }
+    const existingIsGarbage = isLikelyGarbageChapterContent(existing.versions[0]?.contentText);
+    const candidateIsGarbage = isLikelyGarbageChapterContent(a.versions[0]?.contentText);
+    if (existingIsGarbage && !candidateIsGarbage) {
+      byChapterKey.set(chapterKey, a);
+    } else if (existingIsGarbage === candidateIsGarbage && a.updatedAt > existing.updatedAt) {
+      byChapterKey.set(chapterKey, a);
+    }
+  });
+
+  const chapters = [...byChapterKey.values()].map((a) => {
+    const meta = a.metadataJson as Record<string, string>;
     return {
-      chapterKey,
+      chapterKey: meta.chapterKey,
       chapterTitle: a.title,
       sourceDraftId: a.id,
       sourceContent: a.versions[0]?.contentText ?? "",

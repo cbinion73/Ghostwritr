@@ -11,7 +11,7 @@ import {
 import { db } from "../db";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
-import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
+import { isLikelyGarbageChapterContent, pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
 
 type CreateChapterArtifactVersionInput = {
   bookId: string;
@@ -55,7 +55,7 @@ export async function getChapterArtifactVersions(
   // chapterKey down to the one it commits (see artifact-lifecycle.ts), so in
   // steady state there's only ever one row here — updatedAt-desc ordering is
   // just a tiebreaker for the window between two saves and the next commit.
-  const artifact = await db.artifact.findFirst({
+  const candidates = await db.artifact.findMany({
     where: {
       bookId,
       artifactType,
@@ -73,13 +73,20 @@ export async function getChapterArtifactVersions(
     },
   });
 
+  // Pre-fix production data can still have more than one committed artifact
+  // for the same chapter until it's re-committed — skip any whose latest
+  // version looks like an API error or the deterministic fallback opener
+  // before falling back to pure recency.
+  const artifact =
+    candidates.find((c) => !isLikelyGarbageChapterContent(c.versions[0]?.contentText)) ?? candidates[0];
+
   return artifact?.versions ?? [];
 }
 
 export async function getCommittedChapterDraft(bookId: string, chapterKey: string) {
   // See getChapterArtifactVersions above — match by metadataJson.chapterKey,
   // not title prefix, for the same reason.
-  const artifact = await db.artifact.findFirst({
+  const candidates = await db.artifact.findMany({
     where: {
       bookId,
       artifactType: ArtifactType.CHAPTER_DRAFT,
@@ -98,6 +105,9 @@ export async function getCommittedChapterDraft(bookId: string, chapterKey: strin
       },
     },
   });
+
+  const artifact =
+    candidates.find((c) => !isLikelyGarbageChapterContent(c.versions[0]?.contentText)) ?? candidates[0];
 
   return artifact?.versions[0] ?? null;
 }
@@ -189,7 +199,12 @@ export async function commitChapterDraft(bookId: string, chapterKey: string) {
     // agent-chat chapter-draft save path writes a bare title, so a title
     // match here would silently miss any chapter last saved through that
     // path. Order by updatedAt desc so the most recently written draft is
-    // the one that wins when a chapter has more than one Artifact row.
+    // the one that wins when a chapter has more than one Artifact row —
+    // except recency alone isn't safe: a failed regeneration attempt can be
+    // "more recent" than a real draft and save an API error or the
+    // deterministic fallback as if it were the chapter, so skip any
+    // candidate whose latest version looks like that before picking a
+    // winner by timestamp.
     const candidates = await tx.artifact.findMany({
       where: {
         bookId,
@@ -200,9 +215,11 @@ export async function commitChapterDraft(bookId: string, chapterKey: string) {
         status: { not: ArtifactStatus.SUPERSEDED },
       },
       orderBy: { updatedAt: "desc" },
+      include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
     });
 
-    const artifact = candidates[0];
+    const artifact =
+      candidates.find((c) => !isLikelyGarbageChapterContent(c.versions[0]?.contentText)) ?? candidates[0];
     if (!artifact?.currentVersionId) {
       throw new Error("No chapter draft version available to commit.");
     }

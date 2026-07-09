@@ -2,6 +2,36 @@ import { ArtifactType, Prisma, PrismaClient } from "@prisma/client";
 
 type TxOrClient = PrismaClient | Prisma.TransactionClient;
 
+// Known hardcoded fallback openers from chapter-draft.ts's fallbackDraft() —
+// used whenever the real author call fails, so real Opus prose never
+// legitimately starts with these.
+const KNOWN_FALLBACK_OPENERS = [
+  "In laboratories, change rarely announces itself as a sweeping transformation.",
+  "Laboratory leaders do not struggle because they lack commitment.",
+];
+
+/**
+ * Detects content that should never win a "most recently updated" pick among
+ * duplicate chapter artifacts: a raw API error blob saved as content (found
+ * live in production — a failed generation's error response committed as if
+ * it were the chapter), the deterministic fallback template's known opening
+ * lines, or a bare planning/prompt document instead of prose. Recency alone
+ * is not a reliable signal for which duplicate is "the real one" — a later
+ * timestamp often just means a regeneration attempt that failed and produced
+ * garbage, not a better draft.
+ */
+export function isLikelyGarbageChapterContent(text: string | null | undefined): boolean {
+  if (!text || text.trim().length === 0) return true;
+  const trimmed = text.trim();
+
+  if (trimmed.startsWith("⚠")) return true;
+  if (/"type"\s*:\s*"(error|overloaded_error|invalid_request_error)"/.test(trimmed)) return true;
+  if (KNOWN_FALLBACK_OPENERS.some((opener) => trimmed.startsWith(opener))) return true;
+  if (/^\*\*[\w\s]+'?s?\s*Pre-Draft Plan\*\*/i.test(trimmed)) return true;
+
+  return false;
+}
+
 /**
  * Call immediately after marking one ArtifactVersion COMMITTED. Deletes
  * every other version of the same Artifact (earlier drafts that lost) and

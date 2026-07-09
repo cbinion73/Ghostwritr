@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { ArtifactType, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
-import { pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
+import { isLikelyGarbageChapterContent, pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
 
 // POST — commit all per-chapter edits and advance EDITING → TYPESET
 export async function POST(
@@ -71,7 +71,14 @@ export async function POST(
     }
 
     for (const group of byChapterKey.values()) {
-      const [winner] = [...group].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      // Recency alone isn't a safe tiebreaker here — see chapter-draft's
+      // approve-all route for why (a failed regeneration can be "more
+      // recent" than a real draft and leave an API error or the
+      // deterministic fallback opener sitting there as if it were the
+      // chapter).
+      const sorted = [...group].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      const winner =
+        sorted.find((a) => !isLikelyGarbageChapterContent(a.versions[0]?.contentText)) ?? sorted[0];
       const version = winner.versions[0];
       if (!version) continue;
 

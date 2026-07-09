@@ -3,7 +3,7 @@ import type { StageKey } from "@prisma/client";
 import { ArtifactType, StageStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
-import { pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
+import { isLikelyGarbageChapterContent, pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
 
 const CHAPTER_STAGE_KEYS: StageKey[] = ["CHAPTER_DRAFT", "FICTION_DRAFT"];
 
@@ -67,7 +67,15 @@ export async function POST(
 
   await db.$transaction(async (tx) => {
     for (const group of byChapterKey.values()) {
-      const [winner] = [...group].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      // Recency alone isn't a safe tiebreaker — a failed regeneration attempt
+      // can be "more recent" than a real draft and leave an API error or the
+      // deterministic fallback opener sitting there as if it were the
+      // chapter. Prefer the most recent candidate whose content doesn't look
+      // like that; only fall back to pure recency if every candidate does
+      // (nothing worse to lose in that case).
+      const sorted = [...group].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      const winner =
+        sorted.find((a) => !isLikelyGarbageChapterContent(a.versions[0]?.contentText)) ?? sorted[0];
       const version = winner.versions[0];
       if (!version) continue;
 

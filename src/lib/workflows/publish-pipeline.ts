@@ -7,9 +7,12 @@
 
 import { db } from "@/lib/db";
 import { getBookStageLinks } from "@/lib/navigation";
-import type { BookWorkflowType } from "@prisma/client";
+import { ArtifactType, type BookWorkflowType } from "@prisma/client";
 import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
+import { getCommittedOutlineExpansion } from "@/lib/repositories/outline-artifacts";
+import { isLikelyGarbageChapterContent } from "@/lib/repositories/artifact-lifecycle";
 import type { BookFormatTarget } from "@/lib/book-setup-types";
+import type { ParagraphOutline } from "@/lib/paragraph-outline-types";
 
 export type ValidationLevel = "error" | "warning" | "notice";
 
@@ -84,10 +87,23 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
   const stageMap = new Map(stages.map((s) => [s.stageKey, s]));
 
   // ── Chapter draft artifacts ──────────────────────────────────────────────────
+  // The real chapter list is the committed outline, not "whatever artifacts
+  // happen to exist" — confirmed live: an orphaned artifact with a
+  // chapterKey ("ch-1") that doesn't correspond to any outline chapter
+  // (real prose, but legacy content from an abandoned chapter structure)
+  // was showing up as chapter 1 here, inflating the count to 17/17 and
+  // pushing every real chapter down a row.
+  const committedOutlineVersion = await getCommittedOutlineExpansion(book.id);
+  const outline = committedOutlineVersion?.contentJson as ParagraphOutline | undefined;
+  const realChapterOrder = (outline?.sections ?? []).flatMap((section) =>
+    section.chapters.map((chapter) => chapter.chapterId),
+  );
+  const realChapterKeys = new Set(realChapterOrder);
+
   const chapterStageId = stageMap.get("CHAPTER_DRAFT")?.id ?? null;
   const chapterArtifacts = chapterStageId
     ? await db.artifact.findMany({
-        where: { bookId: book.id, stageId: chapterStageId },
+        where: { bookId: book.id, stageId: chapterStageId, artifactType: ArtifactType.CHAPTER_DRAFT },
         select: {
           id: true,
           title: true,
@@ -106,31 +122,43 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
 
   // A chapter can have more than one Artifact row (a plain agent-chat save
   // and the structured author path each find-or-create differently) — group
-  // by chapterKey so the readiness table and word/chapter counts below don't
-  // double-count a chapter that has a duplicate.
-  const dedupedChapterArtifacts = (() => {
-    const byChapterKey = new Map<string, (typeof chapterArtifacts)[number]>();
-    for (const artifact of chapterArtifacts) {
-      const meta = artifact.metadataJson as Record<string, string> | null;
-      const chapterKey = meta?.chapterKey ?? artifact.id;
-      const existing = byChapterKey.get(chapterKey);
-      if (!existing || artifact.updatedAt > existing.updatedAt) {
-        byChapterKey.set(chapterKey, artifact);
-      }
+  // by chapterKey (only for real outline chapters) so the readiness table
+  // and word/chapter counts don't double-count a chapter that has a
+  // duplicate, and prefer a non-garbage candidate over an API error blob or
+  // the deterministic fallback text.
+  const byChapterKey = new Map<string, (typeof chapterArtifacts)[number]>();
+  for (const artifact of chapterArtifacts) {
+    const meta = artifact.metadataJson as Record<string, string> | null;
+    const chapterKey = meta?.chapterKey;
+    if (!chapterKey || !realChapterKeys.has(chapterKey)) continue;
+    const existing = byChapterKey.get(chapterKey);
+    if (!existing) {
+      byChapterKey.set(chapterKey, artifact);
+      continue;
     }
-    return [...byChapterKey.values()];
-  })();
+    const existingIsGarbage = isLikelyGarbageChapterContent(existing.versions[0]?.contentText);
+    const candidateIsGarbage = isLikelyGarbageChapterContent(artifact.versions[0]?.contentText);
+    if (existingIsGarbage && !candidateIsGarbage) {
+      byChapterKey.set(chapterKey, artifact);
+    } else if (existingIsGarbage === candidateIsGarbage && artifact.updatedAt > existing.updatedAt) {
+      byChapterKey.set(chapterKey, artifact);
+    }
+  }
 
-  const chapters: PipelineChapter[] = dedupedChapterArtifacts.map((a) => {
-    const text = a.versions[0]?.contentText ?? "";
-    const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
-    return {
-      id: a.id,
-      title: a.title ?? "Untitled Chapter",
-      artifactStatus: a.status,
-      wordCount,
-    };
-  });
+  // Order by real book order, not artifact createdAt.
+  const chapters: PipelineChapter[] = realChapterOrder
+    .map((chapterKey) => byChapterKey.get(chapterKey))
+    .filter((a): a is NonNullable<typeof a> => Boolean(a))
+    .map((a) => {
+      const text = a.versions[0]?.contentText ?? "";
+      const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+      return {
+        id: a.id,
+        title: a.title ?? "Untitled Chapter",
+        artifactStatus: a.status,
+        wordCount,
+      };
+    });
 
   // ── Derived counts ───────────────────────────────────────────────────────────
   const committedChapters = chapters.filter((c) => c.artifactStatus === "COMMITTED");

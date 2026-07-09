@@ -9,7 +9,7 @@
 
 import { getPublishPipelineData } from "@/lib/workflows/publish-pipeline";
 import { PublishPackageExportButton } from "../publish/package-export-button";
-import { TypesetPackageButton } from "../publish/typeset-package-button";
+import { TypesetConfigModal } from "../publish/typeset-config-modal";
 
 function chapterStatusLabel(status: string) {
   if (status === "COMMITTED") return { label: "Committed", color: "#4a7c59", symbol: "✓" };
@@ -56,7 +56,12 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
           <a href={`/api/books/${slug}/workspace-export?format=markdown`} download className="btn">
             ↓ Markdown
           </a>
-          <TypesetPackageButton slug={slug} title={data.book.title ?? "manuscript"} disabled={!data.canExport} />
+          <TypesetConfigModal
+            slug={slug}
+            trimSize={data.book.trimSize}
+            targetPageCount={data.book.targetPageCount}
+            outputFormats={data.book.outputFormats}
+          />
           <PublishPackageExportButton slug={slug} title={data.book.title ?? "manuscript"} disabled={!data.canExport} />
         </div>
       </section>
@@ -217,35 +222,7 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
         )}
       </section>
 
-      <section className="workspace-grid" style={{ marginTop: 18, gridTemplateColumns: "1fr 1fr" }}>
-        <section className="glass-panel section-panel">
-          <div className="section-header">
-            <h3>Typeset Package</h3>
-          </div>
-          <div className="muted" style={{ marginBottom: 14, lineHeight: 1.7 }}>
-            Structured layout and print-oriented files for downstream design tools.
-          </div>
-          <div className="card">
-            <strong>Included files</strong>
-            <ul className="clean-list" style={{ marginTop: 10 }}>
-              <li><code>{data.book.title ?? "manuscript"}-interior.html</code> — print-oriented interior</li>
-              <li><code>{data.book.title ?? "manuscript"}-print.css</code> — print stylesheet</li>
-              <li><code>layout-manifest.json</code> — pagination, recto starts, signature plan</li>
-              <li><code>cover-brief.json</code> — spine-width estimate and cover checklist</li>
-              <li><code>typeset-package.json</code> — package manifest and metadata</li>
-            </ul>
-          </div>
-          <div className="card" style={{ marginTop: 10 }}>
-            <strong>What this package does not include</strong>
-            <ul className="clean-list" style={{ marginTop: 10 }}>
-              <li>No LLM-generated content</li>
-              <li>No rewritten or edited prose</li>
-              <li>No cover images or graphic assets</li>
-              <li>No ISBN or distribution metadata</li>
-            </ul>
-          </div>
-        </section>
-
+      <section className="workspace-grid" style={{ marginTop: 18, gridTemplateColumns: "1fr" }}>
         <section className="glass-panel section-panel">
           <div className="section-header">
             <h3>Publish Package</h3>

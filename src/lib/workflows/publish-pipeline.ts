@@ -8,6 +8,8 @@
 import { db } from "@/lib/db";
 import { getBookStageLinks } from "@/lib/navigation";
 import type { BookWorkflowType } from "@prisma/client";
+import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
+import type { BookFormatTarget } from "@/lib/book-setup-types";
 
 export type ValidationLevel = "error" | "warning" | "notice";
 
@@ -41,6 +43,9 @@ export type PublishPipelineData = {
     workflowType: BookWorkflowType;
     authorName: string | null;
     targetWordCount: number | null;
+    trimSize: string;
+    targetPageCount: number | null;
+    outputFormats: BookFormatTarget[];
   };
   stages: StageReadiness;
   chapters: PipelineChapter[];
@@ -140,6 +145,18 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
   const authorName = typeof meta.authorName === "string" ? meta.authorName : null;
   const targetWordCount =
     meta.targetWordCount != null ? Number(meta.targetWordCount) : null;
+
+  // ── Typesetting config (trim size / page target / output formats) ───────────
+  // These are the only inputs that actually change what Typeset produces —
+  // everything else in the publishing package is computed from them.
+  const bookSetupVersion = await getCommittedBookSetup(book.id);
+  const bookSetupProfile = bookSetupVersion?.contentJson as
+    | { trimSize?: string; targetPageCount?: number | null; outputFormats?: BookFormatTarget[] }
+    | null
+    | undefined;
+  const trimSize = bookSetupProfile?.trimSize ?? "6 x 9 in";
+  const bookTargetPageCount = bookSetupProfile?.targetPageCount ?? null;
+  const outputFormats = bookSetupProfile?.outputFormats ?? ["PRINT", "EBOOK"];
 
   // ── Stage status snapshot ────────────────────────────────────────────────────
   const stageReadiness: StageReadiness = {
@@ -250,6 +267,9 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
       workflowType: book.workflowType,
       authorName,
       targetWordCount,
+      trimSize,
+      targetPageCount: bookTargetPageCount,
+      outputFormats,
     },
     stages: stageReadiness,
     chapters,

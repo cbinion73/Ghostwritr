@@ -12,7 +12,6 @@ import { EditingBmadPanel } from "./editing-bmad-panel";
 import { ScoutResearchPanel } from "./scout-research-panel";
 import { ChronicleStoriesPanel } from "./chronicle-stories-panel";
 import { ManifestPanel } from "./manifest-panel";
-import { WorkbookSplitPanel } from "./workbook-split-panel";
 import { WorkbookDesignPanel } from "./workbook-design-panel";
 import { CostPaceBar } from "./cost-pace-bar";
 import { ActivityTicker } from "./activity-ticker";
@@ -106,7 +105,6 @@ export function WorkspaceShell({
 }: WorkspaceShellProps) {
   const router = useRouter();
   const [selectedKey, setSelectedKey] = useState<StageKey>(defaultStageKey);
-  const [typesetMode, setTypesetMode] = useState<"split" | "folio">("split");
 
   const selectedStage = stages.find((s) => s.key === selectedKey) ?? stages[0];
 
@@ -331,38 +329,32 @@ export function WorkspaceShell({
           );
         })()}
 
-        {/* TYPESET — workbook split first, then the real Export & Publishing
-            Pipeline (deterministic: validation, chapter readiness, typeset/
-            publish packages). This is where the final document actually
-            gets produced — Editing stays purely editorial. */}
+        {/* TYPESET — the real Export & Publishing Pipeline (deterministic:
+            validation, chapter readiness, publish package). This is where
+            the final document actually gets produced — Editing stays
+            purely editorial. Chapter Split (the workbook-companion
+            feature) used to gate this by default; removed 2026-07-09 —
+            it's a separate, unrelated feature that shouldn't block the
+            primary typeset/export function. */}
         {(() => {
           const typesetStage = stages.find((s) => s.key === "TYPESET");
           if (!typesetStage || typesetStage.locked) return null;
           return (
             <div style={{ display: selectedKey === "TYPESET" ? "flex" : "none", flex: 1, overflow: "hidden" }}>
-              {typesetMode === "split" ? (
-                <WorkbookSplitPanel
+              {typesetDetail ?? (
+                <AgentChatPanel
                   slug={slug}
+                  stageKey="TYPESET"
+                  stageLabel={typesetStage.label}
+                  stageRoute={typesetStage.route}
+                  status={typesetStage.status}
+                  artifactCount={typesetStage.artifactCount}
                   bookTitle={bookTitle}
+                  committedContent={typesetStage.committedContent}
                   onStageAdvance={advanceTo}
-                  onSkip={() => setTypesetMode("folio")}
+                  dossierMode={false}
+                  persistChat={true}
                 />
-              ) : (
-                typesetDetail ?? (
-                  <AgentChatPanel
-                    slug={slug}
-                    stageKey="TYPESET"
-                    stageLabel={typesetStage.label}
-                    stageRoute={typesetStage.route}
-                    status={typesetStage.status}
-                    artifactCount={typesetStage.artifactCount}
-                    bookTitle={bookTitle}
-                    committedContent={typesetStage.committedContent}
-                    onStageAdvance={advanceTo}
-                    dossierMode={false}
-                    persistChat={true}
-                  />
-                )
               )}
             </div>
           );

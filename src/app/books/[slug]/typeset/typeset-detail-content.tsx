@@ -53,6 +53,9 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
         </div>
 
         <div className="button-row">
+          <a href={`/api/books/${slug}/workspace-export?format=docx`} download className="btn">
+            ↓ Word Document
+          </a>
           <a href={`/api/books/${slug}/workspace-export?format=markdown`} download className="btn">
             ↓ Markdown
           </a>

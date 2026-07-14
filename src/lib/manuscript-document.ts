@@ -1,3 +1,5 @@
+import { normalizeTypesetPlan, type TypesetPlanInput } from "./typeset-plan";
+
 export type ManuscriptExportFormat = "docx" | "markdown" | "html" | "json";
 
 export type ManuscriptChapterExport = {
@@ -21,36 +23,53 @@ export type ManuscriptExportPayload = {
   chapters: ManuscriptChapterExport[];
 };
 
-export type TypesetPlanInput = {
-  trimSize?: string | null;
-  trimProfile?: string | null;
-  title?: string | null;
-  subtitle?: string | null;
-  frontMatter?: string[];
-  backMatter?: string[];
-  runningHeads?: string | null;
-  chapterOpenerStyle?: string | null;
-  tocIncluded?: boolean;
-  sectionStartsOnRecto?: boolean;
-  signaturePageMultiple?: number | null;
-  estimatedSignatureCount?: number | null;
-  estimatedBlankPages?: number | null;
-  estimatedFrontMatterPages?: number | null;
-  estimatedBodyPages?: number | null;
-  estimatedBackMatterPages?: number | null;
-  estimatedTotalPages?: number | null;
-};
-
 export type TypesetLayoutManifest = {
   generatedAt: string;
   title: string;
   trimSize: string | null;
+  trim: {
+    widthIn: number;
+    heightIn: number;
+  };
+  margins: {
+    topIn: number;
+    bottomIn: number;
+    insideIn: number;
+    outsideIn: number;
+    gutterIn: number;
+    bleedIn: number;
+    mirrored: boolean;
+  };
+  typography: {
+    bodyFont: string;
+    bodyPointSize: number;
+    lineHeightPt: number;
+  };
+  pageNumbering: {
+    frontMatterStyle: string;
+    bodyStyle: string;
+    bodyStartsAt: number;
+    position: string;
+  };
+  headerFooter: {
+    enabled: boolean;
+    differentOddEven: boolean;
+    oddHeader: string;
+    evenHeader: string;
+    footer: string;
+  };
+  imagePolicy: {
+    minDpi: number;
+    bleedAllowed: boolean;
+    requireAltText: boolean;
+  };
   signaturePageMultiple: number;
   estimatedSignatureCount: number;
   estimatedBlankPages: number;
   estimatedSpineWidthInches: number;
   sectionStartsOnRecto: boolean;
   tocIncluded: boolean;
+  preflightRequiredChecks: string[];
   frontMatter: Array<{ name: string; kind: "front-matter"; startsOnRecto: boolean }>;
   chapters: Array<{
     chapterKey: string;
@@ -309,6 +328,50 @@ export function buildManuscriptHtml(input: ManuscriptExportPayload) {
 </html>`;
 }
 
+export function buildEbookSourceHtml(input: ManuscriptExportPayload) {
+  const chapterMarkup = input.chapters
+    .map(
+      (chapter, index) => `
+        <section class="chapter" id="chapter-${index + 1}">
+          <h2>${escapeHtml(chapter.chapterLabel)}</h2>
+          <div class="chapter-body">${renderParagraphs(chapter.chapterText)}</div>
+        </section>
+      `,
+    )
+    .join("");
+
+  const nav = input.chapters
+    .map((chapter, index) => `<li><a href="#chapter-${index + 1}">${escapeHtml(chapter.chapterLabel)}</a></li>`)
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(input.title)}</title>
+    <style>
+      body { font-family: Georgia, "Times New Roman", serif; line-height: 1.6; color: #1f1a17; }
+      nav { margin: 2rem 0; }
+      nav ol { padding-left: 1.5rem; }
+      .chapter { page-break-before: always; break-before: page; }
+      .chapter-body p { margin: 0 0 1em; text-indent: 1.25em; }
+      .chapter-body p:first-child { text-indent: 0; }
+    </style>
+  </head>
+  <body>
+    <section class="title-page">
+      <h1>${escapeHtml(input.title)}</h1>
+      ${input.subtitle ? `<p>${escapeHtml(input.subtitle)}</p>` : ""}
+    </section>
+    <nav aria-label="Table of contents">
+      <h2>Contents</h2>
+      <ol>${nav}</ol>
+    </nav>
+    ${chapterMarkup}
+  </body>
+</html>`;
+}
+
 function slugifySectionLabel(value: string) {
   return value
     .toLowerCase()
@@ -331,17 +394,39 @@ export function buildTypesetLayoutManifest(
   input: ManuscriptExportPayload,
   plan: TypesetPlanInput = {},
 ): TypesetLayoutManifest {
+  const normalized = normalizeTypesetPlan({
+    ...plan,
+    title: plan.title ?? input.title,
+    subtitle: plan.subtitle ?? input.subtitle ?? null,
+    trimSize: plan.trimSize ?? input.trimSize ?? null,
+    frontMatter: plan.frontMatter ?? input.frontMatter ?? [],
+    backMatter: plan.backMatter ?? input.backMatter ?? [],
+  });
   return {
     generatedAt: new Date().toISOString(),
     title: input.title,
-    trimSize: plan.trimSize ?? input.trimSize ?? null,
-    signaturePageMultiple: plan.signaturePageMultiple ?? 16,
-    estimatedSignatureCount: plan.estimatedSignatureCount ?? 0,
-    estimatedBlankPages: plan.estimatedBlankPages ?? 0,
-    estimatedSpineWidthInches: estimateSpineWidth(plan.estimatedTotalPages ?? 0),
-    sectionStartsOnRecto: plan.sectionStartsOnRecto !== false,
-    tocIncluded: plan.tocIncluded !== false,
-    frontMatter: (plan.frontMatter ?? input.frontMatter ?? []).map((name) => ({
+    trimSize: normalized.trimSize,
+    trim: {
+      widthIn: normalized.trim.widthIn,
+      heightIn: normalized.trim.heightIn,
+    },
+    margins: normalized.margins,
+    typography: {
+      bodyFont: normalized.typography.bodyFont,
+      bodyPointSize: normalized.typography.bodyPointSize,
+      lineHeightPt: normalized.typography.lineHeightPt,
+    },
+    pageNumbering: normalized.pageNumbering,
+    headerFooter: normalized.headerFooter,
+    imagePolicy: normalized.imagePolicy,
+    signaturePageMultiple: normalized.signaturePageMultiple,
+    estimatedSignatureCount: normalized.estimatedSignatureCount ?? 0,
+    estimatedBlankPages: normalized.estimatedBlankPages,
+    estimatedSpineWidthInches: estimateSpineWidth(normalized.estimatedTotalPages ?? 0),
+    sectionStartsOnRecto: normalized.sectionStartsOnRecto,
+    tocIncluded: normalized.tocIncluded,
+    preflightRequiredChecks: normalized.preflightRequiredChecks,
+    frontMatter: normalized.frontMatter.map((name) => ({
       name,
       kind: "front-matter",
       startsOnRecto: true,
@@ -350,10 +435,10 @@ export function buildTypesetLayoutManifest(
       chapterKey: chapter.chapterKey,
       chapterLabel: chapter.chapterLabel,
       sectionTitle: chapter.sectionTitle,
-      startsOnRecto: plan.sectionStartsOnRecto !== false,
+      startsOnRecto: normalized.sectionStartsOnRecto,
       estimatedWordCount: chapter.wordCount,
     })),
-    backMatter: (plan.backMatter ?? input.backMatter ?? []).map((name) => ({
+    backMatter: normalized.backMatter.map((name) => ({
       name,
       kind: "back-matter",
       startsOnRecto: true,
@@ -363,12 +448,18 @@ export function buildTypesetLayoutManifest(
 
 export function buildCoverBrief(input: ManuscriptExportPayload, plan: TypesetPlanInput = {}) {
   const layoutManifest = buildTypesetLayoutManifest(input, plan);
+  const normalized = normalizeTypesetPlan({
+    ...plan,
+    title: plan.title ?? input.title,
+    subtitle: plan.subtitle ?? input.subtitle ?? null,
+    trimSize: plan.trimSize ?? input.trimSize ?? null,
+  });
   return {
     generatedAt: new Date().toISOString(),
     title: input.title,
     subtitle: input.subtitle ?? null,
-    trimSize: plan.trimSize ?? input.trimSize ?? null,
-    estimatedPageCount: plan.estimatedTotalPages ?? null,
+    trimSize: normalized.trimSize,
+    estimatedPageCount: normalized.estimatedTotalPages,
     estimatedSpineWidthInches: layoutManifest.estimatedSpineWidthInches,
     frontCoverPromise:
       input.frontMatter?.[0] ??
@@ -382,10 +473,16 @@ export function buildCoverBrief(input: ManuscriptExportPayload, plan: TypesetPla
 }
 
 export function buildDistributionManifest(input: ManuscriptExportPayload, plan: TypesetPlanInput = {}) {
+  const normalized = normalizeTypesetPlan({
+    ...plan,
+    title: plan.title ?? input.title,
+    subtitle: plan.subtitle ?? input.subtitle ?? null,
+    trimSize: plan.trimSize ?? input.trimSize ?? null,
+  });
   return {
     generatedAt: new Date().toISOString(),
     title: input.title,
-    trimSize: plan.trimSize ?? input.trimSize ?? null,
+    trimSize: normalized.trimSize,
     ebookReady: true,
     printReady: true,
     audioReady: false,
@@ -398,23 +495,37 @@ export function buildDistributionManifest(input: ManuscriptExportPayload, plan: 
 }
 
 export function buildPrintStylesheet(plan: TypesetPlanInput = {}) {
-  const trim = plan.trimSize ?? "6 x 9 in";
-  const pageSize = trim === "6 x 9 in" ? "6in 9in" : "6in 9in";
+  const normalized = normalizeTypesetPlan(plan);
+  const pageSize = `${normalized.trim.widthIn}in ${normalized.trim.heightIn}in`;
+  const bodyMarginLeft = normalized.margins.insideIn + normalized.margins.gutterIn;
+  const bodyMarginRight = normalized.margins.outsideIn;
+  const chapterTop = Number((normalized.margins.topIn + 0.15).toFixed(3));
 
   return `@page {
   size: ${pageSize};
-  margin: 0.85in 0.8in 0.9in 0.8in;
+  margin: ${normalized.margins.topIn}in ${bodyMarginRight}in ${normalized.margins.bottomIn}in ${bodyMarginLeft}in;
 }
 
 @page chapter {
   size: ${pageSize};
-  margin: 1in 0.85in 0.95in 0.85in;
+  margin: ${chapterTop}in ${bodyMarginRight}in ${normalized.margins.bottomIn}in ${bodyMarginLeft}in;
+}
+
+@page :left {
+  margin-left: ${bodyMarginRight}in;
+  margin-right: ${bodyMarginLeft}in;
+}
+
+@page :right {
+  margin-left: ${bodyMarginLeft}in;
+  margin-right: ${bodyMarginRight}in;
 }
 
 body {
   margin: 0;
   color: #1f1a17;
-  font-family: "Baskerville", "Iowan Old Style", Georgia, serif;
+  font-family: "${normalized.typography.bodyFont}", "Iowan Old Style", Georgia, serif;
+  font-size: ${normalized.typography.bodyPointSize}pt;
   background: white;
 }
 
@@ -515,7 +626,7 @@ body {
 
 .chapter-body p {
   margin: 0 0 12pt;
-  line-height: 1.58;
+  line-height: ${normalized.typography.lineHeightPt}pt;
   orphans: 3;
   widows: 3;
 }
@@ -553,7 +664,15 @@ export function buildTypesetInteriorHtml(
   input: ManuscriptExportPayload,
   plan: TypesetPlanInput = {},
 ) {
-  const stylesheet = buildPrintStylesheet(plan);
+  const normalized = normalizeTypesetPlan({
+    ...plan,
+    title: plan.title ?? input.title,
+    subtitle: plan.subtitle ?? input.subtitle ?? null,
+    trimSize: plan.trimSize ?? input.trimSize ?? null,
+    frontMatter: plan.frontMatter ?? input.frontMatter ?? [],
+    backMatter: plan.backMatter ?? input.backMatter ?? [],
+  });
+  const stylesheet = buildPrintStylesheet(normalized);
   const tocItems = input.chapters
     .map((chapter) => {
       const estimatedPages = Math.max(
@@ -574,7 +693,7 @@ export function buildTypesetInteriorHtml(
           <div class="chapter-opener">
             <div class="chapter-number">Chapter ${chapterNumber}</div>
             <h2>${escapeHtml(chapter.chapterLabel.replace(/^Chapter\s+\d+:\s*/i, ""))}</h2>
-            <div class="chapter-meta">${escapeHtml(plan.chapterOpenerStyle ?? "Standard chapter opener")}</div>
+            <div class="chapter-meta">${escapeHtml(normalized.chapterOpenerStyle)}</div>
           </div>
           <div class="chapter-stats">${chapter.wordCount.toLocaleString()} words • ${escapeHtml(chapter.sectionTitle)}</div>
           ${
@@ -588,7 +707,7 @@ export function buildTypesetInteriorHtml(
     })
     .join("");
 
-  const frontMatterPages = (plan.frontMatter ?? input.frontMatter ?? [])
+  const frontMatterPages = normalized.frontMatter
     .map(
       (item) => `
         <section class="front-matter-page">
@@ -601,7 +720,7 @@ export function buildTypesetInteriorHtml(
     )
     .join("");
 
-  const backMatterPages = (plan.backMatter ?? input.backMatter ?? [])
+  const backMatterPages = normalized.backMatter
     .map(
       (item) => `
         <section class="back-matter-page">
@@ -615,8 +734,8 @@ export function buildTypesetInteriorHtml(
     .join("");
 
   const blankPageMarkup =
-    (plan.estimatedBlankPages ?? 0) > 0
-      ? Array.from({ length: plan.estimatedBlankPages ?? 0 }, (_, index) => `
+    normalized.estimatedBlankPages > 0
+      ? Array.from({ length: normalized.estimatedBlankPages }, (_, index) => `
           <section class="blank-page" aria-hidden="true">
             <div>Reserved production blank page ${index + 1}</div>
           </section>
@@ -636,26 +755,24 @@ export function buildTypesetInteriorHtml(
         <div class="meta-line">GHOSTWRITR Typeset Interior</div>
         <h1>${escapeHtml(input.title)}</h1>
         ${input.subtitle ? `<div class="subtitle">${escapeHtml(input.subtitle)}</div>` : ""}
-        <div class="production-note">Trim size: ${escapeHtml(plan.trimSize ?? input.trimSize ?? "Not specified")}</div>
+        <div class="production-note">Trim size: ${escapeHtml(normalized.trimSize)}</div>
+        <div class="production-note">Trim profile: ${escapeHtml(normalized.trimProfile)}</div>
+        <div class="production-note">Margins: top ${normalized.margins.topIn} in, bottom ${normalized.margins.bottomIn} in, inside ${normalized.margins.insideIn} in + gutter ${normalized.margins.gutterIn} in, outside ${normalized.margins.outsideIn} in</div>
         ${
-          plan.trimProfile
-            ? `<div class="production-note">Trim profile: ${escapeHtml(plan.trimProfile)}</div>`
-            : ""
-        }
-        ${
-          typeof plan.estimatedTotalPages === "number"
-            ? `<div class="production-note">Estimated total pages: ${escapeHtml(String(plan.estimatedTotalPages))} (${escapeHtml(
-                String(plan.estimatedFrontMatterPages ?? 0),
-              )} front, ${escapeHtml(String(plan.estimatedBodyPages ?? 0))} body, ${escapeHtml(
-                String(plan.estimatedBackMatterPages ?? 0),
+          typeof normalized.estimatedTotalPages === "number"
+            ? `<div class="production-note">Estimated total pages: ${escapeHtml(String(normalized.estimatedTotalPages))} (${escapeHtml(
+                String(normalized.estimatedFrontMatterPages ?? 0),
+              )} front, ${escapeHtml(String(normalized.estimatedBodyPages ?? 0))} body, ${escapeHtml(
+                String(normalized.estimatedBackMatterPages ?? 0),
               )} back)</div>`
             : ""
         }
-        <div class="production-note">Signature plan: ${escapeHtml(String(plan.estimatedSignatureCount ?? 0))} x ${escapeHtml(
-          String(plan.signaturePageMultiple ?? 16),
-        )}-page signatures with ${escapeHtml(String(plan.estimatedBlankPages ?? 0))} reserved blank page(s)</div>
-        <div class="production-note">Estimated spine width: ${escapeHtml(String(estimateSpineWidth(plan.estimatedTotalPages ?? 0)))} in</div>
-        <div class="production-note">Running heads: ${escapeHtml(plan.runningHeads ?? "Defined in layout toolchain")}</div>
+        <div class="production-note">Signature plan: ${escapeHtml(String(normalized.estimatedSignatureCount ?? 0))} x ${escapeHtml(
+          String(normalized.signaturePageMultiple),
+        )}-page signatures with ${escapeHtml(String(normalized.estimatedBlankPages))} reserved blank page(s)</div>
+        <div class="production-note">Estimated spine width: ${escapeHtml(String(estimateSpineWidth(normalized.estimatedTotalPages ?? 0)))} in</div>
+        <div class="production-note">Running heads: ${escapeHtml(normalized.runningHeads)}</div>
+        <div class="production-note">Page numbering: ${escapeHtml(normalized.pageNumbering.frontMatterStyle)} front matter, ${escapeHtml(normalized.pageNumbering.bodyStyle)} body pages at ${escapeHtml(normalized.pageNumbering.position)}</div>
       </section>
 
       <section class="copyright-page">
@@ -665,7 +782,7 @@ export function buildTypesetInteriorHtml(
       </section>
 
       ${
-        plan.tocIncluded !== false
+        normalized.tocIncluded
           ? `<section class="toc-page">
               <h3>Table of Contents</h3>
               <ol>${tocItems}</ol>
@@ -674,10 +791,10 @@ export function buildTypesetInteriorHtml(
       }
 
       ${
-        (plan.frontMatter ?? input.frontMatter ?? []).length
+        normalized.frontMatter.length
           ? `<section class="front-matter">
               <h3>Front Matter Plan</h3>
-              <ul>${renderTypesetSectionBody(plan.frontMatter ?? input.frontMatter ?? [])}</ul>
+              <ul>${renderTypesetSectionBody(normalized.frontMatter)}</ul>
             </section>${frontMatterPages}`
           : ""
       }
@@ -685,10 +802,10 @@ export function buildTypesetInteriorHtml(
       ${chapterMarkup}
 
       ${
-        (plan.backMatter ?? input.backMatter ?? []).length
+        normalized.backMatter.length
           ? `<section class="back-matter">
               <h3>Back Matter Plan</h3>
-              <ul>${renderTypesetSectionBody(plan.backMatter ?? input.backMatter ?? [])}</ul>
+              <ul>${renderTypesetSectionBody(normalized.backMatter)}</ul>
             </section>${backMatterPages}`
           : ""
       }

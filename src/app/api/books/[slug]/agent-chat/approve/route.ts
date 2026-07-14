@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { StageStatus } from "@prisma/client";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
-import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
+import { commitArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import { commitStageAndUnlockNext } from "@/lib/workflows/stage-transition-service";
+import {
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 interface ApproveBody {
   stageKey: StageKey;
@@ -14,14 +21,22 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
+  const user = await requireAuthenticatedAppUser();
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, workflowType: true },
-  });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
-  const body = await req.json() as ApproveBody;
+  let body: ApproveBody;
+  try {
+    body = await parseLimitedJson(req, { label: "Stage approve request" });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { stageKey } = body;
   if (!stageKey) return NextResponse.json({ error: "Missing stageKey" }, { status: 400 });
 
@@ -45,57 +60,35 @@ export async function POST(
 
     const artifact = bookStage.artifacts[0];
     const version = artifact?.versions[0];
+    let committedVersionId: string | null = null;
 
     if (artifact && version) {
-      // Promote artifact + version to COMMITTED
-      await db.artifactVersion.update({
-        where: { id: version.id },
-        data: { lifecycleState: "COMMITTED", committedAt: now },
-      });
-      await db.artifact.update({
-        where: { id: artifact.id },
-        data: { status: "COMMITTED", committedVersionId: version.id },
-      });
-      await db.bookStage.update({
-        where: { id: bookStage.id },
-        data: {
-          status: StageStatus.COMMITTED,
-          committedArtifactVersionId: version.id,
+      await db.$transaction(async (tx) => {
+        await commitArtifactVersionInTransaction(tx, {
+          artifactId: artifact.id,
+          versionId: version.id,
           committedAt: now,
-        },
+        });
+        await pruneToSingleCommittedArtifact(tx, {
+          bookId: book.id,
+          stageId: bookStage.id,
+          artifactType: artifact.artifactType,
+          keepArtifactId: artifact.id,
+          keepVersionId: version.id,
+        });
       });
-
-      await pruneToSingleCommittedArtifact(db, {
-        bookId: book.id,
-        stageId: bookStage.id,
-        artifactType: artifact.artifactType,
-        keepArtifactId: artifact.id,
-        keepVersionId: version.id,
-      });
-    } else {
-      // No artifact yet — just mark committed
-      await db.bookStage.update({
-        where: { id: bookStage.id },
-        data: { status: StageStatus.COMMITTED, committedAt: now },
-      });
+      committedVersionId = version.id;
     }
 
-    // Advance: mark next stage IN_PROGRESS
-    const stageOrder = getWorkflowStageKeys(book.workflowType);
-    const currentIdx = stageOrder.indexOf(stageKey);
-    const nextStageKey = currentIdx >= 0 && currentIdx < stageOrder.length - 1
-      ? stageOrder[currentIdx + 1]
-      : null;
+    const transition = await commitStageAndUnlockNext({
+      bookId: book.id,
+      workflowType: book.workflowType,
+      stageKey,
+      committedArtifactVersionId: committedVersionId,
+      committedAt: now,
+    });
 
-    if (nextStageKey) {
-      await db.bookStage.upsert({
-        where: { bookId_stageKey: { bookId: book.id, stageKey: nextStageKey } },
-        update: { status: StageStatus.IN_PROGRESS },
-        create: { bookId: book.id, stageKey: nextStageKey, status: StageStatus.IN_PROGRESS },
-      });
-    }
-
-    return NextResponse.json({ success: true, nextStageKey: nextStageKey ?? null });
+    return NextResponse.json({ success: true, nextStageKey: transition.nextStageKey ?? null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -5,20 +5,23 @@
  */
 
 import Link from "next/link";
-import type { StageKey } from "@prisma/client";
-import { STAGE_LINKS } from "@/lib/navigation";
+import { BookWorkflowType, type StageKey } from "@prisma/client";
+import { getBookStageLinks } from "@/lib/navigation";
 
 export function StageSpine({
   slug,
   activeKey,
   bookTitle,
   statusLine,
+  workflowType = BookWorkflowType.NONFICTION,
 }: {
   slug: string;
   activeKey: StageKey;
   bookTitle: string | null;
   statusLine?: string;
+  workflowType?: BookWorkflowType;
 }) {
+  const stageLinks = getBookStageLinks(workflowType, slug);
   return (
     <aside style={s.spine}>
       <div style={s.head}>
@@ -29,12 +32,12 @@ export function StageSpine({
         {statusLine ? <div style={s.status}>{statusLine}</div> : null}
       </div>
       <div style={s.list}>
-        {STAGE_LINKS.map((stage) => {
+        {stageLinks.map((stage) => {
           const active = stage.key === activeKey;
           return (
             <Link
               key={stage.key}
-              href={stage.href(slug)}
+              href={stage.href}
               style={{ ...s.item, ...(active ? s.itemActive : null) }}
             >
               {stage.label}

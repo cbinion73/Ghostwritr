@@ -1,6 +1,6 @@
 import { PrismaClient, StageKey } from "@prisma/client";
 
-import { assembleManuscriptWorkflow, getEditingWorkspace } from "../src/lib/workflows/editing";
+import { assembleManuscriptWorkflow, getEditingWorkspace } from "../src/lib/workflows/editing-public";
 import {
   commitFictionStageWorkflow,
   expandUnderTargetFictionDraftChaptersWorkflow,

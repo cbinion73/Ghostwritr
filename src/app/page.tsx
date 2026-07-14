@@ -2,17 +2,8 @@ import Link from "next/link";
 import { BookWorkflowType } from "@prisma/client";
 
 import { createBookAction, deleteBookAction } from "./actions";
-import { db } from "@/lib/db";
-
-async function listBooksWithParent() {
-  return db.book.findMany({
-    orderBy: { updatedAt: "desc" },
-    include: {
-      stages: { orderBy: { createdAt: "asc" } },
-      parentBook: { select: { titleWorking: true, slug: true } },
-    },
-  });
-}
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { listBooksForUserWithParent } from "@/lib/repositories/books";
 import { AppTopBar } from "./components/app-top-bar";
 import { Bookshelf, type ShelfBook } from "./bookshelf";
 
@@ -49,7 +40,7 @@ function getStatusColor(stages: Array<{ status: string }>) {
   return "#6f6256";
 }
 
-type BookWithStages = Awaited<ReturnType<typeof listBooksWithParent>>[number];
+type BookWithStages = Awaited<ReturnType<typeof listBooksForUserWithParent>>[number];
 
 function toShelfBook(book: BookWithStages): ShelfBook {
   const stages = book.stages.map((s) => ({
@@ -75,7 +66,8 @@ function toShelfBook(book: BookWithStages): ShelfBook {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function HomePage() {
-  const allBooks = await listBooksWithParent();
+  const user = await requireAuthenticatedAppUser();
+  const allBooks = await listBooksForUserWithParent(user.id);
   const books = allBooks.filter((b) => !b.isArchived);
   const archivedBooks = allBooks.filter((b) => b.isArchived);
 

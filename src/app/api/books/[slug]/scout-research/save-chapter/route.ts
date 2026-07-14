@@ -1,7 +1,22 @@
 import { NextResponse } from "next/server";
-import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
+import { ActorType, ArtifactStatus, ArtifactType } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { scheduleStructuredExtraction } from "@/lib/workflows/structured-extraction";
+import { ensureStageStarted } from "@/lib/workflows/stage-transition-service";
+import {
+  chapterIdentityMetadata,
+  chapterIdentityWhere,
+  getArtifactChapterId,
+} from "@/lib/repositories/chapter-identity";
+import { createArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 // GET — return all saved research dossiers for this book's RESEARCH stage
 export async function GET(
@@ -9,7 +24,8 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
   const stage = await db.bookStage.findUnique({
@@ -27,7 +43,7 @@ export async function GET(
 
   const chapters = artifacts.map((a) => ({
     artifactId: a.id,
-    chapterKey: (a.metadataJson as Record<string, string> | null)?.chapterKey ?? "",
+    chapterKey: getArtifactChapterId(a) ?? "",
     chapterTitle: a.title,
     status: a.status,
     content: a.versions[0]?.contentText ?? "",
@@ -42,14 +58,24 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = (await req.json()) as {
+  let body: {
     chapterKey: string;
     chapterTitle: string;
     content: string;
   };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Research chapter save request",
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { chapterKey, chapterTitle, content } = body;
 
   if (!chapterKey || !chapterTitle || !content) {
@@ -60,11 +86,7 @@ export async function POST(
   }
 
   // Ensure the stage exists — keep it IN_PROGRESS while chapters accumulate
-  const bookStage = await db.bookStage.upsert({
-    where: { bookId_stageKey: { bookId: book.id, stageKey: "RESEARCH" } },
-    update: {},
-    create: { bookId: book.id, stageKey: "RESEARCH", status: StageStatus.IN_PROGRESS },
-  });
+  const bookStage = await ensureStageStarted({ bookId: book.id, stageKey: "RESEARCH" });
 
   // Find-or-create by chapterKey — creating unconditionally used to spawn a
   // second Artifact for the same chapter every time this was saved again,
@@ -75,46 +97,38 @@ export async function POST(
       bookId: book.id,
       stageId: bookStage.id,
       artifactType: ArtifactType.RESEARCH_PACK,
-      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      ...chapterIdentityWhere(chapterKey),
     },
     select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
   });
 
   let targetArtifactId: string;
-  let nextVersionNumber: number;
 
   if (existingArtifact) {
     targetArtifactId = existingArtifact.id;
-    nextVersionNumber = (existingArtifact.versions[0]?.versionNumber ?? 0) + 1;
   } else {
     const created = await db.artifact.create({
       data: {
         bookId: book.id,
         stageId: bookStage.id,
         artifactType: ArtifactType.RESEARCH_PACK,
+        chapterId: chapterKey,
         title: chapterTitle,
         status: "REVIEW_READY",
-        metadataJson: { chapterKey, chapterTitle },
+        metadataJson: chapterIdentityMetadata(chapterKey, { chapterTitle }),
       },
     });
     targetArtifactId = created.id;
-    nextVersionNumber = 1;
   }
 
-  const version = await db.artifactVersion.create({
-    data: {
-      artifactId: targetArtifactId,
-      versionNumber: nextVersionNumber,
-      lifecycleState: "REVIEW_READY",
-      contentJson: { text: content },
-      contentText: content,
-      createdByType: ActorType.MODEL,
-    },
-  });
-
-  await db.artifact.update({
-    where: { id: targetArtifactId },
-    data: { currentVersionId: version.id, title: chapterTitle, status: "REVIEW_READY" },
+  const version = await createArtifactVersionInTransaction(db, {
+    artifactId: targetArtifactId,
+    lifecycleState: ArtifactStatus.REVIEW_READY,
+    contentJson: { text: content },
+    contentText: content,
+    createdByType: ActorType.MODEL,
+    artifactStatus: ArtifactStatus.REVIEW_READY,
+    title: chapterTitle,
   });
 
   // Background pass: parse the dossier text into structured ResearchItem/

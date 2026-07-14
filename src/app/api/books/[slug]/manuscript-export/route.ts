@@ -9,6 +9,8 @@ import {
   contentDisposition,
   convertHtmlToDocx,
 } from "@/lib/manuscript-export";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 
 export const runtime = "nodejs";
 
@@ -18,6 +20,9 @@ export async function GET(
 ) {
   try {
     const { slug } = await context.params;
+    const user = await requireAuthenticatedAppUser();
+    await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+
     const payload = await buildManuscriptExportPayload(slug);
     const filenameBase = sanitizeManuscriptFilename(payload.title);
     const url = new URL(request.url);

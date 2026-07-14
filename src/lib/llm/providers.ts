@@ -24,6 +24,7 @@ import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import type { LLMResult } from "@langchain/core/outputs";
 import { getLLMCallContext } from "./call-context";
 import { logLLMCall } from "./call-log";
+import { getProviderMaxRetries } from "../retry-policy";
 
 export type ProviderName = "anthropic" | "openai" | "google";
 
@@ -131,8 +132,11 @@ class CostLoggingHandler extends BaseCallbackHandler {
         workflowRunId: context.workflowRunId,
         chapterKey: context.chapterKey,
         stageRole: this.stageRole ?? "unknown",
+        operation: "ambient-provider-callback",
         provider: this.provider,
         model: this.model,
+        generationMode: "unknown",
+        status: "SUCCEEDED",
         promptTokens,
         completionTokens,
         cacheCreationTokens: usage?.input_token_details?.cache_creation ?? 0,
@@ -211,11 +215,9 @@ export async function getModel(
   }
 
   const timeout = options.timeoutMs ?? 60000;
-  // Transient provider failures (429/529/network blips) retry at the SDK layer
-  // with exponential backoff — a retried call costs far less than the whole-
-  // stage re-run that a hard failure triggers. Callers can still pass 0 to
-  // opt out for latency-critical interactive paths.
-  const maxRetries = options.maxRetries ?? 2;
+  // All provider SDK retries go through the central policy so workflow-level
+  // attempts cannot silently multiply by SDK retry defaults.
+  const maxRetries = getProviderMaxRetries(options.maxRetries);
   const temperature = options.temperature;
   const callbacks = [new CostLoggingHandler(provider, model, options.stageRole)];
 

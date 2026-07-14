@@ -1,17 +1,30 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
+import { ActorType, ArtifactType } from "@prisma/client";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
-import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { notifyStageCommitted, triggerPreLaunch, syncBookToJarvis, notifyPostProductionCommitted } from "@/lib/jarvis/client";
 import { scheduleStructuredExtraction } from "@/lib/workflows/structured-extraction";
 import { pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
+import { commitStageAndUnlockNext, ensureStageStarted } from "@/lib/workflows/stage-transition-service";
+import { chapterIdentityMetadata, chapterIdentityWhere } from "@/lib/repositories/chapter-identity";
+import { commitArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import { markDraftApproved } from "@/lib/repositories/chapter-approval-state";
+import { getPrimaryArtifactTypeForStage } from "@/lib/workflow-registry";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 // Chapter-scoped stages tag their title as "{prefix}: {chapterKey} - {chapterTitle}"
 // — parse the key out so a chat-committed dossier can be matched against the
 // structured author path's Artifact for the same chapter (which does tag
 // metadataJson.chapterKey), not just against its own title.
 const CHAPTER_TITLE_PREFIX: Partial<Record<StageKey, string>> = {
+  CHAPTER_DRAFT: "Chapter Draft: ",
   RESEARCH: "Research Pack: ",
   EXTERNAL_STORIES: "External Stories: ",
 };
@@ -37,107 +50,51 @@ interface CommitBody {
   force?: boolean;
 }
 
-// Map stage key to a reasonable ArtifactType, falling back to BOOK_SETUP_PROFILE
-const STAGE_ARTIFACT_TYPE: Partial<Record<StageKey, ArtifactType>> = {
-  // Nonfiction core
-  BOOK_SETUP:       ArtifactType.BOOK_SETUP_PROFILE,
-  PROMISE:          ArtifactType.PROMISE_BRIEF,
-  MARKET_ANALYSIS:  ArtifactType.MARKET_REPORT,
-  OUTLINE:          ArtifactType.OUTLINE,
-  BASE_STORY:       ArtifactType.BASE_STORY,
-  RESEARCH:         ArtifactType.RESEARCH_PACK,
-  EXTERNAL_STORIES: ArtifactType.EXTERNAL_STORY_PACK,
-  PERSONAL_STORIES: ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
-  MANIFEST:         ArtifactType.CHAPTER_MANIFEST,
-  CHAPTER_DRAFT:    ArtifactType.CHAPTER_DRAFT,
-  EDITING:          ArtifactType.EDITORIAL_ASSESSMENT,
-  TYPESET:          ArtifactType.TYPESET_PACKAGE,
-  // Post-production
-  AUDIO_PREP:       ArtifactType.AUDIO_PREP_PACKAGE,
-  COURSE_DESIGN:    ArtifactType.COURSE_DESIGN_PACKAGE,
-  // Fiction
-  STORY_SETUP:      ArtifactType.STORY_SETUP_PROFILE,
-  STORY_CORE:       ArtifactType.STORY_CORE_BIBLE,
-  WORLD_CAST:       ArtifactType.WORLD_CAST_BIBLE,
-  PLOT_BLUEPRINT:   ArtifactType.FICTION_PLOT_BLUEPRINT,
-  SCENE_PLAN:       ArtifactType.FICTION_SCENE_PLAN,
-  FICTION_DRAFT:    ArtifactType.FICTION_DRAFT_MANUSCRIPT,
-};
-
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
+  const user = await requireAuthenticatedAppUser();
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, workflowType: true, titleWorking: true },
-  });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
-  const body = await req.json() as CommitBody;
+  let body: CommitBody;
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Stage commit request",
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { stageKey, artifact } = body;
 
   if (!stageKey || !artifact) {
     return NextResponse.json({ error: "Missing stageKey or artifact" }, { status: 400 });
   }
 
-  // Market Viability is documented as a hard gate (3.5/5 ≡ 70/100). Enforce it
-  // at commit instead of advisory-only; `force: true` is the explicit human
-  // override for shipping past a below-gate score on purpose.
-  if (stageKey === "MARKET_ANALYSIS" && !body.force) {
-    try {
-      const { getPromiseWorkspace } = await import("@/lib/workflows/promise");
-      const { createValidationScores } = await import("@/lib/validation/promise-validator");
-      const workspace = await getPromiseWorkspace(slug);
-      const scores = createValidationScores(
-        workspace.promiseBrief,
-        workspace.personas,
-        workspace.market,
-        { comparableBooks: workspace.market?.comparisonTitles?.map((t) => t.title) ?? [] },
-      );
-      const marketScore = scores.marketViability.score;
-      if (marketScore < 70) {
-        return NextResponse.json(
-          {
-            error: `Market viability is ${marketScore}/100 — below the 70/100 (3.5/5) hard gate. ${scores.marketViability.feedback.join(" ")} Strengthen the market work in the Promise stage, or commit again with the override to proceed anyway.`,
-            gate: {
-              stageKey,
-              score: marketScore,
-              threshold: 70,
-              feedback: scores.marketViability.feedback,
-              overridable: true,
-            },
-          },
-          { status: 422 },
-        );
-      }
-    } catch (gateError) {
-      // Gate scoring must never brick commits when promise data is unreadable —
-      // log and let the commit proceed rather than hard-failing the author.
-      console.warn("[commit] market viability gate scoring failed:", gateError);
-    }
+  if (stageKey === "PROMISE" || stageKey === "MARKET_ANALYSIS") {
+    return NextResponse.json(
+      {
+        error:
+          "Phase 1 must be committed through the Promise room so GHOSTWRITR can create the approved strategic brief before downstream stages unlock.",
+      },
+      { status: 409 },
+    );
   }
 
-  const artifactType = STAGE_ARTIFACT_TYPE[stageKey] ?? ArtifactType.BOOK_SETUP_PROFILE;
+  const artifactType = getPrimaryArtifactTypeForStage(stageKey) ?? ArtifactType.BOOK_SETUP_PROFILE;
 
   try {
     // Find or create the BookStage
-    const bookStage = await db.bookStage.upsert({
-      where: {
-        bookId_stageKey: {
-          bookId: book.id,
-          stageKey,
-        },
-      },
-      update: {},
-      create: {
-        bookId: book.id,
-        stageKey,
-        status: StageStatus.IN_PROGRESS,
-      },
-    });
+    const bookStage = await ensureStageStarted({ bookId: book.id, stageKey });
 
     const now = new Date();
     const chapterKey = parseChapterKeyFromTitle(stageKey, artifact.title);
@@ -150,7 +107,7 @@ export async function POST(
       where: {
         stageId: bookStage.id,
         OR: [
-          ...(chapterKey ? [{ metadataJson: { path: ["chapterKey"], equals: chapterKey } }] : []),
+          ...(chapterKey ? [chapterIdentityWhere(chapterKey)] : []),
           { title: artifact.title },
         ],
       },
@@ -173,7 +130,7 @@ export async function POST(
           artifactType,
           title: artifact.title,
           status: "COMMITTED",
-          ...(chapterKey ? { metadataJson: { chapterKey } } : {}),
+          ...(chapterKey ? { chapterId: chapterKey, metadataJson: chapterIdentityMetadata(chapterKey) } : {}),
         },
       });
       targetArtifactId = newArtifact.id;
@@ -193,11 +150,18 @@ export async function POST(
       },
     });
 
-    // Point artifact to its latest committed version
-    await db.artifact.update({
-      where: { id: targetArtifactId },
-      data: { committedVersionId: newVersion.id },
+    await commitArtifactVersionInTransaction(db, {
+      artifactId: targetArtifactId,
+      versionId: newVersion.id,
+      committedAt: now,
     });
+    if (stageKey === "CHAPTER_DRAFT" && chapterKey) {
+      await markDraftApproved({
+        bookId: book.id,
+        chapterId: chapterKey,
+        versionId: newVersion.id,
+      });
+    }
 
     // Only the committed version/artifact should persist for this stage
     // (or this chapter, for chapter-scoped stages) — prunes both the
@@ -230,45 +194,17 @@ export async function POST(
       });
     }
 
-    // Mark stage COMMITTED and record the committed artifact version
-    await db.bookStage.update({
-      where: { id: bookStage.id },
-      data: {
-        status: StageStatus.COMMITTED,
-        committedArtifactVersionId: newVersion.id,
-        committedAt: now,
-      },
+    // Mark stage COMMITTED and centrally unlock the next stage. EDITING is
+    // exempt — Reed commits individual chapter revisions one at a time; we
+    // stay on EDITING until the author approves final chapters and advances.
+    const transition = await commitStageAndUnlockNext({
+      bookId: book.id,
+      workflowType: book.workflowType,
+      stageKey,
+      committedArtifactVersionId: newVersion.id,
+      committedAt: now,
+      unlockNext: stageKey !== "EDITING",
     });
-
-    // Advance: mark next stage IN_PROGRESS to trigger autonomous run.
-    // EDITING is exempt — Reed commits individual chapter revisions one at a time;
-    // we stay on EDITING until the author is done with all chapters and manually
-    // advances to TYPESET.
-    const stageOrder = getWorkflowStageKeys(book.workflowType);
-    const currentIdx = stageOrder.indexOf(stageKey);
-    const nextStageKey = stageKey !== "EDITING" && currentIdx >= 0 && currentIdx < stageOrder.length - 1
-      ? stageOrder[currentIdx + 1]
-      : null;
-
-    if (nextStageKey) {
-      // Only advance if next stage is not already committed — don't overwrite finished work
-      await db.bookStage.upsert({
-        where: { bookId_stageKey: { bookId: book.id, stageKey: nextStageKey } },
-        update: { status: StageStatus.IN_PROGRESS },
-        create: { bookId: book.id, stageKey: nextStageKey, status: StageStatus.IN_PROGRESS },
-      });
-      // Roll back if it was already committed
-      await db.bookStage.updateMany({
-        where: {
-          bookId: book.id,
-          stageKey: nextStageKey,
-          committedAt: { not: null },
-          status: StageStatus.IN_PROGRESS,
-          committedArtifactVersionId: { not: null },
-        },
-        data: { status: StageStatus.COMMITTED },
-      });
-    }
 
     // ── JARVIS integration — fire and forget, never blocks the response ──────
     const bookTitle = book.titleWorking ?? slug;
@@ -299,7 +235,7 @@ export async function POST(
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    return NextResponse.json({ success: true, stageStatus: "COMMITTED", nextStageKey: nextStageKey ?? null });
+    return NextResponse.json({ success: true, stageStatus: "COMMITTED", nextStageKey: transition.nextStageKey ?? null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -12,7 +12,8 @@
  */
 
 import { readFileSync } from "fs";
-import Anthropic from "@anthropic-ai/sdk";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { acquireLLMCallForRole } from "@/lib/llm/routing";
 
 // ── PDF: Claude vision extraction ────────────────────────────────────────────
 
@@ -37,73 +38,98 @@ async function extractTextFromPDF(
   filePath: string,
   fileName: string,
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-
   // ── Claude vision path (preferred) ───────────────────────────────────────
-  if (apiKey && apiKey.trim().length > 0) {
-    try {
-      const pdfBuffer = readFileSync(filePath);
-      const base64Data = pdfBuffer.toString("base64");
+  try {
+    const pdfBuffer = readFileSync(filePath);
 
-      // Anthropic limits: 32 MB per document
-      const MAX_PDF_BYTES = 32 * 1024 * 1024;
-      if (pdfBuffer.byteLength > MAX_PDF_BYTES) {
-        console.warn(
-          `[extractTextFromPDF] ${fileName} is ${Math.round(pdfBuffer.byteLength / 1024 / 1024)}MB — exceeds 32MB Anthropic limit. Falling back to text-only extraction.`,
-        );
-        return await extractTextFromPDFTextOnly(filePath);
-      }
+    // Anthropic limits: 32 MB per document
+    const MAX_PDF_BYTES = 32 * 1024 * 1024;
+    if (pdfBuffer.byteLength > MAX_PDF_BYTES) {
+      console.warn(
+        `[extractTextFromPDF] ${fileName} is ${Math.round(pdfBuffer.byteLength / 1024 / 1024)}MB — exceeds 32MB Anthropic limit. Falling back to text-only extraction.`,
+      );
+      return await extractTextFromPDFTextOnly(filePath);
+    }
 
-      const client = new Anthropic({ apiKey });
-      const response = await client.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 8000,
-        system: CLAUDE_PDF_SYSTEM,
-        messages: [
+    const gatewayCall = await acquireLLMCallForRole(
+      "document:extract",
+      {
+        maxOutputTokens: 8000,
+        timeoutMs: 120000,
+      },
+      {
+        stageRole: "document:extract",
+        operation: "pdf-vision-extract",
+      },
+    );
+    if (!gatewayCall) {
+      console.warn(
+        `[extractTextFromPDF] No gateway document extraction model available — using text-only extraction for ${fileName}. Visual models and diagrams will not be captured.`,
+      );
+      return await extractTextFromPDFTextOnly(filePath);
+    }
+
+    const base64Data = pdfBuffer.toString("base64");
+    const startedAt = Date.now();
+    const response = await gatewayCall.model.invoke([
+      new SystemMessage(CLAUDE_PDF_SYSTEM),
+      new HumanMessage({
+        content: [
           {
-            role: "user",
-            content: [
-              {
-                type: "document",
-                source: {
-                  type: "base64",
-                  media_type: "application/pdf",
-                  data: base64Data,
-                },
-              },
-              {
-                type: "text",
-                text: CLAUDE_PDF_PROMPT,
-              },
-            ],
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: base64Data,
+            },
+          },
+          {
+            type: "text",
+            text: CLAUDE_PDF_PROMPT,
           },
         ],
-      });
+      }),
+    ]);
 
-      const extracted = response.content
-        .filter((b) => b.type === "text")
-        .map((b) => (b as { type: "text"; text: string }).text)
-        .join("\n");
-
-      console.log(
-        `[extractTextFromPDF] Claude extracted ${extracted.length} chars from ${fileName} (vision + text)`,
-      );
-      return extracted.trim();
-    } catch (error) {
-      console.warn(
-        `[extractTextFromPDF] Claude extraction failed for ${fileName}, falling back to text-only:`,
-        error instanceof Error ? error.message : error,
-      );
-      // Fall through to text-only extraction
+    const usage = (response as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata;
+    if (usage?.input_tokens || usage?.output_tokens) {
+      void gatewayCall.recordUsage({
+        promptTokens: usage.input_tokens ?? 0,
+        completionTokens: usage.output_tokens ?? 0,
+        durationMs: Date.now() - startedAt,
+      }).catch(() => {/* non-fatal */});
     }
-  } else {
-    console.warn(
-      `[extractTextFromPDF] No ANTHROPIC_API_KEY — using text-only extraction for ${fileName}. Visual models and diagrams will not be captured.`,
+
+    const extracted = messageContentToText(response.content);
+    console.log(
+      `[extractTextFromPDF] Gateway extracted ${extracted.length} chars from ${fileName} (vision + text)`,
     );
+    return extracted.trim();
+  } catch (error) {
+    console.warn(
+      `[extractTextFromPDF] Gateway vision extraction failed for ${fileName}, falling back to text-only:`,
+      error instanceof Error ? error.message : error,
+    );
+    // Fall through to text-only extraction
   }
 
   // ── Text-only fallback (no API key, or Claude call failed) ───────────────
   return await extractTextFromPDFTextOnly(filePath);
+}
+
+function messageContentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part && typeof part === "object" && "text" in part) {
+        return String((part as { text?: unknown }).text ?? "");
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 /**

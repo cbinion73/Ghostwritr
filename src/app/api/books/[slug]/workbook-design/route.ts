@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
 import { ActorType, type StageKey } from "@prisma/client";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
-import { getModelForRole } from "@/lib/llm/routing";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { acquireLLMCallForRole } from "@/lib/llm/routing";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { STAGE_AGENT_MAP } from "@/lib/ui/agent-personas";
+import { commitStageAndUnlockNext } from "@/lib/workflows/stage-transition-service";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  acquireBookOperationSlot,
+  assertRateLimit,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 const WORKBOOK_DESIGN_KEY = "WORKBOOK_DESIGN" as StageKey;
 const CHAPTER_DRAFT_KEY = "CHAPTER_DRAFT" as StageKey;
-const TYPESET_KEY = "TYPESET" as StageKey;
 
 const stageSelect = {
   status: true,
@@ -23,8 +33,14 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
+
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
   const wdStage = await db.bookStage.findUnique({
     where: { bookId_stageKey: { bookId: book.id, stageKey: WORKBOOK_DESIGN_KEY } },
@@ -66,14 +82,34 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
 
-  const body = await req.json() as {
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
+
+  let body: {
     artifactId: string;
     chapterTitle: string;
     rawContent: string;
   };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Workbook design request",
+    });
+    assertRateLimit({
+      key: `workbook-design:${book.id}`,
+      limit: REQUEST_LIMITS.generationRequestsPerWindow,
+      windowMs: REQUEST_LIMITS.apiWindowMs,
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { artifactId, chapterTitle, rawContent } = body;
 
   if (!artifactId || !chapterTitle || !rawContent) {
@@ -83,10 +119,29 @@ export async function POST(
   const persona = STAGE_AGENT_MAP[WORKBOOK_DESIGN_KEY];
   if (!persona) return NextResponse.json({ error: "Sage persona not found" }, { status: 500 });
 
-  const model = await getModelForRole("chapter-draft:author"); // Sonnet
+  const gatewayCall = await acquireLLMCallForRole("chapter-draft:author", {}, {
+    bookId: book.id,
+    bookSlug: slug,
+    bookTitle: book.titleWorking ?? undefined,
+    stageKey: WORKBOOK_DESIGN_KEY,
+    chapterKey: artifactId,
+    operation: "workbook-design-enrich",
+  }); // Sonnet
+  const model = gatewayCall?.model;
   if (!model) return NextResponse.json({ error: "No model available" }, { status: 500 });
 
+  let releaseBookSlot: () => void;
+  try {
+    releaseBookSlot = acquireBookOperationSlot(book.id, "generation");
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
+
   let enriched = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+  const startMs = Date.now();
   try {
     const stream = await model.stream([
       new SystemMessage(persona.systemPrompt),
@@ -102,10 +157,25 @@ export async function POST(
               .join("")
           : "";
       enriched += text;
+      const usage = (chunk as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata;
+      if (usage) {
+        if (usage.input_tokens) promptTokens = usage.input_tokens;
+        if (usage.output_tokens) completionTokens = usage.output_tokens;
+      }
     }
   } catch (err) {
     console.error("Sage LLM call failed:", err);
     return NextResponse.json({ error: "LLM call failed" }, { status: 500 });
+  } finally {
+    releaseBookSlot();
+  }
+
+  if (promptTokens > 0 || completionTokens > 0) {
+    void gatewayCall.recordUsage({
+      promptTokens,
+      completionTokens,
+      durationMs: Date.now() - startMs,
+    }).catch(() => {/* non-fatal */});
   }
 
   if (!enriched.trim()) {
@@ -145,24 +215,26 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
+
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
   const wdStage = await db.bookStage.findUnique({
     where: { bookId_stageKey: { bookId: book.id, stageKey: WORKBOOK_DESIGN_KEY } },
   });
   if (!wdStage) return NextResponse.json({ error: "Stage not found" }, { status: 404 });
 
-  await db.$transaction([
-    db.bookStage.update({
-      where: { id: wdStage.id },
-      data: { status: "COMMITTED", committedAt: new Date() },
-    }),
-    db.bookStage.updateMany({
-      where: { bookId: book.id, stageKey: TYPESET_KEY },
-      data: { status: "IN_PROGRESS" },
-    }),
-  ]);
+  await commitStageAndUnlockNext({
+    bookId: book.id,
+    workflowType: book.workflowType,
+    stageKey: WORKBOOK_DESIGN_KEY,
+    committedAt: new Date(),
+  });
 
   return NextResponse.json({ ok: true });
 }

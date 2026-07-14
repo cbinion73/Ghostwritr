@@ -1,8 +1,9 @@
 import { Prisma, StageKey, StageStatus } from "@prisma/client";
 
 import { parseMetadataRecord } from "../artifact-schemas";
-import { getBookBySlugOrThrow, getStageForBook, updateStageForBook } from "../repositories/books";
+import { getBookBySlugOrThrow, getStageForBook } from "../repositories/books";
 import { cancelActiveWorkflowRunsForStage } from "../repositories/workflow-runs";
+import { blockStage } from "./stage-transition-service";
 
 const RETRYABLE_STAGES = new Set<StageKey>([
   StageKey.BASE_STORY,
@@ -74,7 +75,7 @@ async function getChaptersNeedingRecovery(
   const failedChapterKeys = getFailedChapterKeys(metadata);
 
   if (stageKey === StageKey.RESEARCH) {
-    const { getUnfinishedResearchChapterKeys } = await import("./research");
+    const { getUnfinishedResearchChapterKeys } = await import("./research-public");
     const unfinished = await getUnfinishedResearchChapterKeys(bookId);
     return Array.from(new Set([...failedChapterKeys, ...unfinished]));
   }
@@ -86,7 +87,7 @@ async function getChaptersNeedingRecovery(
   }
 
   if (stageKey === StageKey.CHAPTER_DRAFT) {
-    const { getUnfinishedChapterDraftChapterKeys } = await import("./chapter-draft");
+    const { getUnfinishedChapterDraftChapterKeys } = await import("./chapter-draft-public");
     const unfinished = await getUnfinishedChapterDraftChapterKeys(bookId);
     return Array.from(new Set([...failedChapterKeys, ...unfinished]));
   }
@@ -105,8 +106,9 @@ export async function cancelStageWorkflow(bookSlug: string, stageKey: StageKey) 
   const metadata = parseMetadataRecord(stage?.metadataJson);
 
   await cancelActiveWorkflowRunsForStage(book.id, stageKey, "Canceled by user.");
-  await updateStageForBook(book.id, stageKey, {
-    status: StageStatus.BLOCKED,
+  await blockStage({
+    bookId: book.id,
+    stageKey,
     metadataJson: {
       ...metadata,
       automationStatus: "canceled",
@@ -157,7 +159,7 @@ export async function retryStageWorkflow(
     );
 
     if (stageKey === StageKey.RESEARCH) {
-      const { enqueueAndTriggerFullResearchWorkflow } = await import("./research");
+      const { enqueueAndTriggerFullResearchWorkflow } = await import("./research-public");
       return enqueueAndTriggerFullResearchWorkflow(bookSlug, trigger, {
         chapterKeys,
         preserveCompletedCount,
@@ -174,7 +176,7 @@ export async function retryStageWorkflow(
       });
     }
 
-    const { enqueueAndTriggerChapterDraftWorkflow } = await import("./chapter-draft");
+    const { enqueueAndTriggerChapterDraftWorkflow } = await import("./chapter-draft-public");
     return enqueueAndTriggerChapterDraftWorkflow(bookSlug, trigger, undefined, chapterKeys);
   }
 
@@ -219,7 +221,7 @@ export async function resumeFailedStageWorkflow(
   );
 
   if (stageKey === StageKey.RESEARCH) {
-    const { enqueueAndTriggerFullResearchWorkflow } = await import("./research");
+    const { enqueueAndTriggerFullResearchWorkflow } = await import("./research-public");
     return enqueueAndTriggerFullResearchWorkflow(bookSlug, trigger, {
       chapterKeys: failedChapterKeys,
       preserveCompletedCount: Math.min(preservedCompletedCount, totalChapters),
@@ -237,7 +239,7 @@ export async function resumeFailedStageWorkflow(
   }
 
   if (stageKey === StageKey.CHAPTER_DRAFT) {
-    const { enqueueAndTriggerChapterDraftWorkflow } = await import("./chapter-draft");
+    const { enqueueAndTriggerChapterDraftWorkflow } = await import("./chapter-draft-public");
     return enqueueAndTriggerChapterDraftWorkflow(bookSlug, trigger, undefined, failedChapterKeys);
   }
 

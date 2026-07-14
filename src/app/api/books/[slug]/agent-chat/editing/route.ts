@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
-import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
+import { ActorType, ArtifactStatus, ArtifactType } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { ensureStageStarted } from "@/lib/workflows/stage-transition-service";
+import { chapterIdentityMetadata, chapterIdentityWhere, getArtifactChapterId } from "@/lib/repositories/chapter-identity";
+import { createArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import { markFinalRevisionPending } from "@/lib/repositories/chapter-approval-state";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 // GET — returns all CHAPTER_DRAFT chapters merged with any existing MANUSCRIPT_REVISION edits
 export async function GET(
@@ -8,7 +20,8 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
   // Load source chapter drafts
@@ -108,53 +121,83 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = await req.json() as {
+  let body: {
     chapterKey: string;
     chapterTitle: string;
     editedContent: string;
     summaryNotes?: string;
     sourceDraftId?: string;  // used to patch the source draft
   };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Editing save request",
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { chapterKey, chapterTitle, editedContent, summaryNotes, sourceDraftId } = body;
 
   if (!chapterKey || !chapterTitle || !editedContent) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  // Upsert EDITING stage
-  const editingStage = await db.bookStage.upsert({
-    where: { bookId_stageKey: { bookId: book.id, stageKey: "EDITING" } },
-    update: {},
-    create: { bookId: book.id, stageKey: "EDITING", status: StageStatus.IN_PROGRESS },
-  });
+  // Ensure EDITING stage exists
+  const editingStage = await ensureStageStarted({ bookId: book.id, stageKey: "EDITING" });
 
-  // Create MANUSCRIPT_REVISION artifact in EDITING stage
-  const artifact = await db.artifact.create({
-    data: {
+  // Find or create one MANUSCRIPT_REVISION artifact per immutable chapter id.
+  const existingRevision = await db.artifact.findFirst({
+    where: {
       bookId: book.id,
       stageId: editingStage.id,
       artifactType: ArtifactType.MANUSCRIPT_REVISION,
+      ...chapterIdentityWhere(chapterKey),
+    },
+    select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
+  });
+  const artifact = existingRevision
+    ? { id: existingRevision.id, versions: existingRevision.versions }
+    : await db.artifact.create({
+        data: {
+          bookId: book.id,
+          stageId: editingStage.id,
+          artifactType: ArtifactType.MANUSCRIPT_REVISION,
+          chapterId: chapterKey,
+          title: chapterTitle,
+          status: "REVIEW_READY",
+          metadataJson: chapterIdentityMetadata(chapterKey, { chapterTitle, summaryNotes: summaryNotes ?? "" }),
+        },
+        select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
+      });
+  const version = await createArtifactVersionInTransaction(db, {
+    artifactId: artifact.id,
+    lifecycleState: ArtifactStatus.REVIEW_READY,
+    contentJson: { text: editedContent },
+    contentText: editedContent,
+    createdByType: ActorType.MODEL,
+    artifactStatus: ArtifactStatus.REVIEW_READY,
+    title: chapterTitle,
+  });
+
+  await db.artifact.update({
+    where: { id: artifact.id },
+    data: {
+      currentVersionId: version.id,
       title: chapterTitle,
       status: "REVIEW_READY",
-      metadataJson: { chapterKey, chapterTitle, summaryNotes: summaryNotes ?? "" },
+      metadataJson: chapterIdentityMetadata(chapterKey, { chapterTitle, summaryNotes: summaryNotes ?? "" }),
     },
   });
-
-  const version = await db.artifactVersion.create({
-    data: {
-      artifactId: artifact.id,
-      versionNumber: 1,
-      lifecycleState: "REVIEW_READY",
-      contentJson: { text: editedContent },
-      contentText: editedContent,
-      createdByType: ActorType.MODEL,
-    },
+  await markFinalRevisionPending({
+    bookId: book.id,
+    chapterId: chapterKey,
+    versionId: version.id,
   });
-
-  await db.artifact.update({ where: { id: artifact.id }, data: { currentVersionId: version.id } });
 
   // Also PATCH the source CHAPTER_DRAFT artifact so downstream (TYPESET) gets polished prose
   // Guard: only patch if content is valid prose (> 200 words) to prevent error messages overwriting chapters
@@ -165,16 +208,12 @@ export async function POST(
       select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
     });
     if (sourceDraft) {
-      const nextVer = (sourceDraft.versions[0]?.versionNumber ?? 0) + 1;
-      const patchedVersion = await db.artifactVersion.create({
-        data: {
-          artifactId: sourceDraftId,
-          versionNumber: nextVer,
-          lifecycleState: "REVIEW_READY",
-          contentJson: { text: editedContent },
-          contentText: editedContent,
-          createdByType: ActorType.MODEL,
-        },
+      const patchedVersion = await createArtifactVersionInTransaction(db, {
+        artifactId: sourceDraftId,
+        lifecycleState: ArtifactStatus.REVIEW_READY,
+        contentJson: { text: editedContent },
+        contentText: editedContent,
+        createdByType: ActorType.MODEL,
       });
       await db.artifact.update({
         where: { id: sourceDraftId },
@@ -192,15 +231,25 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = await req.json() as {
+  let body: {
     editArtifactId: string;
     editedContent: string;
     summaryNotes?: string;
     sourceDraftId?: string;
   };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Editing update request",
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { editArtifactId, editedContent, summaryNotes, sourceDraftId } = body;
 
   if (!editArtifactId || !editedContent) {
@@ -211,22 +260,20 @@ export async function PATCH(
     where: { id: editArtifactId, bookId: book.id },
     select: {
       id: true,
+      chapterId: true,
       metadataJson: true,
       versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 },
     },
   });
   if (!artifact) return NextResponse.json({ error: "Artifact not found" }, { status: 404 });
 
-  const nextVer = (artifact.versions[0]?.versionNumber ?? 0) + 1;
-  const newVersion = await db.artifactVersion.create({
-    data: {
-      artifactId: editArtifactId,
-      versionNumber: nextVer,
-      lifecycleState: "REVIEW_READY",
-      contentJson: { text: editedContent },
-      contentText: editedContent,
-      createdByType: ActorType.USER,
-    },
+  const newVersion = await createArtifactVersionInTransaction(db, {
+    artifactId: editArtifactId,
+    lifecycleState: ArtifactStatus.REVIEW_READY,
+    contentJson: { text: editedContent },
+    contentText: editedContent,
+    createdByType: ActorType.USER,
+    artifactStatus: ArtifactStatus.REVIEW_READY,
   });
 
   // Update summaryNotes in metadataJson if provided
@@ -240,6 +287,14 @@ export async function PATCH(
         : {}),
     },
   });
+  const chapterId = getArtifactChapterId(artifact);
+  if (chapterId) {
+    await markFinalRevisionPending({
+      bookId: book.id,
+      chapterId,
+      versionId: newVersion.id,
+    });
+  }
 
   // Patch source draft too — only if content is valid prose (> 200 words)
   const patchWordCount = editedContent.trim().split(/\s+/).filter(Boolean).length;
@@ -249,16 +304,12 @@ export async function PATCH(
       select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
     });
     if (sourceDraft) {
-      const nextSrcVer = (sourceDraft.versions[0]?.versionNumber ?? 0) + 1;
-      const pv = await db.artifactVersion.create({
-        data: {
-          artifactId: sourceDraftId,
-          versionNumber: nextSrcVer,
-          lifecycleState: "REVIEW_READY",
-          contentJson: { text: editedContent },
-          contentText: editedContent,
-          createdByType: ActorType.USER,
-        },
+      const pv = await createArtifactVersionInTransaction(db, {
+        artifactId: sourceDraftId,
+        lifecycleState: ArtifactStatus.REVIEW_READY,
+        contentJson: { text: editedContent },
+        contentText: editedContent,
+        createdByType: ActorType.USER,
       });
       await db.artifact.update({ where: { id: sourceDraftId }, data: { currentVersionId: pv.id } });
     }

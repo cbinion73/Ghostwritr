@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { selectKnowledgeBaseContent } from "../src/lib/services/knowledge-base";
-import { __promiseTestUtils } from "../src/lib/workflows/promise";
+import { __promiseTestUtils } from "../src/lib/workflows/promise-public";
 
 function testExtractJsonTextDetectsIncompleteJson() {
   assert.throws(

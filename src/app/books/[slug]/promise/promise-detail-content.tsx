@@ -13,11 +13,12 @@ import {
   seedPromiseWorkspace,
 } from "./actions";
 import { ChatSidebar } from "./chat-sidebar";
+import { Phase1GuidedJourneyPanel } from "./phase1-guided-journey-panel";
 import { PromiseTabs } from "./promise-tabs";
 import { RefineButton } from "./refine-button";
 import { VerdictPanel } from "./verdict-panel";
 
-import { getPromiseWorkspace } from "@/lib/workflows/promise";
+import { getPromiseWorkspace } from "@/lib/workflows/promise-public";
 
 export async function PromiseDetailContent({ slug }: { slug: string }) {
   const workspace = await getPromiseWorkspace(slug);
@@ -43,6 +44,8 @@ export async function PromiseDetailContent({ slug }: { slug: string }) {
         <div style={{ padding: "10px 4px 0", flexShrink: 0 }}>
           <VerdictPanel scorecard={workspace.scorecard} committed={isCommitted} />
         </div>
+
+        <Phase1GuidedJourneyPanel slug={slug} workspace={workspace} />
 
         {/* Promise working material (conversation-built artifacts) */}
         <section

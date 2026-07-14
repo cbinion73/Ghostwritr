@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import {
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 type AuthorBio = {
   authorBioFull?: string;
@@ -13,11 +20,14 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { metadataJson: true },
-  });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
+
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
   const meta = (book.metadataJson ?? {}) as Record<string, unknown>;
   return NextResponse.json({
@@ -33,13 +43,21 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const body = await req.json() as AuthorBio;
+  const user = await requireAuthenticatedAppUser();
+  let body: AuthorBio;
+  try {
+    body = await parseLimitedJson(req, { label: "Author profile update" });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, metadataJson: true },
-  });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
   const existing = (book.metadataJson ?? {}) as Record<string, unknown>;
   const updated: Record<string, unknown> = { ...existing };

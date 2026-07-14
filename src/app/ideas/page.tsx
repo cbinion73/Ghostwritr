@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { BookWorkflowType } from "@prisma/client";
 import { AppTopBar } from "@/app/components/app-top-bar";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { getBookIdeas } from "@/lib/jarvis/client";
-import { listBooks } from "@/lib/repositories/books";
+import { listBooksForUser } from "@/lib/repositories/books";
 import { promoteIdeaToBookAction, addJarvisIdeaAction, deleteIdeaAction, markIdeaWrittenAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 const F = '"Iowan Old Style", "Palatino Linotype", Georgia, serif';
 
 export default async function IdeasPage() {
-  const [allIdeas, books] = await Promise.all([getBookIdeas(), listBooks()]);
+  const user = await requireAuthenticatedAppUser();
+  const [allIdeas, books] = await Promise.all([getBookIdeas(), listBooksForUser(user.id)]);
 
   // Map slug → book so we can look up which ideas are already in production
   const bookBySlug = new Map(books.map((b) => [b.slug, b]));

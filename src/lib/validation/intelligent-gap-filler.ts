@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { PromiseBrief, PersonaPack, MarketReport } from "@/lib/promise-types";
 import type { ValidationScores } from "./promise-validator";
+import { invokeValidationText } from "./validation-llm";
 
 /**
  * INTELLIGENT GAP-FILLING AGENT SYSTEM (OPTIMIZED)
@@ -34,19 +34,6 @@ export async function fillGapsIntelligently(
   market: MarketReport,
   validationScores: ValidationScores
 ): Promise<FilledGaps> {
-  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    throw new Error("GOOGLE_GENERATIVE_AI_API_KEY not configured");
-  }
-
-  const client = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
-  const model = client.getGenerativeModel({
-    model: "gemini-2.5-flash",
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 2000,
-    },
-  });
-
   // CRITICAL SCORES TO ADDRESS
   const personaScore = validationScores.personaMatch.score;
   const promiseScore = validationScores.promiseQuality.score;
@@ -211,28 +198,40 @@ Output ONLY the JSON object, no other text.`;
   try {
     // Make all three improvements in PARALLEL
     const [personasResponse, promiseResponse, marketResponse] = await Promise.all([
-      personaScore < 80 ? model.generateContent(fillPersonasPrompt) : null,
-      promiseScore < 80 ? model.generateContent(fillPromisePrompt) : null,
-      marketScore < 80 ? model.generateContent(fillMarketPrompt) : null,
+      personaScore < 80 ? invokeValidationText({
+        modelSpec: "google:gemini-2.5-flash",
+        stageRole: "audience:structured",
+        operation: "fill-gap-personas",
+        prompt: fillPersonasPrompt,
+        options: { temperature: 0.7, maxOutputTokens: 2000 },
+      }) : null,
+      promiseScore < 80 ? invokeValidationText({
+        modelSpec: "google:gemini-2.5-flash",
+        stageRole: "promise:structured",
+        operation: "fill-gap-promise",
+        prompt: fillPromisePrompt,
+        options: { temperature: 0.7, maxOutputTokens: 2000 },
+      }) : null,
+      marketScore < 80 ? invokeValidationText({
+        modelSpec: "google:gemini-2.5-flash",
+        stageRole: "market-analysis:research",
+        operation: "fill-gap-market",
+        prompt: fillMarketPrompt,
+        options: { temperature: 0.7, maxOutputTokens: 2000 },
+      }) : null,
     ]);
 
     // Parse responses
     const newPersonas = personasResponse
-      ? parsePersonasResponse(
-          personasResponse.response?.candidates?.[0]?.content?.parts?.[0]?.text || "",
-          personas
-        )
+      ? parsePersonasResponse(personasResponse, personas)
       : undefined;
 
     const newPromise = promiseResponse
-      ? parsePromiseResponse(
-          promiseResponse.response?.candidates?.[0]?.content?.parts?.[0]?.text || "",
-          promise
-        )
+      ? parsePromiseResponse(promiseResponse, promise)
       : undefined;
 
     const newMarket = marketResponse
-      ? parseMarketResponse(marketResponse.response?.candidates?.[0]?.content?.parts?.[0]?.text || "", market)
+      ? parseMarketResponse(marketResponse, market)
       : undefined;
 
     return {

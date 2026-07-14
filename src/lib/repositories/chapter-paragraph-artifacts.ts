@@ -8,6 +8,7 @@ import {
 import { db } from "../db";
 import type { ChapterParagraphPlan } from "../paragraph-outline-types";
 import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
+import { chapterIdentityWhere } from "./chapter-identity";
 
 type SaveChapterParagraphInput = {
   bookId: string;
@@ -44,7 +45,7 @@ export async function saveChapterParagraphPlan(input: SaveChapterParagraphInput)
       bookId: input.bookId,
       stageId: stage.id,
       artifactType: "CHAPTER_PARAGRAPH_PLAN" as any,
-      metadataJson: { path: ["chapterId"], equals: input.chapterId },
+      ...chapterIdentityWhere(input.chapterId),
     },
     orderBy: { updatedAt: "desc" },
   });
@@ -55,6 +56,7 @@ export async function saveChapterParagraphPlan(input: SaveChapterParagraphInput)
         bookId: input.bookId,
         stageId: stage.id,
         artifactType: "CHAPTER_PARAGRAPH_PLAN" as any,
+        chapterId: input.chapterId,
         title: `Paragraph Plan: ${input.chapterTitle}`,
         summary: `Chapter ${input.chapterNumber}: ${input.chapterTitle}`,
         metadataJson: {
@@ -111,6 +113,7 @@ export async function getChapterParagraphPlans(bookId: string) {
       stageId: stage.id,
       artifactType: "CHAPTER_PARAGRAPH_PLAN" as any,
     },
+    orderBy: { updatedAt: "desc" },
     include: {
       versions: {
         orderBy: { versionNumber: "desc" },
@@ -135,7 +138,7 @@ export async function getChapterParagraphPlan(bookId: string, chapterId: string)
       bookId,
       stageId: stage.id,
       artifactType: "CHAPTER_PARAGRAPH_PLAN" as any,
-      metadataJson: { path: ["chapterId"], equals: chapterId },
+      ...chapterIdentityWhere(chapterId),
     },
     orderBy: { updatedAt: "desc" },
     include: {

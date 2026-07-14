@@ -11,6 +11,7 @@ import { ArtifactType, type BookWorkflowType } from "@prisma/client";
 import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
 import { getCommittedOutlineExpansion } from "@/lib/repositories/outline-artifacts";
 import { isLikelyGarbageChapterContent } from "@/lib/repositories/artifact-lifecycle";
+import { getArtifactChapterId } from "@/lib/repositories/chapter-identity";
 import type { BookFormatTarget } from "@/lib/book-setup-types";
 import type { ParagraphOutline } from "@/lib/paragraph-outline-types";
 
@@ -106,6 +107,7 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
         where: { bookId: book.id, stageId: chapterStageId, artifactType: ArtifactType.CHAPTER_DRAFT },
         select: {
           id: true,
+          chapterId: true,
           title: true,
           status: true,
           metadataJson: true,
@@ -128,8 +130,7 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
   // the deterministic fallback text.
   const byChapterKey = new Map<string, (typeof chapterArtifacts)[number]>();
   for (const artifact of chapterArtifacts) {
-    const meta = artifact.metadataJson as Record<string, string> | null;
-    const chapterKey = meta?.chapterKey;
+    const chapterKey = getArtifactChapterId(artifact);
     if (!chapterKey || !realChapterKeys.has(chapterKey)) continue;
     const existing = byChapterKey.get(chapterKey);
     if (!existing) {

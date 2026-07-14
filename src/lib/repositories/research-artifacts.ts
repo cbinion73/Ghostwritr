@@ -24,6 +24,7 @@ import { sanitizeUnknown, stripNullChars } from "../sanitize";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
 import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
+import { chapterIdentityMetadata, chapterIdentityWhere, getArtifactChapterId } from "./chapter-identity";
 
 type CreateResearchPackVersionInput = {
   bookId: string;
@@ -259,6 +260,7 @@ export async function getLatestResearchPackVersionsByChapter(
         artifactType: ArtifactType.RESEARCH_PACK,
       },
       select: {
+        chapterId: true,
         title: true,
         metadataJson: true,
         versions: {
@@ -273,7 +275,7 @@ export async function getLatestResearchPackVersionsByChapter(
     const versionsByChapter = new Map<string, ArtifactVersion>();
 
     for (const artifact of artifacts) {
-      const chapterKey = getArtifactChapterKey(artifact.metadataJson, artifact.title);
+      const chapterKey = getArtifactChapterId(artifact) ?? getArtifactChapterKey(artifact.metadataJson, artifact.title);
       const version = artifact.versions[0];
 
       if (!chapterKey || !version) {
@@ -309,6 +311,8 @@ export async function getCommittedResearchPack(bookId: string, chapterKey: strin
       },
       select: {
         id: true,
+        chapterId: true,
+        metadataJson: true,
         title: true,
         committedVersionId: true,
       },
@@ -318,7 +322,10 @@ export async function getCommittedResearchPack(bookId: string, chapterKey: strin
 
     // Find the artifact matching this chapter
     const titlePrefix = `Research Pack: ${chapterKey} - `;
-    const matchingArtifact = artifacts.find((a) => a.title?.startsWith(titlePrefix));
+    const matchingArtifact = artifacts.find(
+      (a) => (getArtifactChapterId(a) ?? getArtifactChapterKey(a.metadataJson, a.title)) === chapterKey
+        || a.title?.startsWith(titlePrefix),
+    );
 
     if (!matchingArtifact || !matchingArtifact.committedVersionId) {
       return null;
@@ -414,7 +421,7 @@ export async function createResearchPackVersion(input: CreateResearchPackVersion
           bookId: normalizedInput.bookId,
           stageId: researchStage.id,
           artifactType: ArtifactType.RESEARCH_PACK,
-          title: artifactTitle,
+          ...chapterIdentityWhere(normalizedInput.chapterKey),
         },
       })) ??
       (await tx.artifact.create({
@@ -422,13 +429,13 @@ export async function createResearchPackVersion(input: CreateResearchPackVersion
           bookId: normalizedInput.bookId,
           stageId: researchStage.id,
           artifactType: ArtifactType.RESEARCH_PACK,
+          chapterId: normalizedInput.chapterKey,
           title: artifactTitle,
           summary: normalizedInput.summary,
           status: ArtifactStatus.DRAFT,
-          metadataJson: {
-            chapterKey: normalizedInput.chapterKey,
+          metadataJson: chapterIdentityMetadata(normalizedInput.chapterKey, {
             chapterTitle: normalizedInput.chapterTitle,
-          },
+          }),
         },
       }));
 
@@ -594,6 +601,8 @@ export async function commitResearchPack(bookId: string, chapterKey: string) {
         stageId: researchStage.id,
         artifactType: ArtifactType.RESEARCH_PACK,
         OR: [
+          { chapterId: chapterKey },
+          { metadataJson: { path: ["chapterId"], equals: chapterKey } },
           { metadataJson: { path: ["chapterKey"], equals: chapterKey } },
           { title: { startsWith: `Research Pack: ${chapterKey} - ` } },
         ],

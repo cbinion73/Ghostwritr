@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
 import { getTotalCostForBook } from "@/lib/llm/call-log";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { listActiveWorkflowRunsForBook } from "@/lib/repositories/workflow-runs";
 import { getElapsedSeconds, isWorkflowRunning } from "@/lib/workflow-status";
-import { STAGE_TOKENS, FICTION_STAGE_TOKENS } from "@/lib/ui/stage-tokens";
+import { getStageDefinitionForKey } from "@/lib/workflow-registry";
+import type { BookWorkflowType, StageKey } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
-function stageLabelForKey(stageKey: string): string {
-  const token =
-    STAGE_TOKENS.find((t) => t.key === stageKey) ??
-    FICTION_STAGE_TOKENS.find((t) => t.key === stageKey);
-  return token?.label ?? stageKey;
+function stageLabelForKey(workflowType: BookWorkflowType, stageKey: StageKey): string {
+  return getStageDefinitionForKey(workflowType, stageKey)?.label ?? stageKey;
 }
 
 export type ActivityRun = {
@@ -34,12 +34,14 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
+  const user = await requireAuthenticatedAppUser();
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true },
-  });
-  if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const activeRuns = await listActiveWorkflowRunsForBook(book.id);
 
@@ -60,7 +62,7 @@ export async function GET(
       return {
         runId: run.id,
         stageKey: run.stage.stageKey,
-        stageLabel: stageLabelForKey(run.stage.stageKey),
+        stageLabel: stageLabelForKey(book.workflowType, run.stage.stageKey),
         status: run.status,
         startedAt: run.startedAt.toISOString(),
         elapsedSeconds: Math.max(0, Math.round((Date.now() - run.startedAt.getTime()) / 1000)),

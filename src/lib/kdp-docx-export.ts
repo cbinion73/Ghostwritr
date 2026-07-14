@@ -18,6 +18,7 @@ import {
   convertInchesToTwip,
   Document,
   Footer,
+  Header,
   HeadingLevel,
   PageBreak,
   PageNumber,
@@ -25,6 +26,8 @@ import {
   Paragraph,
   TextRun,
 } from "docx";
+
+import { normalizeTypesetPlan, type TypesetPlanInput } from "./typeset-plan";
 
 // Universal first-line indent
 const INDENT = convertInchesToTwip(0.3);
@@ -40,6 +43,7 @@ interface DesignSpec {
   marginBot: number;
   marginIn: number;  // inside/gutter
   marginOut: number;
+  gutter: number;
   font: string;
   bodySz: number;    // half-points
   leading: number;   // twips (1pt = 20 twips)
@@ -98,8 +102,28 @@ function parseDesignSpec(raw: string): DesignSpec {
 
   return {
     trimW: t.w, trimH: t.h,
-    marginTop: t.top, marginBot: t.bot, marginIn: t.ins, marginOut: t.out,
+    marginTop: t.top, marginBot: t.bot, marginIn: t.ins, marginOut: t.out, gutter: 0,
     font, bodySz, leading, chapterOpenStyle, sectionBreak,
+  };
+}
+
+function planToDesignSpec(input: TypesetPlanInput): DesignSpec {
+  const plan = normalizeTypesetPlan(input);
+  return {
+    trimW: plan.trim.widthIn,
+    trimH: plan.trim.heightIn,
+    marginTop: plan.margins.topIn,
+    marginBot: plan.margins.bottomIn,
+    marginIn: plan.margins.insideIn,
+    marginOut: plan.margins.outsideIn,
+    gutter: plan.margins.gutterIn,
+    font: plan.typography.bodyFont,
+    bodySz: Math.round(plan.typography.bodyPointSize * 2),
+    leading: Math.round(plan.typography.lineHeightPt * 20),
+    chapterOpenStyle: ["classic", "minimal", "number-prominent"].includes(plan.chapterOpenerStyle)
+      ? (plan.chapterOpenerStyle as DesignSpec["chapterOpenStyle"])
+      : "classic",
+    sectionBreak: plan.sectionBreak === "recto" ? "* * *" : "",
   };
 }
 
@@ -168,13 +192,19 @@ export interface ManuscriptInput {
   subtitle?: string | null;
   author?: string | null;
   typesetContent: string;
+  typesetPlan?: TypesetPlanInput;
   chapters: Array<{ title: string; body: string }>;
 }
 
 export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   const { title, subtitle, chapters } = input;
   const ts  = parseTypeset(input.typesetContent);
-  const spec = parseDesignSpec(ts.designSpec);
+  const plan = normalizeTypesetPlan({
+    ...(input.typesetPlan ?? {}),
+    title,
+    subtitle: subtitle ?? null,
+  });
+  const spec = input.typesetPlan ? planToDesignSpec(plan) : parseDesignSpec(ts.designSpec);
 
   // Layout constants derived from design spec
   const PAGE_W  = convertInchesToTwip(spec.trimW);
@@ -183,6 +213,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   const M_BOT   = convertInchesToTwip(spec.marginBot);
   const M_IN    = convertInchesToTwip(spec.marginIn);
   const M_OUT   = convertInchesToTwip(spec.marginOut);
+  const M_GUT   = convertInchesToTwip(spec.gutter);
   const F       = spec.font;
   const SZ      = spec.bodySz;
   const SZ_SM   = Math.round(SZ * 0.83);   // ~10pt for 12pt body — copyright
@@ -196,9 +227,22 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   const PAGE_PROPS = {
     page: {
       size: { width: PAGE_W, height: PAGE_H },
-      margin: { top: M_TOP, bottom: M_BOT, left: M_IN, right: M_OUT, gutter: 0 },
+      margin: { top: M_TOP, bottom: M_BOT, left: M_IN, right: M_OUT, gutter: M_GUT },
     },
   };
+
+  // ── Header ──────────────────────────────────────────────────────────────────
+  function makeHeader() {
+    return new Header({
+      children: [
+        new Paragraph({
+          children: [new TextRun({ text: plan.runningHeads, font: F, size: SZ_SM })],
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 0 },
+        }),
+      ],
+    });
+  }
 
   // ── Footer ──────────────────────────────────────────────────────────────────
   function makeFooter() {
@@ -572,6 +616,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
   }
 
   function buildTocPage(chs: Array<{ title: string }>): Paragraph[] {
+    if (!plan.tocIncluded) return [];
     return [
       new Paragraph({
         children: [run("Contents", { size: SZ_CH, bold: true })],
@@ -684,6 +729,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
     sections: [
       {
         properties: PAGE_PROPS,
+        headers: { default: makeHeader() },
         footers: { default: makeFooter() },
         children: allChildren,
       },

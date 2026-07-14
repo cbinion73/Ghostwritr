@@ -10,7 +10,7 @@ function getTabPath(slug: string, tabId?: string) {
 }
 
 async function getResearchWorkflows() {
-  return import("@/lib/workflows/research");
+  return import("@/lib/workflows/research-public");
 }
 
 async function getStageControls() {

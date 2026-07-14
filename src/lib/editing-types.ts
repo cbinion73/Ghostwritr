@@ -5,6 +5,12 @@ export type EditingChapterSnapshot = {
   wordCount: number;
   reviewSummary: string | null;
   chapterText: string;
+  approvedDraftVersionId?: string | null;
+  paragraphOutline?: Array<{
+    id: string;
+    topicSentence: string;
+    purpose: string;
+  }>;
   quality?: {
     score: number;
     readiness: "strong" | "watch" | "needs attention";
@@ -57,6 +63,17 @@ export type EditorialAssessment = {
   mode: EditorialMode;
   chapterKey?: string | null;
   assessmentSummary: string;
+  bookWideFindings?: {
+    duplication: string[];
+    continuity: string[];
+    structure: string[];
+    voice: string[];
+    aiArtifacts: string[];
+    terminology: string[];
+    citations: string[];
+    preservation: string[];
+    chapterInstructions: string[];
+  };
   strengths: string[];
   risks: string[];
   chapterNotes: EditorialAssessmentChapterNote[];
@@ -128,9 +145,11 @@ export type EditorialReadinessGate = {
 export type ManuscriptRevisionChange = {
   chapterKey: string;
   chapterLabel: string;
+  approvedDraftVersionId?: string | null;
   originalText: string;
   revisedText: string;
   changeSummary: string;
+  assessmentInstructions?: string[];
 };
 
 export type ManuscriptRevision = {

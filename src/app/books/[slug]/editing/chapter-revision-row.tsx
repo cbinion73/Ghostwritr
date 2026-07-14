@@ -40,6 +40,8 @@ export function ChapterRevisionRow({
   changeSummary,
   originalText,
   revisedText,
+  approvedDraftVersionId,
+  assessmentInstructions,
   revisionVersionId,
   chapterNote,
 }: {
@@ -54,6 +56,8 @@ export function ChapterRevisionRow({
   changeSummary: string | null;
   originalText: string;
   revisedText: string | null;
+  approvedDraftVersionId: string | null;
+  assessmentInstructions: string[];
   revisionVersionId: string | null;
   chapterNote: string | null;
 }) {
@@ -93,7 +97,7 @@ export function ChapterRevisionRow({
             <>
               <form action={applyManuscriptRevision.bind(null, slug)}>
                 <input type="hidden" name="revisionVersionId" value={revisionVersionId} />
-                <SubmitButton className="btn btn-primary" label="✓ Apply" pendingLabel="Applying…" />
+                <SubmitButton className="btn btn-primary" label="✓ Approve Final Revision" pendingLabel="Approving…" />
               </form>
               <form action={rejectManuscriptRevision.bind(null, slug)}>
                 <input type="hidden" name="revisionVersionId" value={revisionVersionId} />
@@ -109,6 +113,21 @@ export function ChapterRevisionRow({
       {mode === "read" ? (
         <div style={{ padding: "0 16px 14px" }}>
           {changeSummary ? <div style={{ ...wordCountStyle, marginBottom: 8 }}>{changeSummary}</div> : null}
+          {approvedDraftVersionId ? (
+            <div style={{ ...wordCountStyle, marginBottom: 8 }}>
+              Approved Quill draft: {approvedDraftVersionId.slice(0, 8)}
+            </div>
+          ) : null}
+          {assessmentInstructions.length > 0 ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={compareLabelStyle}>Revision guardrails</div>
+              <ul style={{ margin: "6px 0 0 18px", color: "#6f6258", fontSize: 12, lineHeight: 1.55 }}>
+                {assessmentInstructions.slice(0, 5).map((instruction) => (
+                  <li key={instruction}>{instruction}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {revisedText ? (
             <>
               <div style={compareLabelStyle}>Before</div>

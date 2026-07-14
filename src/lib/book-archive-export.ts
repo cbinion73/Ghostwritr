@@ -54,6 +54,7 @@ type BookArchiveManifest = {
     status: string;
     currentVersionId: string | null;
     committedVersionId: string | null;
+    chapterId: string | null;
     title: string | null;
     summary: string | null;
     metadataJson: Prisma.JsonValue | null;
@@ -255,6 +256,7 @@ function serializeManifest(
       status: artifact.status,
       currentVersionId: artifact.currentVersionId ?? null,
       committedVersionId: artifact.committedVersionId ?? null,
+      chapterId: artifact.chapterId ?? null,
       title: artifact.title ?? null,
       summary: artifact.summary ?? null,
       metadataJson: artifact.metadataJson,

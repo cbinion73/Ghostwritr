@@ -8,9 +8,14 @@
 
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { StageStatus } from "@prisma/client";
-import { db } from "@/lib/db";
-import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { commitStageAndUnlockNext, ensureStageStarted } from "@/lib/workflows/stage-transition-service";
+import {
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 interface CommitStageBody {
   stageKey: StageKey;
@@ -21,14 +26,22 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
+  const user = await requireAuthenticatedAppUser();
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, workflowType: true },
-  });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
-  const body = await req.json() as CommitStageBody;
+  let body: CommitStageBody;
+  try {
+    body = await parseLimitedJson(req, { label: "Stage commit request" });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { stageKey } = body;
 
   if (!stageKey) {
@@ -38,37 +51,15 @@ export async function POST(
   try {
     const now = new Date();
 
-    // Mark the stage COMMITTED
-    await db.bookStage.upsert({
-      where: { bookId_stageKey: { bookId: book.id, stageKey } },
-      update: {
-        status: StageStatus.COMMITTED,
-        committedAt: now,
-      },
-      create: {
-        bookId: book.id,
-        stageKey,
-        status: StageStatus.COMMITTED,
-        committedAt: now,
-      },
+    await ensureStageStarted({ bookId: book.id, stageKey });
+    const transition = await commitStageAndUnlockNext({
+      bookId: book.id,
+      workflowType: book.workflowType,
+      stageKey,
+      committedAt: now,
     });
 
-    // Advance the next stage to IN_PROGRESS
-    const stageOrder = getWorkflowStageKeys(book.workflowType);
-    const currentIdx = stageOrder.indexOf(stageKey);
-    const nextStageKey = currentIdx >= 0 && currentIdx < stageOrder.length - 1
-      ? stageOrder[currentIdx + 1]
-      : null;
-
-    if (nextStageKey) {
-      await db.bookStage.upsert({
-        where: { bookId_stageKey: { bookId: book.id, stageKey: nextStageKey } },
-        update: { status: StageStatus.IN_PROGRESS },
-        create: { bookId: book.id, stageKey: nextStageKey, status: StageStatus.IN_PROGRESS },
-      });
-    }
-
-    return NextResponse.json({ success: true, stageStatus: "COMMITTED", nextStageKey: nextStageKey ?? null });
+    return NextResponse.json({ success: true, stageStatus: "COMMITTED", nextStageKey: transition.nextStageKey ?? null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

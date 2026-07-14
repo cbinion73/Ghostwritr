@@ -13,10 +13,12 @@ import {
   finalizeOutlineWorkflow,
   runOutlineWorkflow,
 } from "@/lib/workflows/outline";
+import { assertApprovedPhase1StrategicBrief } from "@/lib/workflows/phase1-gates";
 import {
   commitParagraphOutlineWorkflow,
   runParagraphOutlineWorkflow,
   generateChapterParagraphPlan,
+  persistLinkedParagraphOutlineFromChapterArtifacts,
 } from "@/lib/workflows/outline-paragraphs";
 import {
   appendOutlinePhaseChats,
@@ -29,6 +31,7 @@ import {
 import { getBookBySlugOrThrow, getStageForBook, updateStageForBook } from "@/lib/repositories/books";
 import { saveChapterParagraphPlan } from "@/lib/repositories/chapter-paragraph-artifacts";
 import { getCommittedOutline } from "@/lib/repositories/outline-artifacts";
+import { invalidateDependentStagesForBook } from "@/lib/workflow-dependencies";
 import { ActorType } from "@prisma/client";
 
 type OutlinePhaseId = "sectionsChapters" | "chapterBreakdowns" | "fullToc";
@@ -284,6 +287,7 @@ async function resetOutlineApprovalsAfterPhaseChange(
 }
 
 export async function generateOutline(slug: string, formData: FormData) {
+  await assertApprovedPhase1StrategicBrief(slug);
   const note = String(formData.get("note") ?? "").trim();
 
   await runOutlineWorkflow(slug, {
@@ -295,6 +299,7 @@ export async function generateOutline(slug: string, formData: FormData) {
 }
 
 export async function commentOnOutlineItem(slug: string, formData: FormData) {
+  await assertApprovedPhase1StrategicBrief(slug);
   const comment = String(formData.get("comment") ?? "").trim();
   const targetId = String(formData.get("targetId") ?? "").trim();
   const targetTypeValue = String(formData.get("targetType") ?? "").trim();
@@ -314,6 +319,7 @@ export async function commentOnOutlineItem(slug: string, formData: FormData) {
 }
 
 export async function commitOutlineStage(slug: string) {
+  await assertApprovedPhase1StrategicBrief(slug);
   const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const approvals = normalizeOutlinePhaseApprovals(stage?.metadataJson);
@@ -340,6 +346,7 @@ export async function commitOutlineStage(slug: string) {
 }
 
 export async function generateParagraphOutlineFromOutline(slug: string) {
+  await assertApprovedPhase1StrategicBrief(slug);
   await runParagraphOutlineWorkflow(slug);
   await resetOutlineApprovalsAfterPhaseChange(slug, "chapterBreakdowns");
   revalidatePath(`/books/${slug}`);
@@ -349,6 +356,7 @@ export async function commentOnParagraphOutlineFromOutline(
   slug: string,
   formData: FormData,
 ) {
+  await assertApprovedPhase1StrategicBrief(slug);
   const comment = String(formData.get("comment") ?? "").trim();
   const targetId = String(formData.get("targetId") ?? "").trim();
   const targetTypeValue = String(formData.get("targetType") ?? "").trim();
@@ -370,6 +378,7 @@ export async function commentOnParagraphOutlineFromOutline(
 }
 
 export async function commitParagraphOutlineFromOutline(slug: string) {
+  await assertApprovedPhase1StrategicBrief(slug);
   const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const approvals = normalizeOutlinePhaseApprovals(stage?.metadataJson);
@@ -397,16 +406,19 @@ export async function commitParagraphOutlineFromOutline(slug: string) {
 }
 
 export async function generateOutlineToc(slug: string) {
+  await assertApprovedPhase1StrategicBrief(slug);
   await generateOutlineTocArtifactWorkflow(slug);
   revalidatePath(`/books/${slug}`);
 }
 
 export async function approveOutlinePhase(slug: string, phase: OutlinePhaseId) {
+  await assertApprovedPhase1StrategicBrief(slug);
   await setOutlinePhaseApproval(slug, phase, "approved");
   revalidatePath(`/books/${slug}`);
 }
 
 export async function requestOutlinePhaseChanges(slug: string, phase: OutlinePhaseId) {
+  await assertApprovedPhase1StrategicBrief(slug);
   await setOutlinePhaseApproval(slug, phase, "pending");
   revalidatePath(`/books/${slug}`);
 }
@@ -419,6 +431,7 @@ export async function sendOutlinePhaseMessage(
   targetId?: string,
   targetLabel?: string,
 ) {
+  await assertApprovedPhase1StrategicBrief(slug);
   const trimmed = message.trim();
   if (!trimmed) {
     return {
@@ -588,6 +601,7 @@ export async function sendOutlinePhaseMessage(
 }
 
 export async function finalizeOutlinePackage(slug: string) {
+  await assertApprovedPhase1StrategicBrief(slug);
   const book = await getBookBySlugOrThrow(slug);
   const stage = await getStageForBook(book.id, StageKey.OUTLINE);
   const metadata = stageMetadataRecord(stage?.metadataJson) as Record<string, unknown>;
@@ -622,6 +636,7 @@ export async function finalizeOutlinePackage(slug: string) {
 
 export async function regenerateChapterBreakdown(slug: string, chapterId: string) {
   try {
+    await assertApprovedPhase1StrategicBrief(slug);
     console.log(`[regenerateChapterBreakdown] Starting for chapter: ${chapterId}`);
 
     const book = await getBookBySlugOrThrow(slug);
@@ -682,6 +697,12 @@ export async function regenerateChapterBreakdown(slug: string, chapterId: string
       contentJson: plan,
       createdByType: ActorType.SYSTEM,
       modelName: "claude-sonnet-4-6",
+    });
+
+    await persistLinkedParagraphOutlineFromChapterArtifacts(book.id);
+    await invalidateDependentStagesForBook(slug, StageKey.OUTLINE, {
+      chapterIds: [chapter.id],
+      reason: `Paragraph-level outline changed for chapter "${chapter.title}".`,
     });
 
     console.log(`[regenerateChapterBreakdown] Resetting approvals`);

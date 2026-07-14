@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { finalizePublishingHandoffWorkflow } from "@/lib/workflows/editing";
+import { finalizePublishingHandoffWorkflow } from "@/lib/workflows/editing-public";
 import { getBookSetupWorkspace, saveBookSetupWorkflow } from "@/lib/workflows/book-setup";
 import type { BookFormatTarget } from "@/lib/book-setup-types";
 

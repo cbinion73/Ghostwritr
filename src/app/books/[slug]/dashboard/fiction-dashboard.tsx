@@ -29,7 +29,7 @@ import {
 import { getBookStageLinks } from "@/lib/navigation";
 import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { getCommittedFictionArtifactVersion } from "@/lib/repositories/fiction-artifacts";
-import { getEditingWorkspace } from "@/lib/workflows/editing";
+import { getEditingWorkspace } from "@/lib/workflows/editing-public";
 import type { WorkflowAutomationMode } from "@/lib/workflows/workflow-automation";
 
 type AutomationUiState = {

@@ -21,6 +21,10 @@ function statusLabel(value: string) {
   return value.replace(/_/g, " ").toLowerCase();
 }
 
+function readinessLabel(value: string) {
+  return value.replace(/_/g, " ").toLowerCase();
+}
+
 export async function PersonalStoriesContent({ slug }: { slug: string }) {
   const workspace = await getPersonalStoriesWorkspace(slug);
   const isCommitted = workspace.stage?.status === "COMMITTED";
@@ -117,6 +121,9 @@ export async function PersonalStoriesContent({ slug }: { slug: string }) {
                 <div className="pill-row">
                   <div className="pill">Status: {statusLabel(workspace.progress.interviewStatus)}</div>
                   <div className="pill">Stories: {workspace.progress.storyCount}</div>
+                  <div className="pill">Ready: {workspace.encyclopedia.readinessSummary.readyStories}</div>
+                  <div className="pill">Needs detail: {workspace.encyclopedia.readinessSummary.needsDetailStories}</div>
+                  <div className="pill">Permission blocked: {workspace.encyclopedia.readinessSummary.permissionBlockedStories}</div>
                   <div className="pill">No-story areas: {workspace.progress.noStoryTopicCount}</div>
                 </div>
                 <p style={{ margin: "14px 0 0", lineHeight: 1.75 }}>
@@ -183,6 +190,12 @@ export async function PersonalStoriesContent({ slug }: { slug: string }) {
                         {entry.status.replace(/_/g, " ")}
                       </div>
                     </div>
+                    <div className="pill-row" style={{ marginTop: 10 }}>
+                      <div className="pill">Readiness: {readinessLabel(entry.readiness)}</div>
+                      <div className="pill">Permission: {entry.permission.status.replace(/_/g, " ")}</div>
+                      <div className="pill">Assignments: {entry.assignments.length}</div>
+                      <div className="pill">Usage: {entry.usageHistory.length}</div>
+                    </div>
 
                     <p>{entry.summary}</p>
                     <p className="muted">
@@ -194,12 +207,33 @@ export async function PersonalStoriesContent({ slug }: { slug: string }) {
 
                     <div className="pill-row">
                       <div className="pill">Life area: {entry.lifeArea}</div>
-                      {entry.chapterFitHints.map((hint) => (
-                        <div className="pill" key={hint}>
-                          {hint}
+                      {entry.assignments.map((assignment) => (
+                        <div className="pill" key={`${entry.id}-${assignment.chapterKey}`}>
+                          {assignment.chapterTitle ?? assignment.chapterKey}
                         </div>
                       ))}
                     </div>
+
+                    {entry.missingDetails.length > 0 ? (
+                      <div className="card" style={{ marginTop: 12, borderColor: "rgba(184,121,58,0.3)", background: "rgba(184,121,58,0.08)" }}>
+                        <strong>Missing details before drafting</strong>
+                        <ul className="clean-list" style={{ marginTop: 8 }}>
+                          {entry.missingDetails.map((detail) => (
+                            <li key={detail}>{detail}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    {entry.permission.status !== "granted" ? (
+                      <div className="card" style={{ marginTop: 12, borderColor: "rgba(184,121,58,0.3)", background: "rgba(184,121,58,0.08)" }}>
+                        <strong>Permission needed</strong>
+                        <div className="muted" style={{ marginTop: 8 }}>
+                          {entry.permission.notes ??
+                            "Confirm this story may be used before Quill can draft with it."}
+                        </div>
+                      </div>
+                    ) : null}
 
                     {entry.emotionalNotes.length > 0 ? (
                       <div className="story-entry-emotions">

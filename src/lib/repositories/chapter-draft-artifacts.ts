@@ -12,6 +12,8 @@ import { db } from "../db";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
 import { isLikelyGarbageChapterContent, pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
+import { chapterIdentityMetadata, chapterIdentityWhere } from "./chapter-identity";
+import { markDraftApproved, markDraftPending } from "./chapter-approval-state";
 
 type CreateChapterArtifactVersionInput = {
   bookId: string;
@@ -59,7 +61,7 @@ export async function getChapterArtifactVersions(
     where: {
       bookId,
       artifactType,
-      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      ...chapterIdentityWhere(chapterKey),
       stage: {
         stageKey: StageKey.CHAPTER_DRAFT,
       },
@@ -90,7 +92,7 @@ export async function getCommittedChapterDraft(bookId: string, chapterKey: strin
     where: {
       bookId,
       artifactType: ArtifactType.CHAPTER_DRAFT,
-      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      ...chapterIdentityWhere(chapterKey),
       stage: {
         stageKey: StageKey.CHAPTER_DRAFT,
       },
@@ -125,7 +127,7 @@ export async function createChapterArtifactVersion(input: CreateChapterArtifactV
         bookId: input.bookId,
         stageId: stage.id,
         artifactType: input.artifactType,
-        title,
+        ...chapterIdentityWhere(input.chapterKey),
       },
     })) ??
     (await db.artifact.create({
@@ -133,13 +135,13 @@ export async function createChapterArtifactVersion(input: CreateChapterArtifactV
         bookId: input.bookId,
         stageId: stage.id,
         artifactType: input.artifactType,
+        chapterId: input.chapterKey,
         title,
         summary: input.summary,
         status: ArtifactStatus.DRAFT,
-        metadataJson: {
-          chapterKey: input.chapterKey,
+        metadataJson: chapterIdentityMetadata(input.chapterKey, {
           chapterTitle: input.chapterTitle,
-        },
+        }),
       },
     }));
 
@@ -174,6 +176,12 @@ export async function createChapterArtifactVersion(input: CreateChapterArtifactV
   });
 
   if (input.artifactType === ArtifactType.CHAPTER_DRAFT) {
+    await markDraftPending({
+      bookId: input.bookId,
+      chapterId: input.chapterKey,
+      versionId: version.id,
+    });
+
     await db.bookStage.update({
       where: { id: stage.id },
       data: {
@@ -210,7 +218,7 @@ export async function commitChapterDraft(bookId: string, chapterKey: string) {
         bookId,
         stageId: stage.id,
         artifactType: ArtifactType.CHAPTER_DRAFT,
-        metadataJson: { path: ["chapterKey"], equals: chapterKey },
+        ...chapterIdentityWhere(chapterKey),
         currentVersionId: { not: null },
         status: { not: ArtifactStatus.SUPERSEDED },
       },
@@ -239,6 +247,12 @@ export async function commitChapterDraft(bookId: string, chapterKey: string) {
         currentVersionId: artifact.currentVersionId,
         status: ArtifactStatus.COMMITTED,
       },
+    });
+    await markDraftApproved({
+      bookId,
+      chapterId: chapterKey,
+      versionId: artifact.currentVersionId,
+      client: tx,
     });
 
     // Any other Artifact row for this same chapterKey is a duplicate from

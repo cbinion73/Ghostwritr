@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { AuthorPanel } from "./author-panel";
 import { AppTopBar } from "@/app/components/app-top-bar";
-import { STAGE_LINKS } from "@/lib/navigation";
+import { getBookStageLinks } from "@/lib/navigation";
 
 export default async function AuthorPage({
   params,
@@ -13,11 +13,12 @@ export default async function AuthorPage({
   const { slug } = await params;
   const book = await db.book.findUnique({
     where: { slug },
-    select: { titleWorking: true, subtitle: true, metadataJson: true },
+    select: { titleWorking: true, subtitle: true, metadataJson: true, workflowType: true },
   });
   if (!book) notFound();
 
   const meta = (book.metadataJson ?? {}) as Record<string, unknown>;
+  const stageLinks = getBookStageLinks(book.workflowType, slug);
 
   return (
     <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -33,8 +34,8 @@ export default async function AuthorPage({
           </div>
           <div className="stage-list">
             <Link href="/" className="stage-chip">← Library</Link>
-            {STAGE_LINKS.map((stage) => (
-              <Link key={stage.key} href={stage.href(slug)} className="stage-chip">
+            {stageLinks.map((stage) => (
+              <Link key={stage.key} href={stage.href} className="stage-chip">
                 {stage.label}
               </Link>
             ))}

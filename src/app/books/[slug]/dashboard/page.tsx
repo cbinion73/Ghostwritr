@@ -27,7 +27,7 @@ import { SubmitButton } from "@/app/components/submit-button";
 import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
 import { getChapterArtifactVersions } from "@/lib/repositories/chapter-draft-artifacts";
-import { STAGE_LINKS } from "@/lib/navigation";
+import { getBookStageLinks } from "@/lib/navigation";
 import { getCommittedOutline } from "@/lib/repositories/outline-artifacts";
 import {
   getLatestResearchPackVersionsByChapter,
@@ -40,7 +40,7 @@ import {
   getLatestExternalStoryPackVersionsByChapter,
 } from "@/lib/repositories/external-stories-artifacts";
 import { getBaseStoryVersions } from "@/lib/repositories/base-story-artifacts";
-import { getEditingWorkspace } from "@/lib/workflows/editing";
+import { getEditingWorkspace } from "@/lib/workflows/editing-public";
 import { getStageControlCapabilities } from "@/lib/workflows/stage-controls";
 import type { BookOutline } from "@/lib/outline-types";
 import { countWords, estimatePagesFromWords, toPercent } from "@/lib/manuscript-metrics";
@@ -56,18 +56,37 @@ type AutomationUiState = {
 function getProgress(stage: {
   status: string;
   metadataJson: unknown;
+  operationalState?: {
+    automationStatus: string | null;
+    currentAction: string | null;
+    currentChapterKey: string | null;
+    totalChapters: number;
+    completedChapters: number;
+    failedChapters: unknown;
+    provisionalChapters: unknown;
+    recentActivity: unknown;
+    selectedFormat: string | null;
+    errorMessage: string | null;
+  } | null;
 }) {
   const metadata = parseMetadataRecord(stage.metadataJson);
-  const failedChapters = Array.isArray(metadata.failedChapters) ? metadata.failedChapters : [];
+  const operational = stage.operationalState;
+  const failedChapters = operational
+    ? (Array.isArray(operational.failedChapters) ? operational.failedChapters : [])
+    : Array.isArray(metadata.failedChapters) ? metadata.failedChapters : [];
   const total =
-    typeof metadata.totalChapters === "number" && metadata.totalChapters > 0
-      ? metadata.totalChapters
+    operational && operational.totalChapters > 0
+      ? operational.totalChapters
+      : typeof metadata.totalChapters === "number" && metadata.totalChapters > 0
+        ? metadata.totalChapters
       : stage.status === "READY_FOR_REVIEW" || stage.status === "COMMITTED"
         ? 1
         : 0;
   const rawCompleted =
-    typeof metadata.completedChapters === "number" && metadata.completedChapters >= 0
-      ? metadata.completedChapters
+    operational && operational.completedChapters >= 0
+      ? operational.completedChapters
+      : typeof metadata.completedChapters === "number" && metadata.completedChapters >= 0
+        ? metadata.completedChapters
       : stage.status === "READY_FOR_REVIEW" || stage.status === "COMMITTED"
         ? total || 1
         : 0;
@@ -88,18 +107,27 @@ function getProgress(stage: {
     completed,
     percent,
     automationStatus:
-      typeof metadata.automationStatus === "string" ? metadata.automationStatus : "not_started",
+      operational?.automationStatus ??
+      (typeof metadata.automationStatus === "string" ? metadata.automationStatus : "not_started"),
     currentAction:
-      typeof metadata.currentAction === "string" ? metadata.currentAction : null,
+      operational?.currentAction ??
+      operational?.errorMessage ??
+      (typeof metadata.currentAction === "string" ? metadata.currentAction : null),
     currentChapterKey:
-      typeof metadata.currentChapterKey === "string" ? metadata.currentChapterKey : null,
+      operational?.currentChapterKey ??
+      (typeof metadata.currentChapterKey === "string" ? metadata.currentChapterKey : null),
     failedChapters,
-    provisionalChapters: Array.isArray(metadata.provisionalChapters)
-      ? metadata.provisionalChapters
-      : [],
-    recentActivity: Array.isArray(metadata.recentActivity) ? metadata.recentActivity : [],
+    provisionalChapters: operational
+      ? (Array.isArray(operational.provisionalChapters) ? operational.provisionalChapters : [])
+      : Array.isArray(metadata.provisionalChapters)
+        ? metadata.provisionalChapters
+        : [],
+    recentActivity: operational
+      ? (Array.isArray(operational.recentActivity) ? operational.recentActivity : [])
+      : Array.isArray(metadata.recentActivity) ? metadata.recentActivity : [],
     selectedFormat:
-      typeof metadata.selectedFormat === "string" ? metadata.selectedFormat : null,
+      operational?.selectedFormat ??
+      (typeof metadata.selectedFormat === "string" ? metadata.selectedFormat : null),
   };
 }
 
@@ -425,6 +453,7 @@ export default async function DashboardPage({
   if (book.workflowType === BookWorkflowType.FICTION) {
     return <FictionDashboardPage slug={slug} />;
   }
+  const stageLinks = getBookStageLinks(book.workflowType, slug);
 
   const bookMetadata = parseMetadataRecord(book.metadataJson);
   const automation =
@@ -602,8 +631,8 @@ export default async function DashboardPage({
           <Link href="/" className="stage-chip">
             Library
           </Link>
-          {STAGE_LINKS.map((stage) => (
-            <Link key={stage.key} href={stage.href(slug)} className="stage-chip">
+          {stageLinks.map((stage) => (
+            <Link key={stage.key} href={stage.href} className="stage-chip">
               {stage.label}
             </Link>
           ))}

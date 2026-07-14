@@ -1,7 +1,23 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { ActorType, ArtifactStatus, ArtifactType, StageStatus } from "@prisma/client";
+import { ActorType, ArtifactStatus, ArtifactType } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { ensureStageStarted } from "@/lib/workflows/stage-transition-service";
+import {
+  chapterIdentityMetadata,
+  chapterIdentityWhere,
+  getArtifactChapterId,
+} from "@/lib/repositories/chapter-identity";
+import { createArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import { markDraftPending } from "@/lib/repositories/chapter-approval-state";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 const CHAPTER_STAGE_KEYS: StageKey[] = ["CHAPTER_DRAFT", "FICTION_DRAFT"];
 
@@ -25,7 +41,8 @@ export async function GET(
   const url = new URL(req.url);
   const stageKey = resolveStageKey(url.searchParams.get("stageKey"));
 
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
   const stage = await db.bookStage.findUnique({
@@ -47,7 +64,7 @@ export async function GET(
 
   const chapters = artifacts.map((a) => ({
     artifactId: a.id,
-    chapterKey: (a.metadataJson as Record<string, string> | null)?.chapterKey ?? "",
+    chapterKey: getArtifactChapterId(a) ?? "",
     chapterTitle: a.title,
     status: a.status,
     content: a.versions[0]?.contentText ?? "",
@@ -62,15 +79,25 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = await req.json() as {
+  let body: {
     stageKey?: string;
     chapterKey: string;
     chapterTitle: string;
     content: string;
   };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Chapter draft save request",
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { chapterKey, chapterTitle, content } = body;
   const stageKey = resolveStageKey(body.stageKey ?? null);
 
@@ -80,11 +107,7 @@ export async function POST(
 
   const artifactType = resolveArtifactType(stageKey);
 
-  const bookStage = await db.bookStage.upsert({
-    where: { bookId_stageKey: { bookId: book.id, stageKey } },
-    update: {},
-    create: { bookId: book.id, stageKey, status: StageStatus.IN_PROGRESS },
-  });
+  const bookStage = await ensureStageStarted({ bookId: book.id, stageKey });
 
   // Find-or-create by chapterKey — this used to always create a new
   // Artifact row, so every chat save for the same chapter produced a
@@ -96,47 +119,44 @@ export async function POST(
       bookId: book.id,
       stageId: bookStage.id,
       artifactType,
-      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      ...chapterIdentityWhere(chapterKey),
       status: { not: ArtifactStatus.SUPERSEDED },
     },
     select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
   });
 
   let targetArtifactId: string;
-  let nextVersionNumber: number;
 
   if (existingArtifact) {
     targetArtifactId = existingArtifact.id;
-    nextVersionNumber = (existingArtifact.versions[0]?.versionNumber ?? 0) + 1;
   } else {
     const created = await db.artifact.create({
       data: {
         bookId: book.id,
         stageId: bookStage.id,
         artifactType,
+        chapterId: chapterKey,
         title: chapterTitle,
         status: "REVIEW_READY",
-        metadataJson: { chapterKey, chapterTitle },
+        metadataJson: chapterIdentityMetadata(chapterKey, { chapterTitle }),
       },
     });
     targetArtifactId = created.id;
-    nextVersionNumber = 1;
   }
 
-  const version = await db.artifactVersion.create({
-    data: {
-      artifactId: targetArtifactId,
-      versionNumber: nextVersionNumber,
-      lifecycleState: "REVIEW_READY",
-      contentJson: { text: content },
-      contentText: content,
-      createdByType: ActorType.MODEL,
-    },
+  const version = await createArtifactVersionInTransaction(db, {
+    artifactId: targetArtifactId,
+    lifecycleState: ArtifactStatus.REVIEW_READY,
+    contentJson: { text: content },
+    contentText: content,
+    createdByType: ActorType.MODEL,
+    artifactStatus: ArtifactStatus.REVIEW_READY,
+    title: chapterTitle,
   });
-
-  await db.artifact.update({
-    where: { id: targetArtifactId },
-    data: { currentVersionId: version.id, title: chapterTitle, status: "REVIEW_READY" },
+  await markDraftPending({
+    bookId: book.id,
+    chapterId: chapterKey,
+    versionId: version.id,
   });
 
   return NextResponse.json({ success: true, artifactId: targetArtifactId });
@@ -148,10 +168,20 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = await req.json() as { artifactId: string; content: string; chapterTitle?: string };
+  let body: { artifactId: string; content: string; chapterTitle?: string };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Chapter draft update request",
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { artifactId, content } = body;
   if (!artifactId || !content) {
     return NextResponse.json({ error: "Missing artifactId or content" }, { status: 400 });
@@ -160,27 +190,31 @@ export async function PATCH(
   // Find the artifact and its latest version number
   const artifact = await db.artifact.findFirst({
     where: { id: artifactId, bookId: book.id },
-    select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
+    select: {
+      id: true,
+      chapterId: true,
+      metadataJson: true,
+      versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 },
+    },
   });
   if (!artifact) return NextResponse.json({ error: "Artifact not found" }, { status: 404 });
 
-  const nextVersion = (artifact.versions[0]?.versionNumber ?? 0) + 1;
-
-  const version = await db.artifactVersion.create({
-    data: {
-      artifactId: artifact.id,
-      versionNumber: nextVersion,
-      lifecycleState: "REVIEW_READY",
-      contentJson: { text: content },
-      contentText: content,
-      createdByType: ActorType.USER, // edited by author
-    },
+  const version = await createArtifactVersionInTransaction(db, {
+    artifactId: artifact.id,
+    lifecycleState: ArtifactStatus.REVIEW_READY,
+    contentJson: { text: content },
+    contentText: content,
+    createdByType: ActorType.USER,
+    artifactStatus: ArtifactStatus.REVIEW_READY,
   });
+  const chapterId = getArtifactChapterId(artifact);
+  if (chapterId) {
+    await markDraftPending({
+      bookId: book.id,
+      chapterId,
+      versionId: version.id,
+    });
+  }
 
-  await db.artifact.update({
-    where: { id: artifact.id },
-    data: { currentVersionId: version.id, status: "REVIEW_READY" },
-  });
-
-  return NextResponse.json({ success: true, versionNumber: nextVersion });
+  return NextResponse.json({ success: true, versionNumber: version.versionNumber });
 }

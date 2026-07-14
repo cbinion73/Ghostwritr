@@ -1,15 +1,15 @@
-import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ArtifactType, StageKey, StageStatus } from "@prisma/client";
 import { z } from "zod";
 
 import { ParagraphOutlineSchema, parseArtifactWithSchema, parseMetadataRecord } from "../artifact-schemas";
-import { getModelForRole } from "../llm/routing";
+import { getModelForRole, resolveModelSpec } from "../llm/routing";
 import type {
   PersonalStoryEncyclopedia,
   PersonalStoryEntry,
   PersonalStoryMessage,
 } from "../personal-story-types";
+import { normalizePersonalStoryEncyclopedia } from "../personal-story-contract";
 import type { ParagraphOutline } from "../paragraph-outline-types";
 import {
   getBookBySlugOrThrow,
@@ -96,10 +96,6 @@ function normalizeTranscript(value: unknown): PersonalStoryMessage[] {
           ),
       )
     : [];
-}
-
-function hasUsableOpenAIKey() {
-  return Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== "your-key-here");
 }
 
 async function getChatModel() {
@@ -538,9 +534,7 @@ export async function submitPersonalStoriesMessage(bookSlug: string, userInput: 
     contentText: finalTranscript
       .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
       .join("\n\n"),
-    modelName: hasUsableOpenAIKey()
-      ? process.env.OPENAI_PERSONAL_STORIES_MODEL ?? "gpt-5.4"
-      : "local-fallback",
+    modelName: resolveModelSpec("personal-stories:interview"),
     promptTemplateVersion: "personal-stories-chat-v1",
   });
 
@@ -551,9 +545,7 @@ export async function submitPersonalStoriesMessage(bookSlug: string, userInput: 
     summary: `${updatedEncyclopedia.entries.length} story candidates captured`,
     contentJson: updatedEncyclopedia,
     contentText: JSON.stringify(updatedEncyclopedia, null, 2),
-    modelName: hasUsableOpenAIKey()
-      ? process.env.OPENAI_PERSONAL_STORIES_MODEL ?? "gpt-5.4"
-      : "local-fallback",
+    modelName: resolveModelSpec("personal-stories:interview"),
     promptTemplateVersion: "personal-stories-encyclopedia-v1",
   });
 
@@ -687,9 +679,7 @@ export async function reprocessPersonalStoriesEncyclopediaWorkflow(bookSlug: str
     summary: `${reprocessed.entries.length} story candidates captured (reprocessed)`,
     contentJson: reprocessed,
     contentText: JSON.stringify(reprocessed, null, 2),
-    modelName: hasUsableOpenAIKey()
-      ? process.env.OPENAI_PERSONAL_STORIES_MODEL ?? "gpt-5.4"
-      : "local-fallback",
+    modelName: resolveModelSpec("personal-stories:interview"),
     promptTemplateVersion: "personal-stories-encyclopedia-v2-reprocess",
   });
 
@@ -756,16 +746,22 @@ export async function getPersonalStoriesWorkspace(bookSlug: string) {
   const normalizedCommittedEncyclopedia = committedEncyclopedia
     ? normalizeEncyclopedia(committedEncyclopedia)
     : null;
+  const contractLatestEncyclopedia = normalizePersonalStoryEncyclopedia(
+    normalizedLatestEncyclopedia,
+  );
+  const contractCommittedEncyclopedia = normalizedCommittedEncyclopedia
+    ? normalizePersonalStoryEncyclopedia(normalizedCommittedEncyclopedia)
+    : null;
   const metadata = parseMetadataRecord(stage?.metadataJson);
-  const chapterCoverage = buildChapterCoverage(chapterBlueprints, normalizedLatestEncyclopedia);
+  const chapterCoverage = buildChapterCoverage(chapterBlueprints, contractLatestEncyclopedia);
 
   return {
     book,
     stage,
     artifacts,
     transcript: latestTranscript,
-    encyclopedia: normalizedLatestEncyclopedia,
-    committedEncyclopedia: normalizedCommittedEncyclopedia,
+    encyclopedia: contractLatestEncyclopedia,
+    committedEncyclopedia: contractCommittedEncyclopedia,
     versions: {
       chat: chatVersions,
       encyclopedia: encyclopediaVersions,

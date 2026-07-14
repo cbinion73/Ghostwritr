@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
 import { buildKdpDocx } from "@/lib/kdp-docx-export";
-import { buildManuscriptExportPayload } from "@/lib/manuscript-export";
+import { buildManuscriptExportPayload, buildTypesetPlanInput } from "@/lib/manuscript-export";
 import { buildManuscriptMarkdown, sanitizeManuscriptFilename } from "@/lib/manuscript-document";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 
 export const runtime = "nodejs";
 
@@ -59,12 +61,14 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
+  const user = await requireAuthenticatedAppUser();
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, titleWorking: true, subtitle: true, workflowType: true },
-  });
-  if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const url = new URL(req.url);
   const format: string = url.searchParams.get("format") ?? "markdown";
@@ -86,14 +90,16 @@ export async function GET(
     const manuscriptFilename = sanitizeManuscriptFilename(title) + "-manuscript.md";
 
     if (format === "docx") {
-      const meta = (await db.book.findUnique({ where: { slug }, select: { metadataJson: true } }))?.metadataJson as Record<string, unknown> | null;
+      const meta = book.metadataJson as Record<string, unknown> | null;
       const authorName = (meta?.authorName as string) ?? (meta?.authorBioShort as string)?.split(".")[0] ?? "Author";
+      const { plan } = await buildTypesetPlanInput(slug);
 
       const docxBuffer = await buildKdpDocx({
         title,
         subtitle: book.subtitle,
         author: authorName,
         typesetContent: "",
+        typesetPlan: plan,
         chapters: payload.chapters.map((c) => ({ title: c.chapterLabel, body: c.chapterText })),
       });
 

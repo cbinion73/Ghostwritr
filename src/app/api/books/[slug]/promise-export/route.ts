@@ -4,7 +4,9 @@ import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { getPromiseWorkspace } from "@/lib/workflows/promise";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { getPromiseWorkspace } from "@/lib/workflows/promise-public";
 import {
   buildBookPitchExportHtml,
   sanitizeBookPitchFilename,
@@ -41,6 +43,9 @@ export async function GET(
   context: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await context.params;
+  const user = await requireAuthenticatedAppUser();
+  await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+
   const workspace = await getPromiseWorkspace(slug);
   const report = workspace.bookPromiseReport;
 

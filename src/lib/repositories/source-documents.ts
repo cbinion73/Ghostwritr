@@ -94,11 +94,16 @@ export async function listBookSourceDocuments(input: {
 
 export async function setSourceDocumentEnabled(input: {
   documentId: string;
+  bookId: string;
   enabled: boolean;
 }) {
   const existing = await db.sourceDocument.findUniqueOrThrow({
     where: { id: input.documentId },
   });
+
+  if (existing.bookId !== input.bookId) {
+    throw new Error("Source document not found for book.");
+  }
 
   const metadata =
     existing.metadataJson && typeof existing.metadataJson === "object"

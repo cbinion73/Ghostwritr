@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
-import { BookWorkflowType } from "@prisma/client";
+import { ArtifactType, BookWorkflowType } from "@prisma/client";
 import type { StageStatus } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
 import { db } from "@/lib/db";
-import { getBookSpine } from "@/lib/repositories/book-spine";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookSpineForUser } from "@/lib/repositories/book-spine";
 import {
   STAGE_TOKENS,
   FICTION_STAGE_TOKENS,
@@ -43,7 +44,8 @@ export default async function BookWorkspacePage({
 }) {
   const { slug } = await params;
   const query = (await searchParams) ?? {};
-  const spine = await getBookSpine(slug);
+  const user = await requireAuthenticatedAppUser();
+  const spine = await getBookSpineForUser(slug, user.id);
 
   if (!spine) notFound();
 
@@ -77,6 +79,18 @@ export default async function BookWorkspacePage({
       a.versions[0]?.contentText ?? null,
     ]),
   );
+  const approvedPhase1Brief = isFiction
+    ? null
+    : await db.artifact.findFirst({
+        where: {
+          bookId: spine.book.id,
+          artifactType: ArtifactType.PHASE1_STRATEGIC_BRIEF,
+          committedVersionId: { not: null },
+        },
+        select: { id: true },
+      });
+  const requiresApprovedPhase1 = (stageKey: string) =>
+    !isFiction && stageKey !== "BOOK_SETUP" && stageKey !== "PROMISE";
 
   const statusByTokenIdx = tokens.map((t) => {
     const row = stageByKey.get(t.key);
@@ -93,7 +107,9 @@ export default async function BookWorkspacePage({
     while (gateIdx >= 0 && tokens[gateIdx].key === "WORKBOOK_DESIGN") {
       gateIdx -= 1;
     }
-    const locked = gateIdx >= 0 && statusByTokenIdx[gateIdx] === "NOT_STARTED";
+    const locked =
+      (gateIdx >= 0 && statusByTokenIdx[gateIdx] === "NOT_STARTED") ||
+      (requiresApprovedPhase1(t.key) && !approvedPhase1Brief);
     return {
       key: t.key,
       number: t.number,

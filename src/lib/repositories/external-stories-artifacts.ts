@@ -24,6 +24,7 @@ import { sanitizeUnknown, stripNullChars } from "../sanitize";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
 import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
+import { chapterIdentityMetadata, chapterIdentityWhere, getArtifactChapterId } from "./chapter-identity";
 
 type CreateExternalStoryPackVersionInput = {
   bookId: string;
@@ -75,7 +76,7 @@ export async function getExternalStoryPackVersions(bookId: string, chapterKey: s
       where: {
         bookId,
         artifactType: ArtifactType.EXTERNAL_STORY_PACK,
-        title: { startsWith: `External Stories: ${chapterKey} - ` },
+        ...chapterIdentityWhere(chapterKey),
       },
       include: {
         versions: {
@@ -99,8 +100,19 @@ export async function getLatestExternalStoryPackVersionsByChapter(
       where: {
         bookId,
         artifactType: ArtifactType.EXTERNAL_STORY_PACK,
+        ...(chapterKeys
+          ? {
+              OR: chapterKeys.flatMap((chapterKey) => [
+              { chapterId: chapterKey },
+              { metadataJson: { path: ["chapterId"], equals: chapterKey } },
+              { metadataJson: { path: ["chapterKey"], equals: chapterKey } },
+              { title: { startsWith: `External Stories: ${chapterKey} - ` } },
+              ]),
+            }
+          : {}),
       },
       select: {
+        chapterId: true,
         title: true,
         metadataJson: true,
         versions: {
@@ -116,7 +128,7 @@ export async function getLatestExternalStoryPackVersionsByChapter(
   const versionsByChapter = new Map<string, { id: string; lifecycleState: ArtifactStatus } & { [key: string]: unknown }>();
 
   for (const artifact of artifacts) {
-    const chapterKey = getArtifactChapterKey(artifact.metadataJson, artifact.title);
+    const chapterKey = getArtifactChapterId(artifact) ?? getArtifactChapterKey(artifact.metadataJson, artifact.title);
     const version = artifact.versions[0];
 
     if (!chapterKey || !version) {
@@ -141,7 +153,7 @@ export async function getCommittedExternalStoryPack(bookId: string, chapterKey: 
       where: {
         bookId,
         artifactType: ArtifactType.EXTERNAL_STORY_PACK,
-        title: { startsWith: `External Stories: ${chapterKey} - ` },
+        ...chapterIdentityWhere(chapterKey),
         committedVersionId: { not: null },
       },
       include: {
@@ -257,21 +269,21 @@ export async function createExternalStoryPackVersion(input: CreateExternalStoryP
           bookId: input.bookId,
           stageId: stage.id,
           artifactType: ArtifactType.EXTERNAL_STORY_PACK,
-          title,
+          ...chapterIdentityWhere(input.chapterKey),
         },
       })) ??
       (await tx.artifact.create({
         data: {
           bookId: input.bookId,
           stageId: stage.id,
-        artifactType: ArtifactType.EXTERNAL_STORY_PACK,
-        title,
+          artifactType: ArtifactType.EXTERNAL_STORY_PACK,
+          chapterId: input.chapterKey,
+          title,
           summary: input.summary ? stripNullChars(input.summary) : undefined,
           status: ArtifactStatus.DRAFT,
-          metadataJson: {
-            chapterKey: input.chapterKey,
+          metadataJson: chapterIdentityMetadata(input.chapterKey, {
             chapterTitle: input.chapterTitle,
-          },
+          }),
         },
       }));
 
@@ -427,6 +439,8 @@ export async function commitExternalStoryPack(bookId: string, chapterKey: string
         stageId: stage.id,
         artifactType: ArtifactType.EXTERNAL_STORY_PACK,
         OR: [
+          { chapterId: chapterKey },
+          { metadataJson: { path: ["chapterId"], equals: chapterKey } },
           { metadataJson: { path: ["chapterKey"], equals: chapterKey } },
           { title: { startsWith: `External Stories: ${chapterKey} - ` } },
         ],

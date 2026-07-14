@@ -7,11 +7,34 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { listBooks } from "@/lib/repositories/books";
+import {
+  JARVIS_INTERNAL_TOKEN_HEADER,
+  validateInternalTokenAuth,
+} from "@/lib/auth/shared";
+import {
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 const JARVIS_BASE = process.env.JARVIS_BASE_URL ?? "http://127.0.0.1:8787";
 
+function requireJarvisInternalAuth(req: NextRequest) {
+  return validateInternalTokenAuth({
+    headers: req.headers,
+    envVarName: "GHOSTWRITR_JARVIS_INTERNAL_TOKEN",
+    headerName: JARVIS_INTERNAL_TOKEN_HEADER,
+    serviceName: "JARVIS internal API",
+  });
+}
+
 // ── GET ────────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
+  const auth = requireJarvisInternalAuth(req);
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+  }
+
   const resource = req.nextUrl.searchParams.get("resource");
 
   // Pull JARVIS ideas (for "Book Ideas" view in Ghostwritr)
@@ -61,10 +84,16 @@ export async function GET(req: NextRequest) {
 
 // ── POST ───────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  const auth = requireJarvisInternalAuth(req);
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+  }
+
   let body: Record<string, unknown>;
   try {
-    body = await req.json();
-  } catch {
+    body = await parseLimitedJson(req, { label: "JARVIS internal event" });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
     return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 

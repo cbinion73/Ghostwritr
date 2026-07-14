@@ -64,6 +64,7 @@ enum ArtifactType {
   CORE_TRUTHS
   TRANSFORMATION_ARC
   BOOK_PROMISE_REPORT
+  PHASE1_STRATEGIC_BRIEF
   STORY_SETUP_PROFILE
   STORY_CORE_BIBLE
   WORLD_CAST_BIBLE
@@ -104,6 +105,14 @@ enum ArtifactStatus {
   REVIEW_READY
   COMMITTED
   SUPERSEDED
+}
+
+enum ChapterApprovalStatus {
+  DRAFT_PENDING
+  DRAFT_APPROVED
+  FINAL_REVISION_PENDING
+  FINAL_REVISION_APPROVED
+  STALE
 }
 
 enum DecisionType {
@@ -314,6 +323,7 @@ model Book {
   artifacts       Artifact[]
   decisions       Decision[]
   workflowRuns    WorkflowRun[]
+  stageOperationalStates StageOperationalState[]
   researchTabs    ResearchBinderTab[]
   ideaClips       ResearchIdeaClip[]
   externalStoryTabs ExternalStoryBinderTab[]
@@ -326,6 +336,9 @@ model Book {
   externalStoryChecks ExternalStoryVerification[]
   sourceDocuments SourceDocument[]
   directionEvents DirectionEvent[]
+  llmBudgetState BookLLMBudgetState?
+  agentChatMessages AgentChatMessage[]
+  chapterApprovalStates ChapterApprovalState[]
 }
 
 model BookStage {
@@ -355,10 +368,72 @@ model BookStage {
   externalStoryItems ExternalStoryItem[]
   externalStoryChecks ExternalStoryVerification[]
   workflowRuns WorkflowRun[]
+  operationalState StageOperationalState?
   directionEvents DirectionEvent[]
+  agentChatMessages AgentChatMessage[]
 
   @@unique([bookId, stageKey])
   @@index([bookId, stageKey])
+}
+
+model BookLLMBudgetState {
+  id                  String   @id @default(uuid()) @db.Uuid
+  bookId              String   @unique @db.Uuid
+  warningUsd          Decimal  @default(10) @db.Decimal(10, 2)
+  confirmationUsd     Decimal  @default(20) @db.Decimal(10, 2)
+  hardStopUsd         Decimal  @default(30) @db.Decimal(10, 2)
+  confirmedThroughUsd Decimal? @db.Decimal(10, 2)
+  confirmedAt         DateTime?
+  confirmedBy         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+}
+
+model AgentChatMessage {
+  id         String   @id @default(uuid()) @db.Uuid
+  bookId     String   @db.Uuid
+  stageId    String   @db.Uuid
+  role       String
+  content    String
+  orderIndex Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  book  Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  stage BookStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@unique([stageId, orderIndex])
+  @@index([bookId, stageId, orderIndex])
+}
+
+model StageOperationalState {
+  id                  String   @id @default(uuid()) @db.Uuid
+  bookId              String   @db.Uuid
+  stageId             String   @unique @db.Uuid
+  automationStatus    String?
+  currentAction       String?
+  currentChapterKey   String?
+  totalChapters       Int      @default(0)
+  completedChapters   Int      @default(0)
+  failedChapters      Json     @default("[]")
+  provisionalChapters Json     @default("[]")
+  recentActivity      Json     @default("[]")
+  selectedFormat      String?
+  errorMessage        String?
+  lastRunAt           DateTime?
+  automationEnabled   Boolean?
+  automationMode      String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  book  Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  stage BookStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@index([bookId])
+  @@index([bookId, stageId])
+  @@index([automationStatus])
 }
 
 model DirectionEvent {
@@ -391,6 +466,7 @@ model Artifact {
   status             ArtifactStatus @default(DRAFT)
   currentVersionId   String?        @db.Uuid
   committedVersionId String?        @db.Uuid
+  chapterId          String?
   title              String?
   summary            String?
   metadataJson       Json           @default("{}")
@@ -404,6 +480,7 @@ model Artifact {
   directionEvents DirectionEvent[]
 
   @@index([bookId, stageId, artifactType])
+  @@index([bookId, stageId, artifactType, chapterId], map: "Artifact_book_stage_type_chapterId_idx")
 }
 
 model ArtifactVersion {
@@ -433,6 +510,32 @@ model ArtifactVersion {
   @@index([artifactId, lifecycleState])
 }
 
+model ChapterApprovalState {
+  id                            String                @id @default(uuid()) @db.Uuid
+  bookId                        String                @db.Uuid
+  chapterId                     String
+  status                        ChapterApprovalStatus @default(DRAFT_PENDING)
+  draftPendingVersionId         String?               @db.Uuid
+  approvedDraftVersionId        String?               @db.Uuid
+  finalRevisionPendingVersionId String?               @db.Uuid
+  approvedFinalVersionId        String?               @db.Uuid
+  isStale                       Boolean               @default(false)
+  staleReason                   String?
+  staleAt                       DateTime?
+  createdAt                     DateTime              @default(now())
+  updatedAt                     DateTime              @updatedAt
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, chapterId])
+  @@index([bookId, status])
+  @@index([bookId, isStale])
+  @@index([draftPendingVersionId])
+  @@index([approvedDraftVersionId])
+  @@index([finalRevisionPendingVersionId])
+  @@index([approvedFinalVersionId])
+}
+
 model Decision {
   id              String       @id @default(uuid()) @db.Uuid
   bookId          String       @db.Uuid
@@ -454,21 +557,33 @@ model Decision {
 }
 
 model WorkflowRun {
-  id         String            @id @default(uuid()) @db.Uuid
-  bookId     String            @db.Uuid
-  stageId    String            @db.Uuid
-  runType    WorkflowRunType   @default(GENERAL)
-  status     WorkflowRunStatus @default(QUEUED)
-  inputJson  Json              @default("{}")
-  outputJson Json              @default("{}")
-  errorText  String?
-  startedAt  DateTime          @default(now())
-  finishedAt DateTime?
+  id             String            @id @default(uuid()) @db.Uuid
+  bookId         String            @db.Uuid
+  stageId        String            @db.Uuid
+  runType        WorkflowRunType   @default(GENERAL)
+  status         WorkflowRunStatus @default(QUEUED)
+  inputJson      Json              @default("{}")
+  outputJson     Json              @default("{}")
+  errorText      String?
+  idempotencyKey String?
+  attempt        Int               @default(0)
+  maxAttempts    Int               @default(1)
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  canceledAt     DateTime?
+  cancelReason   String?
+  startedAt      DateTime          @default(now())
+  finishedAt     DateTime?
+  updatedAt      DateTime          @updatedAt
 
   book  Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
   stage BookStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
 
   @@index([bookId, stageId, status])
+  @@index([status, leaseExpiresAt])
+  @@index([leaseOwner])
+  @@unique([bookId, stageId, idempotencyKey])
 }
 
 model SourceDocument {
@@ -773,6 +888,8 @@ model ExternalStoryVerification {
 
 model LLMCallLog {
   id                   String   @id @default(uuid()) @db.Uuid
+  requestId            String?
+  providerRequestId    String?
   bookId               String   @db.Uuid
   workflowRunId        String?  @db.Uuid
   /// The chapter this call was actually working on, when applicable (e.g.
@@ -781,9 +898,16 @@ model LLMCallLog {
   /// chapter. Populated via the ambient LLMCallContext for background
   /// workflows, or passed directly by the conversational chat routes.
   chapterKey           String?
+  stageKey             String?
   stageRole            String
+  operation            String   @default("unknown")
+  attempt              Int      @default(1)
   provider             String
   model                String
+  generationMode       String   @default("unknown")
+  status               String   @default("SUCCEEDED")
+  errorCode            String?
+  errorMessage         String?
   promptTokens         Int
   completionTokens     Int
   totalTokens          Int
@@ -791,12 +915,19 @@ model LLMCallLog {
   /// (uncached + cacheCreation + cacheRead) to match LangChain usage_metadata.
   cacheCreationTokens  Int      @default(0)
   cacheReadTokens      Int      @default(0)
+  reasoningInputTokens Int      @default(0)
+  reasoningOutputTokens Int     @default(0)
   costUsd              Decimal  @db.Decimal(10, 6)
+  searchCostUsd        Decimal  @default(0) @db.Decimal(10, 6)
+  pricingVersion       String   @default("2026-07-13.pricing-table-v1")
   durationMs           Int
   createdAt            DateTime @default(now())
 
   @@index([bookId, createdAt])
   @@index([bookId, stageRole])
+  @@index([bookId, stageKey])
+  @@index([bookId, status])
+  @@index([requestId])
   @@index([bookId, chapterKey])
   @@index([workflowRunId, createdAt])
 }

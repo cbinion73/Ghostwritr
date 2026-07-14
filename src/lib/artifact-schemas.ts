@@ -45,6 +45,11 @@ export const BookSetupProfileSchema = z.object({
   provenanceTrackingEnabled: z.boolean(),
   marketingHandoffEnabled: z.boolean(),
   notesToSystem: StringArraySchema,
+  voiceTone: z.string().optional(),
+  chapterFormat: StringArraySchema.optional(),
+  readerLevel: z.enum(["casual", "practitioner", "professional", "expert"]).optional(),
+  researchLens: z.string().optional(),
+  preferredBibleTranslation: z.string().nullable().optional(),
 });
 
 export const PromiseBriefSchema = z.object({
@@ -250,6 +255,18 @@ export const BaseStoryBundleSchema = z.object({
   storyPremise: z.string(),
   bookThread: z.string(),
   bookMovement: TensionReleaseMovementSchema,
+  narrativeGuidance: z
+    .object({
+      premise: z.string(),
+      throughLine: z.string(),
+      movement: TensionReleaseMovementSchema,
+      continuityRules: StringArraySchema,
+      boundary: z.object({
+        kind: z.literal("base_story_guidance"),
+        personalStoryPolicy: z.string(),
+      }),
+    })
+    .optional(),
   chapters: z
     .array(
       z.object({
@@ -259,6 +276,18 @@ export const BaseStoryBundleSchema = z.object({
         threadRole: z.string(),
         chapterStory: z.string(),
         movement: TensionReleaseMovementSchema,
+        guidance: z
+          .object({
+            narrativeFunction: z.string(),
+            continuityCue: z.string(),
+            draftingInstruction: z.string(),
+            movement: TensionReleaseMovementSchema,
+            boundary: z.object({
+              kind: z.literal("base_story_guidance"),
+              personalStoryPolicy: z.string(),
+            }),
+          })
+          .optional(),
       }),
     )
     .default([]),
@@ -421,6 +450,14 @@ export const ChapterResearchDossierSchema = z.object({
       warning: z.string().nullable().optional(),
       failureReason: z.string().nullable().optional(),
       timeout: z.boolean().optional(),
+      evidenceContractSummary: z
+        .object({
+          totalRecords: z.number(),
+          admissibleRecords: z.number(),
+          needsCorroborationRecords: z.number(),
+          excludedRecords: z.number(),
+        })
+        .optional(),
     })
     .optional(),
 });
@@ -519,6 +556,14 @@ export const ChapterExternalStoryDossierSchema = z.object({
       provisional: z.boolean().optional(),
       retryRecommended: z.boolean().optional(),
       warning: z.string().nullable().optional(),
+      evidenceContractSummary: z
+        .object({
+          totalRecords: z.number(),
+          admissibleRecords: z.number(),
+          needsCorroborationRecords: z.number(),
+          excludedRecords: z.number(),
+        })
+        .optional(),
     })
     .optional(),
 });

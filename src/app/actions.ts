@@ -8,7 +8,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { BookWorkflowType } from "@prisma/client";
 
-import { cloneBookBySlug, createBookFromTitle, deleteBookBySlug } from "@/lib/repositories/books";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import {
+  cloneBookBySlug,
+  createBookFromTitle,
+  deleteBookBySlugForUser,
+  getBookBySlugForUserOrThrow,
+} from "@/lib/repositories/books";
 import { db } from "@/lib/db";
 import { getDefaultBookWorkspaceHref } from "@/lib/workflow-registry";
 
@@ -24,6 +30,7 @@ function parseWorkflowType(value: FormDataEntryValue | null) {
 }
 
 export async function createBookAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const titleWorking = String(formData.get("titleWorking") ?? "").trim();
   const subtitle = String(formData.get("subtitle") ?? "").trim();
   const workflowType = parseWorkflowType(formData.get("workflowType"));
@@ -36,6 +43,7 @@ export async function createBookAction(formData: FormData) {
     titleWorking,
     subtitle: subtitle || undefined,
     workflowType,
+    ownerUserId: user.id,
   });
 
   revalidatePath("/");
@@ -43,6 +51,7 @@ export async function createBookAction(formData: FormData) {
 }
 
 export async function createBookWithWizardAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const titleWorking = String(formData.get("titleWorking") ?? "").trim();
   const workflowType = parseWorkflowType(formData.get("workflowType"));
 
@@ -54,6 +63,7 @@ export async function createBookWithWizardAction(formData: FormData) {
     titleWorking,
     subtitle: undefined,
     workflowType,
+    ownerUserId: user.id,
   });
 
   revalidatePath("/");
@@ -65,57 +75,66 @@ export async function createBookWithWizardAction(formData: FormData) {
 }
 
 export async function createBookAndBrainstormAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const titleWorking = String(formData.get("titleWorking") ?? "").trim() || "Untitled Book";
   const workflowType = parseWorkflowType(formData.get("workflowType"));
 
-  const book = await createBookFromTitle({ titleWorking, workflowType });
+  const book = await createBookFromTitle({ titleWorking, workflowType, ownerUserId: user.id });
 
   revalidatePath("/");
   redirect(`/books/${book.slug}`);
 }
 
 export async function archiveBookAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const slug = String(formData.get("slug") ?? "").trim();
   if (!slug) return;
+  const book = await getBookBySlugForUserOrThrow(slug, user.id);
   await db.book.update({
-    where: { slug },
+    where: { id: book.id },
     data: { isArchived: true, archivedAt: new Date() },
   });
   revalidatePath("/");
 }
 
 export async function restoreBookAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const slug = String(formData.get("slug") ?? "").trim();
   if (!slug) return;
+  const book = await getBookBySlugForUserOrThrow(slug, user.id);
   await db.book.update({
-    where: { slug },
+    where: { id: book.id },
     data: { isArchived: false, archivedAt: null },
   });
   revalidatePath("/");
 }
 
 export async function deleteBookAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const slug = String(formData.get("slug") ?? "").trim();
   if (!slug) {
     return;
   }
 
-  await deleteBookBySlug(slug);
+  await deleteBookBySlugForUser(slug, user.id);
   revalidatePath("/");
 }
 
 export async function cloneBookAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const slug = String(formData.get("slug") ?? "").trim();
   if (!slug) {
     return;
   }
 
-  const cloned = await cloneBookBySlug(slug);
+  const source = await getBookBySlugForUserOrThrow(slug, user.id);
+  const cloned = await cloneBookBySlug(source.slug);
   revalidatePath("/");
   redirect(getDefaultBookWorkspaceHref(cloned.workflowType, cloned.slug));
 }
 
 export async function uploadBookCoverAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const slug = String(formData.get("slug") ?? "").trim();
   const file = formData.get("cover");
   if (!slug || !(file instanceof File) || file.size === 0) {
@@ -132,9 +151,10 @@ export async function uploadBookCoverAction(formData: FormData) {
   const bytes = Buffer.from(await file.arrayBuffer());
   await writeFile(path.join(COVER_UPLOAD_DIR, filename), bytes);
 
-  const existing = await db.book.findUnique({ where: { slug }, select: { coverImageUrl: true } });
+  const book = await getBookBySlugForUserOrThrow(slug, user.id);
+  const existing = await db.book.findUnique({ where: { id: book.id }, select: { coverImageUrl: true } });
   await db.book.update({
-    where: { slug },
+    where: { id: book.id },
     data: { coverImageUrl: `/uploads/covers/${filename}` },
   });
 
@@ -149,11 +169,13 @@ export async function uploadBookCoverAction(formData: FormData) {
 }
 
 export async function removeBookCoverAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const slug = String(formData.get("slug") ?? "").trim();
   if (!slug) return;
 
-  const existing = await db.book.findUnique({ where: { slug }, select: { coverImageUrl: true } });
-  await db.book.update({ where: { slug }, data: { coverImageUrl: null } });
+  const book = await getBookBySlugForUserOrThrow(slug, user.id);
+  const existing = await db.book.findUnique({ where: { id: book.id }, select: { coverImageUrl: true } });
+  await db.book.update({ where: { id: book.id }, data: { coverImageUrl: null } });
 
   if (existing?.coverImageUrl) {
     const oldPath = path.join(process.cwd(), "public", existing.coverImageUrl);

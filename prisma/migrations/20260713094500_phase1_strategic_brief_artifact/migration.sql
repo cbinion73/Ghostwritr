@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ArtifactType" ADD VALUE 'PHASE1_STRATEGIC_BRIEF';

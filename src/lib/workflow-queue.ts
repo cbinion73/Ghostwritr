@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import path from "node:path";
+import { recoverExpiredWorkflowRuns } from "./repositories/workflow-runs";
 
 function getAppPort() {
   return process.env.PORT ?? "3000";
@@ -10,20 +9,37 @@ function getInternalWorkflowToken() {
 }
 
 export function triggerWorkflowRunInBackground(runId: string) {
-  const scriptPath = path.join(process.cwd(), "scripts", "process-workflow-run.mjs");
   const workerUrl = `http://127.0.0.1:${getAppPort()}/api/internal/workflow-runs/process`;
   const internalToken = getInternalWorkflowToken();
 
-  const child = spawn(
-    process.execPath,
-    [scriptPath, runId, workerUrl, internalToken],
-    {
-      detached: true,
-      stdio: "ignore",
-      cwd: process.cwd(),
-      env: process.env,
-    },
-  );
+  void dispatchWorkflowRun(workerUrl, runId, internalToken);
+}
 
-  child.unref();
+async function dispatchWorkflowRun(workerUrl: string, runId: string, internalToken: string) {
+  await recoverExpiredWorkflowRuns().catch(() => {
+    // Non-fatal: the target run remains queued if recovery cannot complete.
+  });
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      const response = await fetch(workerUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(internalToken
+            ? {
+                "x-internal-workflow-token": internalToken,
+              }
+            : {}),
+        },
+        body: JSON.stringify({ runId }),
+      });
+
+      if (response.ok) return;
+    } catch {
+      // Retry below. The WorkflowRun row remains the source of truth.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+  }
 }

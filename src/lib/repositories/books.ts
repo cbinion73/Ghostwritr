@@ -3,6 +3,7 @@ import { BookStatus, BookWorkflowType, Prisma, StageKey, StageStatus } from "@pr
 import { db, withDbRetry } from "../db";
 import { getWorkflowStageKeys } from "../workflow-registry";
 import { ensureDefaultLocalUser } from "../users";
+import { syncStageOperationalStateFromMetadata } from "./stage-operational-state";
 
 export type CreateBookInput = {
   slug: string;
@@ -99,11 +100,68 @@ export async function getBookBySlug(slug: string) {
       include: {
         stages: {
           orderBy: { createdAt: "asc" },
+          include: { operationalState: true },
         },
         artifacts: true,
       },
     }),
   );
+}
+
+export async function getBookBySlugForUser(slug: string, ownerUserId: string) {
+  return withDbRetry(() =>
+    db.book.findFirst({
+      where: {
+        slug,
+        ownerUserId,
+      },
+      include: {
+        stages: {
+          orderBy: { createdAt: "asc" },
+          include: { operationalState: true },
+        },
+        artifacts: true,
+      },
+    }),
+  );
+}
+
+export async function getBookBySlugForUserOrThrow(slug: string, ownerUserId: string) {
+  const book = await getBookBySlugForUser(slug, ownerUserId);
+
+  if (!book) {
+    throw new Error(`Book not found for slug "${slug}"`);
+  }
+
+  return book;
+}
+
+export async function getBookHeaderBySlugForUserOrThrow(
+  slug: string,
+  ownerUserId: string,
+) {
+  const book = await withDbRetry(() =>
+    db.book.findFirst({
+      where: {
+        slug,
+        ownerUserId,
+      },
+      select: {
+        id: true,
+        slug: true,
+        workflowType: true,
+        metadataJson: true,
+        titleWorking: true,
+        subtitle: true,
+      },
+    }),
+  );
+
+  if (!book) {
+    throw new Error(`Book not found for slug "${slug}"`);
+  }
+
+  return book;
 }
 
 export async function listBooks() {
@@ -113,7 +171,36 @@ export async function listBooks() {
       include: {
         stages: {
           orderBy: { createdAt: "asc" },
+          include: { operationalState: true },
         },
+      },
+    }),
+  );
+}
+
+export async function listBooksForUser(ownerUserId: string) {
+  return withDbRetry(() =>
+    db.book.findMany({
+      where: { ownerUserId },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        stages: {
+          orderBy: { createdAt: "asc" },
+          include: { operationalState: true },
+        },
+      },
+    }),
+  );
+}
+
+export async function listBooksForUserWithParent(ownerUserId: string) {
+  return withDbRetry(() =>
+    db.book.findMany({
+      where: { ownerUserId },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        stages: { orderBy: { createdAt: "asc" }, include: { operationalState: true } },
+        parentBook: { select: { titleWorking: true, slug: true } },
       },
     }),
   );
@@ -258,6 +345,7 @@ export async function cloneBookBySlug(
             stageId: stageIdMap.get(sourceArtifact.stageId) ?? "",
             artifactType: sourceArtifact.artifactType,
             status: sourceArtifact.status,
+            chapterId: sourceArtifact.chapterId,
             title: sourceArtifact.title,
             summary: sourceArtifact.summary,
             metadataJson: normalizeJsonInput(sourceArtifact.metadataJson),
@@ -338,6 +426,15 @@ export async function deleteBookBySlug(slug: string) {
   );
 }
 
+export async function deleteBookBySlugForUser(slug: string, ownerUserId: string) {
+  const book = await getBookBySlugForUserOrThrow(slug, ownerUserId);
+  return withDbRetry(() =>
+    db.book.delete({
+      where: { id: book.id },
+    }),
+  );
+}
+
 export async function updateBookTitleMetadata(
   bookId: string,
   data: {
@@ -392,7 +489,7 @@ export async function updateStageForBook(
     startedAt?: Date | null;
   },
 ) {
-  return withDbRetry(() =>
+  const updated = await withDbRetry(() =>
     db.bookStage.update({
       where: {
         bookId_stageKey: {
@@ -403,4 +500,15 @@ export async function updateStageForBook(
       data,
     }),
   );
+
+  if (data.metadataJson !== undefined) {
+    await syncStageOperationalStateFromMetadata({
+      bookId,
+      stageId: updated.id,
+      status: data.status ?? updated.status,
+      metadataJson: data.metadataJson,
+    });
+  }
+
+  return updated;
 }

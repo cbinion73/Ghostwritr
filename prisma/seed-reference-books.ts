@@ -17,11 +17,11 @@ import { createExternalStoryPackVersion, commitExternalStoryPack } from "../src/
 import {
   assembleManuscriptWorkflow,
   preparePublishingPackageWorkflow,
-} from "../src/lib/workflows/editing";
+} from "../src/lib/workflows/editing-public";
 import {
   runChapterDraftWorkflow,
   commitAllChapterDraftsWorkflow,
-} from "../src/lib/workflows/chapter-draft";
+} from "../src/lib/workflows/chapter-draft-public";
 import {
   commitFictionStageWorkflow,
   generateFictionDraftChapterWorkflow,

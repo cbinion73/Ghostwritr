@@ -19,8 +19,8 @@ import {
   rejectManuscriptRevisionWorkflow,
   sendEditingMessageWorkflow,
   updateEditorialPreferencesWorkflow,
-} from "@/lib/workflows/editing";
-import { expandUnderTargetChapterDraftsWorkflow } from "@/lib/workflows/chapter-draft";
+} from "@/lib/workflows/editing-public";
+import { expandUnderTargetChapterDraftsWorkflow } from "@/lib/workflows/chapter-draft-public";
 import { expandUnderTargetFictionDraftChaptersWorkflow } from "@/lib/workflows/fiction";
 
 export async function assembleManuscript(slug: string) {

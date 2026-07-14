@@ -7,14 +7,14 @@ import { triggerWorkflowRunInBackground } from "@/lib/workflow-queue";
 import {
   assembleManuscriptWorkflow,
   preparePublishingPackageWorkflow,
-} from "@/lib/workflows/editing";
+} from "@/lib/workflows/editing-public";
 import {
   commitChapterDraftWorkflow,
   expandChapterDraftTowardTargetWorkflow,
   expandUnderTargetChapterDraftsWorkflow,
   enqueueAndTriggerChapterDraftWorkflow,
   repairWeakChapterDraftsWorkflow,
-} from "@/lib/workflows/chapter-draft";
+} from "@/lib/workflows/chapter-draft-public";
 import {
   cancelStageWorkflow,
   retryStageWorkflow,

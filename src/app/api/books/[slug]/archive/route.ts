@@ -1,4 +1,6 @@
 import { archiveContentDisposition, createBookArchive } from "@/lib/book-archive-export";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 
 export const runtime = "nodejs";
 
@@ -8,6 +10,9 @@ export async function GET(
 ) {
   try {
     const { slug } = (await context.params) as { slug: string };
+    const user = await requireAuthenticatedAppUser();
+    await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+
     const archive = await createBookArchive(slug);
 
     return new Response(new Uint8Array(archive.bytes), {

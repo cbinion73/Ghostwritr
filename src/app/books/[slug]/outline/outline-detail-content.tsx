@@ -1260,7 +1260,13 @@ export async function OutlineDetailContent({
                     className="btn btn-primary"
                     disabled={
                       !latestBreakdown ||
-                      phaseApprovals.chapterBreakdowns.status !== "approved"
+                      phaseApprovals.chapterBreakdowns.status !== "approved" ||
+                      paragraphWorkspace.commitReadiness.status !== "ready"
+                    }
+                    title={
+                      paragraphWorkspace.commitReadiness.status !== "ready"
+                        ? paragraphWorkspace.commitReadiness.nextMoves.join(" ")
+                        : undefined
                     }
                     type="submit"
                   >

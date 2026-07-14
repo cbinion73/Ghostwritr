@@ -1,4 +1,5 @@
 import type { PersonaPack, MarketReport } from "@/lib/promise-types";
+import { invokeValidationText } from "./validation-llm";
 
 /**
  * Auto-generate personas from a book promise using Claude
@@ -6,18 +7,6 @@ import type { PersonaPack, MarketReport } from "@/lib/promise-types";
 export async function autoGeneratePersonas(promiseStatement: string): Promise<PersonaPack> {
   try {
     console.log("[autoGeneratePersonas] Starting persona generation");
-
-    const { ChatOpenAI } = await import("@langchain/openai");
-    const { HumanMessage } = await import("@langchain/core/messages");
-
-    console.log("[autoGeneratePersonas] Imports successful");
-
-    const model = new ChatOpenAI({
-      modelName: "gpt-4-turbo",
-      temperature: 0.7,
-      maxTokens: 2000,
-      openAIApiKey: process.env.OPENAI_API_KEY,
-    });
 
     const prompt = `Based on this book promise, create 2-3 detailed reader personas. These should be REAL end-users who would buy this book.
 
@@ -48,8 +37,13 @@ Make personas:
 
 Return ONLY valid JSON, no explanation.`;
 
-    const response = await model.invoke([new HumanMessage(prompt)]);
-    const content = typeof response.content === "string" ? response.content : String(response.content);
+    const content = await invokeValidationText({
+      modelSpec: "openai:gpt-4o-mini",
+      stageRole: "audience:structured",
+      operation: "auto-generate-personas",
+      prompt,
+      options: { temperature: 0.7, maxOutputTokens: 2000 },
+    });
 
     // Extract JSON from response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -73,16 +67,6 @@ export async function autoOptimizeMarketAnalysis(
   primaryAudience: string
 ): Promise<MarketReport> {
   try {
-    const { GoogleGenerativeAI } = await import("@google/generative-ai");
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GOOGLE_GENERATIVE_AI_API_KEY not configured");
-    }
-
-    const client = new GoogleGenerativeAI(apiKey);
-
-    const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
-
     // Research phase
     const researchPrompt = `Research the market for this book and provide specific data:
 
@@ -97,9 +81,13 @@ Provide:
 
 Be specific with real books and data.`;
 
-    const researchResponse = await model.generateContent(researchPrompt);
-    const researchText =
-      researchResponse.response.text() || "Research unavailable";
+    const researchText = await invokeValidationText({
+      modelSpec: "google:gemini-2.0-flash",
+      stageRole: "market-analysis:research",
+      operation: "auto-optimize-market-analysis",
+      prompt: researchPrompt,
+      options: { temperature: 0.5, maxOutputTokens: 3000 },
+    }).catch(() => "Research unavailable");
 
     // Parse research into market report
     const marketCategory = extractCategory(promiseStatement);
@@ -284,18 +272,6 @@ export async function autoImprovePromise(
   try {
     console.log("[autoImprovePromise] Starting promise improvement");
 
-    const { ChatOpenAI } = await import("@langchain/openai");
-    const { HumanMessage } = await import("@langchain/core/messages");
-
-    console.log("[autoImprovePromise] Imports successful");
-
-    const model = new ChatOpenAI({
-      modelName: "gpt-4-turbo",
-      temperature: 0.7,
-      maxTokens: 1500,
-      openAIApiKey: process.env.OPENAI_API_KEY,
-    });
-
     const prompt = `You are a book publishing strategist. Optimize this promise to be stronger and more marketable.
 
 CURRENT PROMISE:
@@ -320,11 +296,13 @@ OPTIMIZATION RULES:
 
 Return ONLY the optimized promise statement, nothing else.`;
 
-    const response = await model.invoke([new HumanMessage(prompt)]);
-    const improvedPromise =
-      typeof response.content === "string"
-        ? response.content
-        : String(response.content);
+    const improvedPromise = await invokeValidationText({
+      modelSpec: "openai:gpt-4o-mini",
+      stageRole: "promise:structured",
+      operation: "auto-improve-promise",
+      prompt,
+      options: { temperature: 0.7, maxOutputTokens: 1500 },
+    });
 
     return improvedPromise.trim();
   } catch (error) {

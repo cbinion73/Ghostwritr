@@ -1,30 +1,70 @@
 /**
- * Dedup artifact cleanup script
+ * Dedup artifact maintenance script
  *
- * Two kinds of cleanup:
- * 1. Duplicate ARTIFACTS — same title in same stage (keep newest, delete older)
- * 2. Excess VERSIONS — artifacts with more than 1 version (keep latest, delete older)
+ * This command is intentionally non-destructive:
+ * 1. Duplicate artifacts are superseded, not deleted.
+ * 2. Artifact versions are never deleted.
+ * 3. Artifacts with versions referenced by BookStage active/committed pointers
+ *    are reported and skipped.
  *
  * Usage:
- *   npx tsx scripts/dedup-artifacts.ts              # dry run — shows what would be deleted
- *   npx tsx scripts/dedup-artifacts.ts --apply      # actually deletes
- *   npx tsx scripts/dedup-artifacts.ts --slug <slug> # limit to one book
+ *   npx tsx scripts/dedup-artifacts.ts                           # dry run
+ *   npx tsx scripts/dedup-artifacts.ts --slug <slug>              # dry run one book
+ *   npx tsx scripts/dedup-artifacts.ts --apply --confirm-supersede # mark safe duplicates SUPERSEDED
  */
 
-import { PrismaClient } from "@prisma/client";
+import { ArtifactStatus, PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
-const DRY_RUN = !process.argv.includes("--apply");
+const APPLY = process.argv.includes("--apply") && process.argv.includes("--confirm-supersede");
 const slugFilter = (() => {
   const idx = process.argv.indexOf("--slug");
   return idx >= 0 ? process.argv[idx + 1] : null;
 })();
 
+type ArtifactWithVersions = Awaited<ReturnType<typeof loadStagesForBook>>[number]["artifacts"][number];
+
+function normalizeTitle(title: string | null): string {
+  return (title ?? "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 120);
+}
+
+function chooseKeeper(group: ArtifactWithVersions[], referencedVersionIds: Set<string>) {
+  const committedReferenced = group.find((artifact) =>
+    artifact.versions.some((version) => referencedVersionIds.has(version.id)),
+  );
+  if (committedReferenced) return committedReferenced;
+
+  const committed = [...group]
+    .reverse()
+    .find((artifact) => artifact.status === ArtifactStatus.COMMITTED);
+  if (committed) return committed;
+
+  return group[group.length - 1];
+}
+
+async function loadStagesForBook(bookId: string) {
+  return db.bookStage.findMany({
+    where: { bookId },
+    include: {
+      artifacts: {
+        where: { status: { not: ArtifactStatus.SUPERSEDED } },
+        include: {
+          versions: {
+            select: { id: true, versionNumber: true, lifecycleState: true },
+            orderBy: { versionNumber: "asc" },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+}
+
 async function main() {
-  if (DRY_RUN) {
-    console.log("🔍 DRY RUN — pass --apply to actually delete\n");
+  if (APPLY) {
+    console.log("⚠️  APPLY MODE — safe duplicate artifacts will be marked SUPERSEDED\n");
   } else {
-    console.log("⚠️  APPLY MODE — deleting duplicates\n");
+    console.log("🔍 DRY RUN — pass --apply --confirm-supersede to mark safe duplicates SUPERSEDED\n");
   }
 
   const books = await db.book.findMany({
@@ -33,109 +73,85 @@ async function main() {
     orderBy: { createdAt: "desc" },
   });
 
-  let totalArtifactsDeleted = 0;
-  let totalVersionsDeleted = 0;
+  let totalArtifactsSuperseded = 0;
+  let totalArtifactsSkipped = 0;
+  let totalVersionHistoryRows = 0;
 
   for (const book of books) {
-    const stages = await db.bookStage.findMany({
-      where: { bookId: book.id },
-      include: {
-        artifacts: {
-          include: {
-            versions: {
-              select: { id: true, versionNumber: true, lifecycleState: true },
-              orderBy: { versionNumber: "asc" },
-            },
-          },
-          orderBy: { createdAt: "asc" },
-        },
-      },
-    });
+    const stages = await loadStagesForBook(book.id);
 
-    let bookArtifactsDeleted = 0;
-    let bookVersionsDeleted = 0;
+    let bookArtifactsSuperseded = 0;
+    let bookArtifactsSkipped = 0;
+    let bookVersionHistoryRows = 0;
 
     for (const stage of stages) {
-      // ── 1. Duplicate artifacts (same title in same stage) ──────────────────
-      // Group by normalized title
+      const referencedVersionIds = new Set<string>(
+        [
+          stage.activeArtifactVersionId,
+          stage.committedArtifactVersionId,
+        ].filter((id): id is string => Boolean(id)),
+      );
+
       const byTitle = new Map<string, typeof stage.artifacts>();
       for (const a of stage.artifacts) {
-        const norm = (a.title ?? "").trim().toLowerCase().slice(0, 80);
+        const norm = normalizeTitle(a.title);
         if (!byTitle.has(norm)) byTitle.set(norm, []);
         byTitle.get(norm)!.push(a);
       }
 
       for (const [title, group] of byTitle) {
         if (group.length <= 1) continue;
-        // Keep the newest (last by createdAt, which is asc order → last in array)
-        const toDelete = group.slice(0, group.length - 1);
+        const keeper = chooseKeeper(group, referencedVersionIds);
+        const candidates = group.filter((artifact) => artifact.id !== keeper.id);
         console.log(`\n  📖 ${book.titleWorking ?? book.slug} / ${stage.stageKey}`);
-        console.log(`  Duplicate artifact "${title.slice(0, 60)}" — ${group.length} copies`);
-        console.log(`  Keeping: ${group[group.length - 1].id.slice(0, 8)} (newest)`);
-        for (const a of toDelete) {
-          console.log(`  ${DRY_RUN ? "[would delete]" : "Deleting"} artifact ${a.id.slice(0, 8)} (${a.versions.length} versions)`);
-          if (!DRY_RUN) {
-            const versionIds = a.versions.map(v => v.id);
-            // Null out FK references on BookStage before deleting versions
-            if (versionIds.length > 0) {
-              await db.bookStage.updateMany({
-                where: { committedArtifactVersionId: { in: versionIds } },
-                data: { committedArtifactVersionId: null },
-              });
-            }
-            // Null out FK references on Artifact itself
-            await db.artifact.update({
-              where: { id: a.id },
-              data: { currentVersionId: null, committedVersionId: null },
-            });
-            await db.artifactVersion.deleteMany({ where: { artifactId: a.id } });
-            await db.artifact.delete({ where: { id: a.id } });
+        console.log(`  Duplicate artifact "${title.slice(0, 60)}" — ${group.length} active copies`);
+        console.log(`  Keeping: ${keeper.id.slice(0, 8)} (${keeper.status})`);
+
+        for (const artifact of candidates) {
+          const hasReferencedVersion = artifact.versions.some((version) => referencedVersionIds.has(version.id));
+          if (hasReferencedVersion) {
+            console.log(`  [skip] artifact ${artifact.id.slice(0, 8)} has a stage-referenced version`);
+            bookArtifactsSkipped++;
+            continue;
           }
-          bookArtifactsDeleted++;
+
+          console.log(`  ${APPLY ? "Superseding" : "[would supersede]"} artifact ${artifact.id.slice(0, 8)} (${artifact.versions.length} preserved versions)`);
+          if (APPLY) {
+            await db.artifact.update({
+              where: { id: artifact.id },
+              data: { status: ArtifactStatus.SUPERSEDED },
+            });
+          }
+          bookArtifactsSuperseded++;
         }
       }
 
-      // ── 2. Excess versions (artifact has > 1 version, keep latest) ─────────
       for (const a of stage.artifacts) {
         if (a.versions.length <= 1) continue;
-        const toDelete = a.versions.slice(0, a.versions.length - 1); // keep last
-        const keep = a.versions[a.versions.length - 1];
+        const historyCount = a.versions.length - 1;
         console.log(`\n  📖 ${book.titleWorking ?? book.slug} / ${stage.stageKey}`);
         console.log(`  "${(a.title ?? "").slice(0, 60)}" has ${a.versions.length} versions`);
-        console.log(`  Keeping v${keep.versionNumber} (${keep.lifecycleState})`);
-        for (const v of toDelete) {
-          console.log(`  ${DRY_RUN ? "[would delete]" : "Deleting"} v${v.versionNumber} (${v.lifecycleState})`);
-          if (!DRY_RUN) {
-            // Null out FK references before deleting this version
-            await db.bookStage.updateMany({
-              where: { committedArtifactVersionId: v.id },
-              data: { committedArtifactVersionId: null },
-            });
-            await db.artifact.updateMany({
-              where: { OR: [{ currentVersionId: v.id }, { committedVersionId: v.id }] },
-              data: { currentVersionId: keep.id, committedVersionId: keep.id },
-            });
-            // Use deleteMany (safe if already gone via duplicate artifact cleanup)
-            await db.artifactVersion.deleteMany({ where: { id: v.id } });
-          }
-          bookVersionsDeleted++;
-        }
+        console.log(`  Preserving ${historyCount} historical version${historyCount === 1 ? "" : "s"}; no version rows are deleted by this command.`);
+        bookVersionHistoryRows += historyCount;
       }
     }
 
-    if (bookArtifactsDeleted > 0 || bookVersionsDeleted > 0) {
-      totalArtifactsDeleted += bookArtifactsDeleted;
-      totalVersionsDeleted += bookVersionsDeleted;
+    if (bookArtifactsSuperseded > 0 || bookArtifactsSkipped > 0 || bookVersionHistoryRows > 0) {
+      totalArtifactsSuperseded += bookArtifactsSuperseded;
+      totalArtifactsSkipped += bookArtifactsSkipped;
+      totalVersionHistoryRows += bookVersionHistoryRows;
     }
   }
 
   console.log(`\n${"─".repeat(50)}`);
-  if (DRY_RUN) {
-    console.log(`Would delete: ${totalArtifactsDeleted} duplicate artifacts, ${totalVersionsDeleted} excess versions`);
-    console.log(`Run with --apply to execute.`);
+  if (APPLY) {
+    console.log(`Superseded: ${totalArtifactsSuperseded} duplicate artifacts`);
   } else {
-    console.log(`Deleted: ${totalArtifactsDeleted} duplicate artifacts, ${totalVersionsDeleted} excess versions`);
+    console.log(`Would supersede: ${totalArtifactsSuperseded} duplicate artifacts`);
+    console.log(`Run with --apply --confirm-supersede to execute.`);
   }
+  console.log(`Skipped referenced artifacts: ${totalArtifactsSkipped}`);
+  console.log(`Historical versions preserved: ${totalVersionHistoryRows}`);
 
   await db.$disconnect();
 }

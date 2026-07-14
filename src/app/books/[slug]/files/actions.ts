@@ -17,6 +17,7 @@ export async function toggleBookFileAction(
 
   await setSourceDocumentEnabled({
     documentId,
+    bookId: book.id,
     enabled,
   });
 

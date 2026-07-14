@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import {
   uploadBookSourceDocument,
   listBookSourceDocuments,
@@ -7,6 +8,14 @@ import {
 } from "@/lib/repositories/source-documents";
 import { processDocumentForKnowledgeBase } from "@/lib/services/knowledge-base";
 import type { StageKey } from "@prisma/client";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  assertContentLengthWithinLimit,
+  assertFileWithinLimit,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 export const runtime = "nodejs";
 
@@ -16,8 +25,14 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
-  if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
+
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const docs = await listBookSourceDocuments({ bookId: book.id });
   return NextResponse.json({ docs });
@@ -29,8 +44,21 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
-  if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
+
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  try {
+    assertContentLengthWithinLimit(req, REQUEST_LIMITS.sourceDocumentBytes, "Source document upload");
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
@@ -38,6 +66,12 @@ export async function POST(
 
   if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
   if (!label) return NextResponse.json({ error: "Label is required" }, { status: 400 });
+  try {
+    assertFileWithinLimit(file, REQUEST_LIMITS.sourceDocumentBytes, "Source document");
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
@@ -74,17 +108,29 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  // Validate book exists before mutating
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
-  if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
 
-  const body = (await req.json()) as { documentId?: string; enabled?: boolean };
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  let body: { documentId?: string; enabled?: boolean };
+  try {
+    body = await parseLimitedJson(req, { label: "Source document update" });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   if (!body.documentId) {
     return NextResponse.json({ error: "documentId required" }, { status: 400 });
   }
 
   await setSourceDocumentEnabled({
     documentId: body.documentId,
+    bookId: book.id,
     enabled: Boolean(body.enabled),
   });
 

@@ -7,19 +7,25 @@
  */
 
 import { db } from "@/lib/db";
-import { ArtifactType, StageStatus, ActorType } from "@prisma/client";
-import { getModelForRole } from "@/lib/llm/routing";
+import { ArtifactType, ActorType } from "@prisma/client";
+import { acquireLLMCallForRole } from "@/lib/llm/routing";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
 import { getCommittedOutline } from "@/lib/repositories/outline-artifacts";
+import {
+  commitStageAndUnlockNext,
+  ensureStageStarted,
+  resetStageToNotStarted,
+} from "@/lib/workflows/stage-transition-service";
 
 export async function generateManifest(
   bookId: string,
   onChunk?: (text: string) => void,
+  attribution: { bookSlug?: string; bookTitle?: string } = {},
 ): Promise<{ success: boolean; content?: string; error?: string }> {
   // Load book metadata
   const book = await db.book.findUnique({
     where: { id: bookId },
-    select: { id: true, titleWorking: true, subtitle: true, metadataJson: true },
+    select: { id: true, titleWorking: true, subtitle: true, metadataJson: true, workflowType: true },
   });
   if (!book) return { success: false, error: "Book not found" };
 
@@ -116,21 +122,26 @@ ${personalSections ? `PERSONAL STORY BANK:\n${personalSections}` : "PERSONAL STO
 Produce the full manifest now, covering every chapter in the outline. Use exact artifact titles as they appear in the headers above (e.g., "SCOUT: Research Dossier — Chapter 3").`;
 
   // Get or create MANIFEST stage
-  const manifestStage = await db.bookStage.upsert({
-    where: { bookId_stageKey: { bookId, stageKey: "MANIFEST" } },
-    update: { status: StageStatus.IN_PROGRESS },
-    create: { bookId, stageKey: "MANIFEST", status: StageStatus.IN_PROGRESS },
-  });
+  const manifestStage = await ensureStageStarted({ bookId, stageKey: "MANIFEST" });
 
   // Call LLM — try Haiku first, fall back to gpt-4o-mini if unavailable or failing
   const persona = getAgentForStage("MANIFEST");
   const { HumanMessage, SystemMessage } = await import("@langchain/core/messages");
 
   // Resolve model: primary = Haiku, fallback = gpt-4o-mini
-  const primaryModel = await getModelForRole(persona.stageRole);
-  const fallbackModel = primaryModel ? null : await getModelForRole("press:kit"); // openai:gpt-4o-mini
-
-  const model = primaryModel ?? fallbackModel;
+  const gatewayCall = await acquireLLMCallForRole(
+    persona.stageRole,
+    {},
+    {
+      bookId,
+      bookSlug: attribution.bookSlug,
+      bookTitle: attribution.bookTitle ?? book.titleWorking ?? undefined,
+      stageKey: "MANIFEST",
+      operation: "manifest-generate",
+    },
+    "press:kit",
+  );
+  const model = gatewayCall?.model;
   if (!model) {
     return { success: false, error: "No LLM available (checked ANTHROPIC_API_KEY and OPENAI_API_KEY — both missing or invalid)." };
   }
@@ -141,6 +152,9 @@ Produce the full manifest now, covering every chapter in the outline. Use exact 
   ];
 
   let manifestContent = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+  const startMs = Date.now();
   try {
     const stream = await model.stream(messages);
     for await (const chunk of stream) {
@@ -153,17 +167,30 @@ Produce the full manifest now, covering every chapter in the outline. Use exact 
         manifestContent += text;
         onChunk?.(text); // forward each token to the SSE stream to keep the connection alive
       }
+      const usage = (chunk as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata;
+      if (usage) {
+        if (usage.input_tokens) promptTokens = usage.input_tokens;
+        if (usage.output_tokens) completionTokens = usage.output_tokens;
+      }
     }
   } catch (err) {
-    await db.bookStage.update({ where: { id: manifestStage.id }, data: { status: StageStatus.NOT_STARTED } });
+    await resetStageToNotStarted({ bookId, stageKey: "MANIFEST" });
     const detail = err instanceof Error ? err.message : "Generation failed";
     // If primary succeeded but gave empty content, that's handled below.
     // Here we surface the real error so it's visible in the UI.
     return { success: false, error: `LLM call failed: ${detail}` };
   }
 
+  if (promptTokens > 0 || completionTokens > 0) {
+    void gatewayCall.recordUsage({
+      promptTokens,
+      completionTokens,
+      durationMs: Date.now() - startMs,
+    }).catch(() => {/* non-fatal */});
+  }
+
   if (!manifestContent.trim()) {
-    await db.bookStage.update({ where: { id: manifestStage.id }, data: { status: StageStatus.NOT_STARTED } });
+    await resetStageToNotStarted({ bookId, stageKey: "MANIFEST" });
     return { success: false, error: "No content generated" };
   }
 
@@ -189,8 +216,17 @@ Produce the full manifest now, covering every chapter in the outline. Use exact 
     },
   });
 
-  await db.artifact.update({ where: { id: artifact.id }, data: { currentVersionId: version.id } });
-  await db.bookStage.update({ where: { id: manifestStage.id }, data: { status: StageStatus.COMMITTED } });
+  await db.artifact.update({
+    where: { id: artifact.id },
+    data: { currentVersionId: version.id, committedVersionId: version.id },
+  });
+  await commitStageAndUnlockNext({
+    bookId,
+    workflowType: book.workflowType,
+    stageKey: "MANIFEST",
+    committedArtifactVersionId: version.id,
+    unlockNext: false,
+  });
 
   return { success: true, content: manifestContent };
 }

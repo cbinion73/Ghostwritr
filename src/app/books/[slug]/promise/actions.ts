@@ -29,7 +29,7 @@ import {
   maybeGenerateBookPromiseReport,
   composeBookPromiseReportFromMarkdown,
   generateComprehensivePromiseStatement,
-} from "@/lib/workflows/promise";
+} from "@/lib/workflows/promise-public";
 import { resolveModelSpec } from "@/lib/llm/routing";
 import { markWorkflowRunning, markWorkflowComplete } from "@/lib/workflow-status";
 import {
@@ -300,6 +300,7 @@ export async function togglePromiseReferenceMaterial(
 
   await setSourceDocumentEnabled({
     documentId,
+    bookId: book.id,
     enabled,
   });
 

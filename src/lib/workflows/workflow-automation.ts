@@ -2,7 +2,10 @@ import { BookWorkflowType, StageKey, StageStatus } from "@prisma/client";
 
 import { parseMetadataRecord } from "../artifact-schemas";
 import { commitBaseStoryWorkflow, enqueueAndTriggerBaseStoryWorkflow } from "./base-story";
-import { commitAllResearchWorkflow, enqueueAndTriggerFullResearchWorkflow } from "./research";
+import {
+  commitAllResearchWorkflow,
+  enqueueAndTriggerFullResearchWorkflow,
+} from "./research-public";
 import {
   commitAllExternalStoriesWorkflow,
   enqueueAndTriggerFullExternalStoriesWorkflow,
@@ -11,12 +14,12 @@ import {
   commitAllChapterDraftsWorkflow,
   enqueueAndTriggerChapterDraftWorkflow,
   repairWeakChapterDraftsWorkflow,
-} from "./chapter-draft";
+} from "./chapter-draft-public";
 import {
   commitEditingStageWorkflow,
   assembleManuscriptWorkflow,
   runFullEditorialLoopWorkflow,
-} from "./editing";
+} from "./editing-public";
 import {
   commitFictionStageWorkflow,
   generateFictionStageWorkflow,

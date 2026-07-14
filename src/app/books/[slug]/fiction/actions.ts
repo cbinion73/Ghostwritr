@@ -7,7 +7,7 @@ import { StageKey } from "@prisma/client";
 import {
   assembleManuscriptWorkflow,
   preparePublishingPackageWorkflow,
-} from "@/lib/workflows/editing";
+} from "@/lib/workflows/editing-public";
 import {
   commitFictionStageWorkflow,
   expandFictionDraftChapterTowardTargetWorkflow,

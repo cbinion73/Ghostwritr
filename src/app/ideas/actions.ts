@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { BookWorkflowType } from "@prisma/client";
 
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { createBookFromTitle } from "@/lib/repositories/books";
 import { addBookIdea, deleteBookIdea, updateBookIdea } from "@/lib/jarvis/client";
 import { db } from "@/lib/db";
@@ -14,13 +15,14 @@ function parseWorkflowType(value: FormDataEntryValue | null) {
 
 /** Promote a Jarvis idea into a new Ghostwritr book and open Book Setup. */
 export async function promoteIdeaToBookAction(formData: FormData) {
+  const user = await requireAuthenticatedAppUser();
   const title = String(formData.get("title") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim();
   const workflowType = parseWorkflowType(formData.get("workflowType"));
 
   if (!title) return;
 
-  const book = await createBookFromTitle({ titleWorking: title, workflowType });
+  const book = await createBookFromTitle({ titleWorking: title, workflowType, ownerUserId: user.id });
 
   // Stash the notes as a premise hint in metadataJson so Blueprint sees it
   if (notes) {

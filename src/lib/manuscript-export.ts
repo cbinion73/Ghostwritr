@@ -3,14 +3,12 @@ import { promisify } from "util";
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { ArtifactType, BookWorkflowType } from "@prisma/client";
+import { ArtifactType, BookWorkflowType, ChapterApprovalStatus, StageKey } from "@prisma/client";
 import { z } from "zod";
 
 import { db } from "@/lib/db";
 
 import {
-  ChapterDraftBundleSchema,
-  ChapterReviewBundleSchema,
   FictionDraftArtifactSchema,
   ParagraphOutlineSchema,
   parseArtifactWithSchema,
@@ -19,8 +17,9 @@ import { getBookBySlugOrThrow } from "@/lib/repositories/books";
 import { getLatestEditingArtifactVersion } from "@/lib/repositories/editing-artifacts";
 import { getCommittedFictionArtifactVersion } from "@/lib/repositories/fiction-artifacts";
 import { getCommittedOutlineExpansion } from "@/lib/repositories/outline-artifacts";
-import { getChapterArtifactVersions } from "@/lib/repositories/chapter-draft-artifacts";
+import { listChapterApprovalStates } from "@/lib/repositories/chapter-approval-state";
 import type { ManuscriptExportPayload } from "@/lib/manuscript-document";
+import { normalizeTypesetPlan } from "@/lib/typeset-plan";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,6 +71,17 @@ const ExportPublishingPackageSchema = z.object({
 });
 
 export type PublishingPackageExport = z.infer<typeof ExportPublishingPackageSchema>;
+
+const FinalManuscriptRevisionSchema = z.object({
+  changedChapters: z.array(
+    z.object({
+      chapterKey: z.string(),
+      chapterLabel: z.string(),
+      revisedText: z.string(),
+      changeSummary: z.string().optional(),
+    }),
+  ),
+});
 
 function countWords(value: string | null | undefined) {
   return value?.split(/\s+/).filter(Boolean).length ?? 0;
@@ -153,134 +163,103 @@ export async function buildManuscriptExportPayload(slug: string): Promise<Manusc
     ParagraphOutlineSchema,
   );
 
-  // ── New-style books: no OUTLINE_EXPANSION — load chapters directly from stage ──
   if (!outline) {
-    const chapterStage = await db.bookStage.findUnique({
-      where: { bookId_stageKey: { bookId: book.id, stageKey: "CHAPTER_DRAFT" } },
-      select: {
-        artifacts: {
-          select: {
-            id: true,
-            title: true,
-            metadataJson: true,
-            committedVersionId: true,
-            updatedAt: true,
-            versions: {
-              where: { lifecycleState: "COMMITTED" },
-              select: { contentText: true },
-              orderBy: { versionNumber: "desc" },
-              take: 1,
+    throw new Error("Approved paragraph-level Outline is required before final manuscript export.");
+  }
+
+  const outlineChapters = outline.sections.flatMap((section) =>
+    section.chapters.map((chapter) => ({
+      chapter,
+      sectionTitle: section.sectionTitle,
+    })),
+  );
+  const outlineChapterIds = new Set(outlineChapters.map(({ chapter }) => chapter.chapterId));
+  const approvalStates = await listChapterApprovalStates(book.id);
+  const approvalsByChapterId = new Map(approvalStates.map((state) => [state.chapterId, state]));
+  const approvedOrphans = approvalStates
+    .filter(
+      (state) =>
+        state.status === ChapterApprovalStatus.FINAL_REVISION_APPROVED &&
+        !outlineChapterIds.has(state.chapterId),
+    )
+    .map((state) => state.chapterId);
+
+  if (approvedOrphans.length > 0) {
+    throw new Error(
+      `Final manuscript export found approved chapters outside the approved outline order: ${approvedOrphans.join(", ")}.`,
+    );
+  }
+
+  const chapters = await Promise.all(
+    outlineChapters.map(async ({ chapter, sectionTitle }) => {
+      const approval = approvalsByChapterId.get(chapter.chapterId);
+      if (
+        approval?.status !== ChapterApprovalStatus.FINAL_REVISION_APPROVED ||
+        !approval.approvedFinalVersionId
+      ) {
+        throw new Error(
+          `Final manuscript export requires an approved final Opus revision for every chapter. ${chapter.chapterTitle} is not approved.`,
+        );
+      }
+
+      if (approval.isStale) {
+        throw new Error(
+          `Final manuscript export blocked because ${chapter.chapterTitle} has a stale final approval${approval.staleReason ? `: ${approval.staleReason}` : "."}`,
+        );
+      }
+
+      const version = await db.artifactVersion.findUnique({
+        where: { id: approval.approvedFinalVersionId },
+        include: {
+          artifact: {
+            select: {
+              bookId: true,
+              artifactType: true,
+              stage: { select: { stageKey: true } },
             },
           },
-          orderBy: { createdAt: "asc" },
         },
-      },
-    });
+      });
 
-    const rawChapters = chapterStage?.artifacts ?? [];
-
-    // A chapter can have more than one Artifact row (a plain agent-chat save
-    // and the structured author path each find-or-create differently) —
-    // without this, a duplicate would export the same chapter twice, once
-    // per version. Group by chapterKey and keep only the most recently
-    // updated committed row per chapter.
-    const byChapterKey = new Map<string, (typeof rawChapters)[number]>();
-    for (const artifact of rawChapters) {
-      const meta = artifact.metadataJson as Record<string, string> | null;
-      const chapterKey = meta?.chapterKey ?? artifact.id;
-      const existing = byChapterKey.get(chapterKey);
-      if (!existing || artifact.updatedAt > existing.updatedAt) {
-        byChapterKey.set(chapterKey, artifact);
+      if (
+        !version ||
+        version.artifact.bookId !== book.id ||
+        version.artifact.artifactType !== ArtifactType.MANUSCRIPT_REVISION ||
+        version.artifact.stage.stageKey !== StageKey.EDITING
+      ) {
+        throw new Error(
+          `Final manuscript export could not load the approved final Opus revision for ${chapter.chapterTitle}.`,
+        );
       }
-    }
 
-    const draftedChapters = [...byChapterKey.values()].filter(
-      (a) => (a.versions[0]?.contentText?.trim().length ?? 0) > 0,
-    );
+      const revision = parseArtifactWithSchema(version.contentJson, FinalManuscriptRevisionSchema);
+      const changedChapter = revision?.changedChapters.find(
+        (candidate) => candidate.chapterKey === chapter.chapterId,
+      );
 
-    if (draftedChapters.length === 0) {
-      throw new Error("No committed chapter drafts exist yet. Commit at least one chapter before exporting the manuscript.");
-    }
+      if (!changedChapter?.revisedText.trim()) {
+        throw new Error(
+          `Final manuscript export found no revised text for ${chapter.chapterTitle} in its approved Opus revision.`,
+        );
+      }
 
-    const chapters = draftedChapters.map((a, idx) => {
-      const meta = a.metadataJson as Record<string, string> | null;
-      const chapterKey = meta?.chapterKey ?? `ch-${idx + 1}`;
-      const text = a.versions[0]?.contentText ?? "";
       return {
-        chapterKey,
-        chapterLabel: a.title ?? `Chapter ${idx + 1}`,
-        sectionTitle: "",
-        wordCount: countWords(text),
-        reviewSummary: null,
-        chapterText: text,
+        chapterKey: chapter.chapterId,
+        chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
+        sectionTitle,
+        wordCount: countWords(changedChapter.revisedText),
+        reviewSummary: changedChapter.changeSummary ?? null,
+        chapterText: changedChapter.revisedText,
       };
-    });
-
-    return {
-      title: book.titleWorking ?? "Untitled Book",
-      subtitle: book.subtitle ?? null,
-      totalWords: chapters.reduce((sum, c) => sum + c.wordCount, 0),
-      chapterCount: chapters.length,
-      draftedChapterCount: chapters.length,
-      trimSize: publishingPackage?.trimSize ?? null,
-      frontMatter: publishingPackage?.frontMatter ?? [],
-      backMatter: publishingPackage?.backMatter ?? [],
-      chapters,
-    };
-  }
-
-  // ── Legacy books: load chapters via outline chapter IDs ───────────────────────
-  const chapters = await Promise.all(
-    outline.sections.flatMap((section) =>
-      section.chapters.map(async (chapter) => {
-        const [draftVersions, reviewVersions] = await Promise.all([
-          getChapterArtifactVersions(book.id, chapter.chapterId, ArtifactType.CHAPTER_DRAFT, 1),
-          getChapterArtifactVersions(book.id, chapter.chapterId, ArtifactType.EDITORIAL_REVIEW, 1),
-        ]);
-
-        const draft = draftVersions[0]
-          ? parseArtifactWithSchema(draftVersions[0].contentJson, ChapterDraftBundleSchema)
-          : null;
-        const review = reviewVersions[0]
-          ? parseArtifactWithSchema(reviewVersions[0].contentJson, ChapterReviewBundleSchema)
-          : null;
-
-        // Some chapters were committed through the plain conversational
-        // agent-chat path rather than the structured chapter-draft flow, so
-        // their contentJson is a bare `{ text }` blob instead of a full
-        // ChapterDraftBundle -- draft.chapterText comes back undefined even
-        // though the prose is right there under a different key. Confirmed
-        // live: this made every Dust chapter register as empty, so
-        // draftedChapterCount was 0 and the whole export threw "No chapter
-        // drafts exist yet" despite 16 real committed chapters. Same
-        // fallback shape already handled in loadNonfictionEditingChapters.
-        const rawDraftContent = draftVersions[0]?.contentJson as { text?: unknown } | null | undefined;
-        const resolvedChapterText =
-          draft?.chapterText ?? (typeof rawDraftContent?.text === "string" ? rawDraftContent.text : "");
-
-        return {
-          chapterKey: chapter.chapterId,
-          chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
-          sectionTitle: section.sectionTitle,
-          wordCount: countWords(resolvedChapterText),
-          reviewSummary: review?.overallAssessment ?? null,
-          chapterText: resolvedChapterText,
-        };
-      }),
-    ),
+    }),
   );
-
-  const draftedChapterCount = chapters.filter((chapter) => chapter.chapterText.trim().length > 0).length;
-  if (draftedChapterCount === 0) {
-    throw new Error("No chapter drafts exist yet. Finish drafting chapters before exporting the manuscript.");
-  }
 
   return {
     title: book.titleWorking ?? outline.workingTitle ?? "Untitled Book",
     subtitle: book.subtitle ?? null,
     totalWords: chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0),
     chapterCount: chapters.length,
-    draftedChapterCount,
+    draftedChapterCount: chapters.length,
     trimSize: publishingPackage?.trimSize ?? null,
     frontMatter: publishingPackage?.frontMatter ?? [],
     backMatter: publishingPackage?.backMatter ?? [],
@@ -291,28 +270,29 @@ export async function buildManuscriptExportPayload(slug: string): Promise<Manusc
 export async function buildTypesetPlanInput(slug: string) {
   const payload = await buildManuscriptExportPayload(slug);
   const publishingPackage = await getLatestPublishingPackage(slug);
+  const plan = normalizeTypesetPlan({
+    trimSize: publishingPackage?.trimSize ?? payload.trimSize ?? null,
+    title: payload.title,
+    subtitle: payload.subtitle ?? null,
+    frontMatter: publishingPackage?.frontMatter ?? payload.frontMatter ?? [],
+    backMatter: publishingPackage?.backMatter ?? payload.backMatter ?? [],
+    trimProfile: publishingPackage?.typesettingPlan?.trimProfile ?? null,
+    runningHeads: publishingPackage?.typesettingPlan?.runningHeads ?? null,
+    chapterOpenerStyle: publishingPackage?.typesettingPlan?.chapterOpenerStyle ?? null,
+    tocIncluded: publishingPackage?.typesettingPlan?.tocIncluded ?? true,
+    sectionStartsOnRecto: publishingPackage?.typesettingPlan?.sectionStartsOnRecto ?? true,
+    signaturePageMultiple: publishingPackage?.typesettingPlan?.signaturePageMultiple ?? 16,
+    estimatedSignatureCount: publishingPackage?.typesettingPlan?.estimatedSignatureCount ?? null,
+    estimatedBlankPages: publishingPackage?.typesettingPlan?.estimatedBlankPages ?? null,
+    estimatedFrontMatterPages: publishingPackage?.typesettingPlan?.estimatedFrontMatterPages ?? null,
+    estimatedBodyPages: publishingPackage?.typesettingPlan?.estimatedBodyPages ?? null,
+    estimatedBackMatterPages: publishingPackage?.typesettingPlan?.estimatedBackMatterPages ?? null,
+    estimatedTotalPages: publishingPackage?.typesettingPlan?.estimatedTotalPages ?? null,
+  });
 
   return {
     payload,
-    plan: {
-      trimSize: publishingPackage?.trimSize ?? payload.trimSize ?? null,
-      title: payload.title,
-      subtitle: payload.subtitle ?? null,
-      frontMatter: publishingPackage?.frontMatter ?? payload.frontMatter ?? [],
-      backMatter: publishingPackage?.backMatter ?? payload.backMatter ?? [],
-      trimProfile: publishingPackage?.typesettingPlan?.trimProfile ?? null,
-      runningHeads: publishingPackage?.typesettingPlan?.runningHeads ?? null,
-      chapterOpenerStyle: publishingPackage?.typesettingPlan?.chapterOpenerStyle ?? null,
-      tocIncluded: publishingPackage?.typesettingPlan?.tocIncluded ?? true,
-      sectionStartsOnRecto: publishingPackage?.typesettingPlan?.sectionStartsOnRecto ?? true,
-      signaturePageMultiple: publishingPackage?.typesettingPlan?.signaturePageMultiple ?? 16,
-      estimatedSignatureCount: publishingPackage?.typesettingPlan?.estimatedSignatureCount ?? null,
-      estimatedBlankPages: publishingPackage?.typesettingPlan?.estimatedBlankPages ?? null,
-      estimatedFrontMatterPages: publishingPackage?.typesettingPlan?.estimatedFrontMatterPages ?? null,
-      estimatedBodyPages: publishingPackage?.typesettingPlan?.estimatedBodyPages ?? null,
-      estimatedBackMatterPages: publishingPackage?.typesettingPlan?.estimatedBackMatterPages ?? null,
-      estimatedTotalPages: publishingPackage?.typesettingPlan?.estimatedTotalPages ?? null,
-    },
+    plan,
     publishingPackage,
   };
 }

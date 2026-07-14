@@ -1,7 +1,6 @@
 export const STAGE_ORDER = [
   "BOOK_SETUP",
   "PROMISE",
-  "MARKET_ANALYSIS",
   "OUTLINE",
   "BASE_STORY",
   "RESEARCH",

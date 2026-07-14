@@ -26,6 +26,7 @@ import {
   getCommittedOutline,
   getOutlineVersions,
 } from "../repositories/outline-artifacts";
+import { getCommittedPhase1StrategicBrief } from "../repositories/phase1-strategic-brief-artifacts";
 import { getCommittedPromiseBrief, getPromiseArtifacts } from "../repositories/promise-artifacts";
 import { getBookKnowledgeBase, formatKnowledgeForPrompt } from "../services/knowledge-base";
 import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
@@ -1763,6 +1764,12 @@ async function maybeGenerateOutline(
 
 async function loadPromiseNode(state: OutlineWorkflowState) {
   const book = await getOrCreateBookBySlug(state.bookSlug);
+  const phase1StrategicBriefVersion = await getCommittedPhase1StrategicBrief(book.id);
+  if (!phase1StrategicBriefVersion) {
+    throw new Error(
+      "Approved Phase 1 strategic brief is required before generating an outline.",
+    );
+  }
   const committedPromiseVersion = await getCommittedPromiseBrief(book.id);
   const committedBookSetup = await getCommittedBookSetup(book.id);
   const promiseArtifacts = await getPromiseArtifacts(book.id);
@@ -1908,6 +1915,7 @@ export async function getOutlineWorkspace(bookSlug: string) {
   const book = await getBookBySlugOrThrow(bookSlug);
   const promiseStage = await getStageForBook(book.id, StageKey.PROMISE);
   const outlineStage = await getStageForBook(book.id, StageKey.OUTLINE);
+  const phase1StrategicBriefVersion = await getCommittedPhase1StrategicBrief(book.id);
   const committedPromiseVersion = await getCommittedPromiseBrief(book.id);
   const committedBookSetup = await getCommittedBookSetup(book.id);
   const promiseArtifacts = await getPromiseArtifacts(book.id);
@@ -1971,6 +1979,13 @@ export async function getOutlineWorkspace(bookSlug: string) {
     book,
     promiseStage,
     outlineStage,
+    phase1StrategicBrief: phase1StrategicBriefVersion
+      ? {
+          id: phase1StrategicBriefVersion.id,
+          versionNumber: phase1StrategicBriefVersion.versionNumber,
+          createdAt: phase1StrategicBriefVersion.createdAt,
+        }
+      : null,
     committedPromise: sourcePromise,
     bookPromiseReport,
     bookSetupProfile,
@@ -1988,11 +2003,11 @@ export async function getOutlineWorkspace(bookSlug: string) {
       ),
     })),
     outlineReadiness:
-      sourcePromise && bookPromiseReport
+      phase1StrategicBriefVersion && sourcePromise && bookPromiseReport
         ? {
             status: "ready" as const,
             nextMoves: [
-              "Generate the full section > chapter > paragraph architecture from the locked Book Pitch",
+              "Generate the full section > chapter > paragraph architecture from the approved Phase 1 strategic brief",
               "Stress-test the word-count cascade so the book target, section totals, chapter totals, and paragraph totals all match",
               "Revise any weak sections or chapters through comments until the flow feels inevitable",
               "Commit the outline once the structure, pacing, and transformation arc all hold together",
@@ -2001,7 +2016,7 @@ export async function getOutlineWorkspace(bookSlug: string) {
         : {
           status: "blocked" as const,
           nextMoves: [
-              "Lock the Book Pitch first",
+              "Commit the unified Phase 1 strategic brief from the Promise room first",
               "Finalize the target audience, core truth, and transformation arc before outlining",
               "Confirm the book's target word count in Setup so the outline math has a real anchor",
             ],

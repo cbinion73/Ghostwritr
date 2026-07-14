@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
 import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
 import { normalizeBookSetupProfile } from "@/lib/book-setup-types";
 import { resolveResearchLens } from "@/lib/research-lenses";
-import { getModelForRole, resolveModelSpec } from "@/lib/llm/routing";
-import { parseModelSpec } from "@/lib/llm/providers";
-import { logLLMCall } from "@/lib/llm/call-log";
+import { acquireLLMCallForRole } from "@/lib/llm/routing";
+import { llmGatewayErrorResponse } from "@/lib/llm/gateway-http";
 import { searchWeb } from "@/lib/web-access";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  acquireBookOperationSlot,
+  assertChatMessagesWithinLimit,
+  assertRateLimit,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 import {
   type ChatMessage,
   extractChapterTopics,
@@ -26,33 +36,74 @@ export async function POST(
 ) {
   const { slug } = await params;
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, titleWorking: true, subtitle: true, workflowType: true, metadataJson: true },
-  });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = (await req.json()) as {
+  let body: {
     messages: ChatMessage[];
     chapterContext?: string;
     // Single-chapter auto-loop mode
     chapterKey?: string;
     chapterTitle?: string;
   };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Chronicle stories request",
+    });
+    assertChatMessagesWithinLimit(body.messages ?? []);
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { messages, chapterContext, chapterKey, chapterTitle } = body;
   if (!Array.isArray(messages)) {
     return NextResponse.json({ error: "Missing messages" }, { status: 400 });
   }
 
+  try {
+    assertRateLimit({
+      key: `chronicle-stories:${book.id}`,
+      limit: REQUEST_LIMITS.generationRequestsPerWindow,
+      windowMs: REQUEST_LIMITS.apiWindowMs,
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
+
   const stageKey = "EXTERNAL_STORIES" as const;
   const persona = getAgentForStage(stageKey);
-  const model = await getModelForRole(persona.stageRole);
-
-  if (!model) {
+  let gatewayCall;
+  try {
+    gatewayCall = await acquireLLMCallForRole(persona.stageRole, {}, {
+      bookId: book.id,
+      bookSlug: slug,
+      bookTitle: book.titleWorking ?? undefined,
+      stageKey,
+      chapterKey,
+      operation: "chronicle-stories-stream",
+    });
+  } catch (error) {
+    const response = llmGatewayErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
+  if (!gatewayCall?.model) {
     return new Response(
       buildStaticStream("I need ANTHROPIC_API_KEY configured to source stories. Check your .env file."),
       { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } }
     );
+  }
+  const model = gatewayCall.model;
+
+  let releaseBookSlot: () => void;
+  try {
+    releaseBookSlot = acquireBookOperationSlot(book.id, "generation");
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
   }
 
   const meta = book.metadataJson && typeof book.metadataJson === "object"
@@ -150,7 +201,6 @@ The web story sources below are pre-labelled with quality tiers. Prefer attribut
   ];
 
   const encoder = new TextEncoder();
-  const modelSpec = parseModelSpec(resolveModelSpec(persona.stageRole));
   const startMs = Date.now();
 
   const readable = new ReadableStream({
@@ -185,8 +235,9 @@ The web story sources below are pre-labelled with quality tiers. Prefer attribut
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } finally {
         controller.close();
+        releaseBookSlot();
         if (promptTokens > 0 || completionTokens > 0) {
-          void logLLMCall({ bookId: book.id, bookSlug: slug, bookTitle: book.titleWorking ?? undefined, stageKey: "EXTERNAL_STORIES", chapterKey, stageRole: persona.stageRole, provider: modelSpec.provider, model: modelSpec.model, promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
+          void gatewayCall.recordUsage({ promptTokens, completionTokens, durationMs: Date.now() - startMs }).catch(() => {});
         }
       }
     },

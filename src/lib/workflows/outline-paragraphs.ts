@@ -2,6 +2,11 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ArtifactStatus, ActorType, StageKey } from "@prisma/client";
 
 import { getModelForRole } from "../llm/routing";
+import {
+  assembleLinkedParagraphOutline,
+  assertLinkedOutlinePackage,
+  validateLinkedOutlinePackage,
+} from "../outline-linkage";
 import { renumberBookOutline, type BookOutline, type OutlineChapter } from "../outline-types";
 import { setChapterGenerationProgress, clearChapterGenerationProgress } from "./outline-progress-tracker";
 import {
@@ -486,9 +491,60 @@ export async function runParagraphOutlineWorkflow(
 
 export async function commitParagraphOutlineWorkflow(bookSlug: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
+  const committedOutlineVersion = await getCommittedOutline(book.id);
+  const latestExpansionVersion = (await getOutlineExpansionVersions(book.id, 1))[0];
+  const committedOutline = parseJson<BookOutline | null>(
+    committedOutlineVersion?.contentJson,
+    null,
+  );
+  const paragraphOutline = parseJson<ParagraphOutline | null>(
+    latestExpansionVersion?.contentJson,
+    null,
+  );
+
+  assertLinkedOutlinePackage(committedOutline, paragraphOutline);
   await commitOutlineExpansionBundle(book.id);
   await clearStageStaleDependency(bookSlug, StageKey.OUTLINE);
   await invalidateDependentStagesForBook(bookSlug, StageKey.OUTLINE);
+}
+
+export async function persistLinkedParagraphOutlineFromChapterArtifacts(bookId: string) {
+  const committedOutlineVersion = await getCommittedOutline(bookId);
+  const committedOutline = parseJson<BookOutline | null>(
+    committedOutlineVersion?.contentJson,
+    null,
+  );
+
+  if (!committedOutline) {
+    throw new Error("No committed outline found. Generate and commit Phase 1 first.");
+  }
+
+  const chapterArtifacts = await getChapterParagraphPlans(bookId);
+  const chapterPlans: ChapterParagraphPlan[] = [];
+  const seenChapterIds = new Set<string>();
+
+  for (const artifact of chapterArtifacts) {
+    const latestVersion = artifact.versions[0];
+    if (!isChapterParagraphPlan(latestVersion?.contentJson)) {
+      continue;
+    }
+    if (seenChapterIds.has(latestVersion.contentJson.chapterId)) {
+      continue;
+    }
+    seenChapterIds.add(latestVersion.contentJson.chapterId);
+    chapterPlans.push(latestVersion.contentJson);
+  }
+
+  const paragraphOutline = assembleLinkedParagraphOutline(committedOutline, chapterPlans);
+  assertLinkedOutlinePackage(committedOutline, paragraphOutline);
+
+  return createOutlineExpansionVersion({
+    bookId,
+    title: "Chapter Breakdowns",
+    summary: paragraphOutline.overview,
+    contentJson: paragraphOutline,
+    contentText: JSON.stringify(paragraphOutline, null, 2),
+  });
 }
 
 export async function getParagraphOutlineWorkspace(bookSlug: string) {
@@ -526,22 +582,7 @@ export async function getParagraphOutlineWorkspace(bookSlug: string) {
       }
     });
 
-    // Reassemble into ParagraphOutline structure
-    const sections = committedOutline.sections.map((section) => ({
-      sectionId: section.id,
-      sectionNumber: section.number,
-      sectionTitle: section.title,
-      sectionDescription: section.description,
-      chapters: section.chapters
-        .map((chapter) => chapterPlans.find((p) => p.chapterId === chapter.id))
-        .filter((p) => p !== undefined) as ChapterParagraphPlan[],
-    }));
-
-    latestParagraphOutline = {
-      workingTitle: committedOutline.workingTitle,
-      overview: `Chapter-by-chapter paragraph blueprints for "${committedOutline.workingTitle}" based on the locked outline.`,
-      sections,
-    };
+    latestParagraphOutline = assembleLinkedParagraphOutline(committedOutline, chapterPlans);
   }
 
   // Also get old OUTLINE_EXPANSION artifacts for backward compatibility
@@ -549,12 +590,23 @@ export async function getParagraphOutlineWorkspace(bookSlug: string) {
   const committedExpansionVersion = await getCommittedOutlineExpansion(book.id);
   const paragraphVersions = await getOutlineExpansionVersions(book.id);
 
+  const latestLinkageReport = validateLinkedOutlinePackage(
+    committedOutline,
+    latestParagraphOutline,
+  );
+  const committedLinkageReport = validateLinkedOutlinePackage(
+    committedOutline,
+    parseJson<ParagraphOutline | null>(committedExpansionVersion?.contentJson, null),
+  );
+
   return {
     book,
     committedOutline,
     latestParagraphOutline,
     committedParagraphOutline:
       parseJson<ParagraphOutline | null>(committedExpansionVersion?.contentJson, null),
+    latestLinkageReport,
+    committedLinkageReport,
     paragraphVersions: paragraphVersions.map((version) => ({
       id: version.id,
       versionNumber: version.versionNumber,
@@ -579,5 +631,22 @@ export async function getParagraphOutlineWorkspace(bookSlug: string) {
             "Lock Phase 1 before opening Chapter Breakdowns",
           ],
         },
+    commitReadiness:
+      latestParagraphOutline && latestLinkageReport.isLinked
+        ? {
+            status: "ready" as const,
+            nextMoves: [
+              "Approve the linked chapter breakdowns",
+              "Commit the paragraph-level outline package",
+            ],
+          }
+        : {
+            status: "blocked" as const,
+            nextMoves: [
+              "Generate linked paragraph blueprints for every committed outline chapter",
+              latestLinkageReport.issues[0]?.message ??
+                "No linked paragraph outline has been generated yet.",
+            ],
+          },
   };
 }

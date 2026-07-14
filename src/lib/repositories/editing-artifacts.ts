@@ -12,6 +12,8 @@ import { db } from "../db";
 import { ensureDefaultLocalUser } from "../users";
 import { getStageForBook } from "./books";
 import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
+import { chapterIdentityMetadata, chapterIdentityWhere } from "./chapter-identity";
+import { markFinalRevisionPending } from "./chapter-approval-state";
 
 type EditingArtifactType =
   | "EDITORIAL_ASSESSMENT"
@@ -169,7 +171,7 @@ export async function createEditingArtifactVersion(input: CreateEditingArtifactV
         stageId: stage.id,
         artifactType: input.artifactType,
         ...(input.chapterKey
-          ? { metadataJson: { path: ["chapterKey"], equals: input.chapterKey } }
+          ? chapterIdentityWhere(input.chapterKey)
           : {}),
       },
     })) ??
@@ -178,10 +180,11 @@ export async function createEditingArtifactVersion(input: CreateEditingArtifactV
         bookId: input.bookId,
         stageId: stage.id,
         artifactType: input.artifactType,
+        ...(input.chapterKey ? { chapterId: input.chapterKey } : {}),
         title: artifactLabel(input.artifactType),
         summary: input.summary,
         status: ArtifactStatus.DRAFT,
-        ...(input.chapterKey ? { metadataJson: { chapterKey: input.chapterKey } } : {}),
+        ...(input.chapterKey ? { metadataJson: chapterIdentityMetadata(input.chapterKey) } : {}),
       },
     }));
 
@@ -229,6 +232,13 @@ export async function createEditingArtifactVersion(input: CreateEditingArtifactV
           : stage.committedAt,
     },
   });
+  if (input.artifactType === ArtifactType.MANUSCRIPT_REVISION && input.chapterKey) {
+    await markFinalRevisionPending({
+      bookId: input.bookId,
+      chapterId: input.chapterKey,
+      versionId: version.id,
+    });
+  }
 
   return version;
 }

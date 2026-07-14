@@ -22,6 +22,7 @@ import { SubmitButton } from "@/app/components/submit-button";
 import { StageRunPanel } from "@/app/components/stage-run-panel";
 
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
+import { buildResearchEvidenceContract } from "@/lib/source-evidence-contract";
 
 function tierClassName(tier: string) {
   return `tier-badge tier-${tier.toLowerCase()}`;
@@ -73,7 +74,7 @@ export async function EvidenceRoomContent({
   tabId?: string;
   tabHrefBase: string;
 }) {
-  const { getResearchWorkspace } = await import("@/lib/workflows/research");
+  const { getResearchWorkspace } = await import("@/lib/workflows/research-public");
   const workspace = await getResearchWorkspace(slug, tabId);
   const selectedTab = workspace.selectedTab;
   const hasGeneratedResearch = workspace.tabs.some((tab) => tab.summary.generatedCount > 0);
@@ -295,6 +296,21 @@ export async function EvidenceRoomContent({
 
                         {entry.dossier ? (
                           <>
+                            {(() => {
+                              const evidence = buildResearchEvidenceContract(
+                                entry.dossier as Parameters<typeof buildResearchEvidenceContract>[0],
+                              );
+                              const admissibleFactIds = new Set(
+                                evidence.records
+                                  .filter((record) => record.admissibility === "ADMISSIBLE")
+                                  .map((record) => record.id),
+                              );
+                              const admissibleFacts = entry.dossier.factBank.filter((item) =>
+                                admissibleFactIds.has(item.id),
+                              );
+
+                              return (
+                                <>
                             {entry.dossier.metadata?.provisional ? (
                               <div className="card" style={{ borderColor: "#b06733", background: "rgba(176, 103, 51, 0.08)" }}>
                                 <strong>Provisional Research Dossier</strong>
@@ -320,7 +336,24 @@ export async function EvidenceRoomContent({
                               <div className="metric">
                                 Needs corroboration: {entry.dossier.verificationSummary.needsCorroborationItems}
                               </div>
+                              <div className="metric">
+                                Draft-admissible: {evidence.summary.admissibleRecords}
+                              </div>
+                              <div className="metric">
+                                Excluded: {evidence.summary.excludedRecords}
+                              </div>
                             </div>
+
+                            {evidence.summary.excludedRecords > 0 ? (
+                              <div className="card" style={{ borderColor: "#b06733", background: "rgba(176, 103, 51, 0.08)" }}>
+                                <strong>Evidence warning</strong>
+                                <div className="muted" style={{ marginTop: 8 }}>
+                                  Some verified-looking items are blocked from Quill because they are
+                                  missing source metadata, supporting excerpts, or verification status.
+                                  Regenerate or repair the dossier before relying on them.
+                                </div>
+                              </div>
+                            ) : null}
 
                             <details className="dossier-packet" open>
                               <summary>Research Questions</summary>
@@ -334,16 +367,26 @@ export async function EvidenceRoomContent({
                             </details>
 
                             <details className="dossier-packet" open>
-                              <summary>Verified Facts</summary>
+                              <summary>Draft-Admissible Facts</summary>
                               <div className="dossier-packet-body">
-                                {entry.dossier.factBank.length > 0 ? (
+                                {admissibleFacts.length > 0 ? (
                                   <ul className="clean-list">
-                                    {entry.dossier.factBank.map((item) => (
-                                      <li key={item.id}>{item.claimText}</li>
+                                    {admissibleFacts.map((item) => (
+                                      <li key={item.id}>
+                                        {item.claimText}
+                                        {item.evidenceExcerpt ? (
+                                          <div className="muted" style={{ marginTop: 4 }}>
+                                            Excerpt: {item.evidenceExcerpt}
+                                          </div>
+                                        ) : null}
+                                      </li>
                                     ))}
                                   </ul>
                                 ) : (
-                                  <div className="muted">No verified facts admitted yet.</div>
+                                  <div className="muted">
+                                    No draft-admissible facts yet. Claims must have verified source
+                                    metadata and a supporting excerpt before Quill can use them.
+                                  </div>
                                 )}
                               </div>
                             </details>
@@ -420,8 +463,11 @@ export async function EvidenceRoomContent({
                                 )}
                               </div>
                             </details>
-                          </>
-                        ) : (
+                                </>
+                              );
+                            })()}
+                        </>
+                      ) : (
                           <div className="empty-state" style={{ padding: 0 }}>
                             No dossier has been generated for this chapter set yet. Use
                             the button above to run web research and verification.

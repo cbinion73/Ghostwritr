@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { ArtifactType, StageStatus } from "@prisma/client";
+import { ArtifactStatus, ArtifactType } from "@prisma/client";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
-import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { isLikelyGarbageChapterContent, pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
+import { commitStageAndUnlockNext } from "@/lib/workflows/stage-transition-service";
+import { getArtifactChapterId } from "@/lib/repositories/chapter-identity";
+import { commitArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import { markDraftApproved, markFinalRevisionApproved } from "@/lib/repositories/chapter-approval-state";
 
 // POST — commit all per-chapter edits and advance EDITING → TYPESET
 export async function POST(
@@ -10,11 +15,14 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, workflowType: true },
-  });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
+
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
 
   const editingStage = await db.bookStage.findUnique({
     where: { bookId_stageKey: { bookId: book.id, stageKey: "EDITING" } },
@@ -37,14 +45,19 @@ export async function POST(
   for (const artifact of editingStage.artifacts) {
     const version = artifact.versions[0];
     if (!version) continue;
-    await db.artifactVersion.update({
-      where: { id: version.id },
-      data: { lifecycleState: "COMMITTED", committedAt: now },
+    await commitArtifactVersionInTransaction(db, {
+      artifactId: artifact.id,
+      versionId: version.id,
+      committedAt: now,
     });
-    await db.artifact.update({
-      where: { id: artifact.id },
-      data: { status: "COMMITTED", committedVersionId: version.id },
-    });
+    const chapterKey = getArtifactChapterId(artifact);
+    if (chapterKey) {
+      await markFinalRevisionApproved({
+        bookId: book.id,
+        chapterId: chapterKey,
+        versionId: version.id,
+      });
+    }
     lastVersionId = version.id;
   }
 
@@ -64,7 +77,7 @@ export async function POST(
   if (draftStage) {
     const byChapterKey = new Map<string, typeof draftStage.artifacts>();
     for (const artifact of draftStage.artifacts) {
-      const chapterKey = (artifact.metadataJson as Record<string, string> | null)?.chapterKey ?? artifact.id;
+      const chapterKey = getArtifactChapterId(artifact) ?? artifact.id;
       const group = byChapterKey.get(chapterKey) ?? [];
       group.push(artifact);
       byChapterKey.set(chapterKey, group);
@@ -82,16 +95,20 @@ export async function POST(
       const version = winner.versions[0];
       if (!version) continue;
 
-      await db.artifactVersion.update({
-        where: { id: version.id },
-        data: { lifecycleState: "COMMITTED", committedAt: now },
-      });
-      await db.artifact.update({
-        where: { id: winner.id },
-        data: { status: "COMMITTED", committedVersionId: version.id },
+      await commitArtifactVersionInTransaction(db, {
+        artifactId: winner.id,
+        versionId: version.id,
+        committedAt: now,
       });
 
-      const chapterKey = (winner.metadataJson as Record<string, string> | null)?.chapterKey ?? null;
+      const chapterKey = getArtifactChapterId(winner);
+      if (chapterKey) {
+        await markDraftApproved({
+          bookId: book.id,
+          chapterId: chapterKey,
+          versionId: version.id,
+        });
+      }
       if (chapterKey) {
         await pruneToSingleCommittedArtifact(db, {
           bookId: book.id,
@@ -102,38 +119,21 @@ export async function POST(
           chapterKey,
         });
       } else {
-        await db.artifactVersion.deleteMany({
+        await db.artifactVersion.updateMany({
           where: { artifactId: winner.id, id: { not: version.id } },
+          data: { lifecycleState: ArtifactStatus.SUPERSEDED },
         });
       }
     }
   }
 
-  // Mark EDITING stage COMMITTED
-  await db.bookStage.update({
-    where: { id: editingStage.id },
-    data: {
-      status: StageStatus.COMMITTED,
-      committedArtifactVersionId: lastVersionId ?? undefined,
-      committedAt: now,
-    },
+  const transition = await commitStageAndUnlockNext({
+    bookId: book.id,
+    workflowType: book.workflowType,
+    stageKey: "EDITING",
+    committedArtifactVersionId: lastVersionId,
+    committedAt: now,
   });
 
-  // Advance to TYPESET
-  const stageOrder = getWorkflowStageKeys(book.workflowType);
-  const currentIdx = stageOrder.indexOf("EDITING");
-  const nextStageKey =
-    currentIdx >= 0 && currentIdx < stageOrder.length - 1
-      ? stageOrder[currentIdx + 1]
-      : null;
-
-  if (nextStageKey) {
-    await db.bookStage.upsert({
-      where: { bookId_stageKey: { bookId: book.id, stageKey: nextStageKey } },
-      update: { status: StageStatus.IN_PROGRESS },
-      create: { bookId: book.id, stageKey: nextStageKey, status: StageStatus.IN_PROGRESS },
-    });
-  }
-
-  return NextResponse.json({ success: true, nextStageKey: nextStageKey ?? null });
+  return NextResponse.json({ success: true, nextStageKey: transition.nextStageKey ?? null });
 }

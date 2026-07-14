@@ -14,7 +14,8 @@
 
 import { NextResponse } from "next/server";
 import { BookWorkflowType } from "@prisma/client";
-import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow, getStageForBook } from "@/lib/repositories/books";
 import { STAGE_TOKENS, FICTION_STAGE_TOKENS } from "@/lib/ui/stage-tokens";
 
 export async function GET(
@@ -22,18 +23,27 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
+  const user = await requireAuthenticatedAppUser();
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: {
-      workflowType: true,
-      stages: { select: { stageKey: true, status: true } },
-    },
-  });
-  if (!book) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const stageKeys =
+    book.workflowType === BookWorkflowType.FICTION
+      ? FICTION_STAGE_TOKENS.map((token) => token.key)
+      : STAGE_TOKENS.map((token) => token.key);
+  const stages = await Promise.all(stageKeys.map((stageKey) => getStageForBook(book.id, stageKey)));
 
   const tokens = book.workflowType === BookWorkflowType.FICTION ? FICTION_STAGE_TOKENS : STAGE_TOKENS;
-  const stageByKey = new Map(book.stages.map((s) => [s.stageKey, s.status]));
+  const stageByKey = new Map(
+    stages
+      .filter((stage): stage is NonNullable<typeof stage> => Boolean(stage))
+      .map((stage) => [stage.stageKey, stage.status]),
+  );
 
   return NextResponse.json({
     stages: tokens.map((t) => ({ key: t.key, status: stageByKey.get(t.key) ?? "NOT_STARTED" })),

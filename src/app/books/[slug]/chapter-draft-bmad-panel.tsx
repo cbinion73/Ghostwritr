@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { StageKey, StageStatus } from "@prisma/client";
 import { ChapterLinkedNotes } from "./chapter-linked-notes";
@@ -190,57 +190,14 @@ export function ChapterDraftBmadPanel({
   type ExpandedState = { key: string; mode: "read" | "edit" | "revise" | "notes" | "brain" } | null;
   const [expanded, setExpanded] = useState<ExpandedState>(null);
   const [editDraft, setEditDraft] = useState("");
-  const [revisePrompt, setRevisePrompt] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [revisingKey, setRevisingKey] = useState<string | null>(null);
+  const [isQueueing, setIsQueueing] = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [manifestBuilding, setManifestBuilding] = useState(false);
-  const runningRef = useRef(false);
-  const autoApproveRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const chaptersRef = useRef<Chapter[]>([]);
-  // Ref so runFromIndex can call approveAll without a circular useCallback dependency
-  const approveAllRef = useRef<(() => Promise<void>) | null>(null);
 
-  // ── Bootstrap: check manifest, build if missing, then load chapters ─────────
+  // ── Bootstrap: load existing chapter artifacts and outline chapters ─────────
   useEffect(() => {
     const init = async () => {
-      // Always ensure a manifest exists before drafting — it cuts context from
-      // 200K tokens to ~14K, which is what lets the model actually hit word targets.
-      try {
-        const mRes = await fetch(`/api/books/${slug}/manifest`);
-        if (mRes.ok) {
-          const mData = await mRes.json() as { status: string; content: string | null };
-          if (!mData.content) {
-            setManifestBuilding(true);
-            try {
-              const buildRes = await fetch(`/api/books/${slug}/manifest`, { method: "POST" });
-              if (buildRes.ok && buildRes.body) {
-                const mReader = buildRes.body.getReader();
-                const mDecoder = new TextDecoder();
-                mOuter: while (true) {
-                  const { done, value } = await mReader.read();
-                  if (done) break;
-                  const chunk = mDecoder.decode(value, { stream: true });
-                  for (const line of chunk.split("\n")) {
-                    if (!line.startsWith("data: ")) continue;
-                    const raw = line.slice(6).trim();
-                    if (raw === "[DONE]") break mOuter;
-                    try {
-                      const evt = JSON.parse(raw) as { event?: string };
-                      if (evt.event === "complete" || evt.event === "error") break mOuter;
-                    } catch { /* skip */ }
-                  }
-                }
-              }
-            } finally {
-              setManifestBuilding(false);
-            }
-          }
-        }
-      } catch { /* manifest check failed — proceed anyway */ }
-
-      const res = await fetch(`/api/books/${slug}/agent-chat/chapter-draft?stageKey=${stageKey}`);
+      const res = await fetch(`/api/books/${slug}/chapter-draft/artifacts?stageKey=${stageKey}`);
       if (!res.ok) { setInitialized(true); return; }
       const data = await res.json() as {
         chapters: Array<{
@@ -301,423 +258,56 @@ export function ChapterDraftBmadPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
-  // Keep chaptersRef in sync for use inside callbacks
-  useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
-
-  // Auto-start (silently resuming drafting whenever the stage was left
-  // IN_PROGRESS/READY_FOR_REVIEW) was removed 2026-07-08: opening this tab
-  // could silently re-fire real chapter-draft generation with no user
-  // action, and was a likely contributor to the concurrent-duplicate-
-  // generation bug seen in production (multiple chapter-draft:author calls
-  // for the same chapter within seconds of each other). Starting/resuming
-  // drafting now always requires an explicit click on "Edit chapters" /
-  // "Generate all" / "Retry" below.
-
-  // ── Write a single chapter via SSE stream ───────────────────────────────────
-  const writeChapter = useCallback(async (chapter: Chapter, abort: AbortController): Promise<{ content: string; completenessNote?: string } | null> => {
-    const prompt = `Draft the artifact for this chapter: ${chapter.title}
-
-${chapter.excerpt ? `Chapter outline section:\n${chapter.excerpt}\n\n` : ""}PHASE 1 — CHAPTER PLAN (do this before writing any prose)
-State your plan in 6–8 bullet points. Each bullet is one sentence covering: what that section accomplishes, what evidence or story anchors it, and how it connects to the next section. Be specific — name the actual research, story, or framework you will use. This plan is your commitment before you write.
-
-After your bullets, add one line: NATURAL LENGTH: X words — your honest estimate of what this specific chapter's content requires. A focused tactical chapter may need 2,200 words. A narrative-heavy or research-dense chapter may need 4,500. Base it on your plan, not a default. Do not pick the same number every time.
-
-PHASE 2 — FULL CHAPTER PROSE
-Write the complete chapter at the length your plan requires. The floor is 2,000 words — no chapter should feel rushed. The ceiling is 5,500 — no chapter should pad. Between those limits, let the content decide. A tight chapter that earns 2,400 words is better than a padded one hitting 4,000. A rich chapter that needs 4,800 words should not be cut to 3,500.
-
-Follow your plan exactly. Cover every bullet you committed to in Phase 1. Do not summarize, outline, or hedge — write the prose the reader will see. Strong opening hook, named reader struggle, clear chapter promise, teaching with evidence woven in, practical application, closing turn that lands. End with The Author's Workbench tool.
-
-Do not close the ARTIFACT until you have covered every section in your Phase 1 plan.
-
-Wrap the final prose in the ARTIFACT block. The plan goes before the ARTIFACT, in chat. The artifact contains only the prose.`;
-
-    const res = await fetch(`/api/books/${slug}/agent-chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: abort.signal,
-      body: JSON.stringify({
-        stageKey,
-        messages: [{ role: "user", content: prompt }],
-        chapterContext: chapter.title,
-        chapterKey: chapter.key,
-      }),
-    });
-
-    if (!res.ok || !res.body) throw new Error(`Stream error ${res.status}`);
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let accumulated = "";
-
-    outer: while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      for (const line of chunk.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
-        const raw = line.slice(6).trim();
-        if (raw === "[DONE]") break outer;
-        try {
-          const { text } = JSON.parse(raw) as { text: string };
-          accumulated += text;
-          // Live update the drafting chapter content
-          const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-          setChapters((prev) =>
-            prev.map((c) =>
-              c.key === chapter.key ? { ...c, content: displayText } : c,
-            ),
-          );
-        } catch { /* skip */ }
-      }
+  // Auto-start stays removed. The Book Studio panel now queues durable
+  // server-side jobs instead of streaming model calls from the browser.
+  // That keeps all generation behind the workflow-run lease, budget gates,
+  // and LLM gateway attribution.
+  const queueDurableRun = useCallback(async (
+    action: "full" | "selected" | "stop" | "retry",
+    chapterKey?: string,
+  ) => {
+    if (stageKey !== "CHAPTER_DRAFT") {
+      alert("Durable generation from Book Studio is currently available for nonfiction Chapter Draft only.");
+      return;
     }
 
-    // Extract ARTIFACT block if present, otherwise use raw prose text
-    const artStart = accumulated.indexOf("<ARTIFACT>");
-    const artEnd = accumulated.indexOf("</ARTIFACT>");
-
-    let extractedContent: string | null = null;
-
-    if (artStart !== -1 && artEnd !== -1) {
-      const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
-
-      // First try standard JSON.parse
-      try {
-        const parsed = JSON.parse(jsonStr) as { content: string };
-        if (parsed.content && parsed.content.length > 50) extractedContent = parsed.content;
-      } catch { /* fall through to manual extraction */ }
-
-      if (!extractedContent) {
-        // Manual extraction — handles unescaped newlines inside the "content" field.
-        const contentMatch = jsonStr.match(/"content"\s*:\s*"([\s\S]+)"\s*\}\s*$/);
-        if (contentMatch?.[1]) {
-          const raw = contentMatch[1]
-            .replace(/\\n/g, "\n")
-            .replace(/\\"/g, '"')
-            .replace(/\\\\/g, "\\")
-            .replace(/\\t/g, "\t")
-            .trim();
-          if (raw.length > 50) extractedContent = raw;
-        }
-      }
-      // If ARTIFACT found but content unextractable — fall through (extractedContent stays null)
-    } else {
-      // No ARTIFACT block — use raw prose, stopping before Package Notes section
-      const notesIdx = accumulated.indexOf("## Quill Package Notes");
-      const plainText = (notesIdx !== -1 ? accumulated.slice(0, notesIdx) : accumulated)
-        .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "")
-        .trim();
-      if (plainText && plainText.length > 50) extractedContent = plainText;
-    }
-
-    if (!extractedContent) return null;
-
-    // ── Content completeness check (validator only — no auto-append) ──────────
-    // Ask the model: "Given your plan, is this chapter complete?"
-    // COMPLETE → return the chapter as-is.
-    // Issues found → return the chapter anyway, but attach a completenessNote so
-    // the author can review and use the Revise button to fix specific problems.
-    // We never auto-append continuation prose — that produces broken seams, leaked
-    // meta-instructions, and duplicated sections.
-    const artifactOpenIdx = accumulated.indexOf("<ARTIFACT>");
-    const planText = (artifactOpenIdx > 0 ? accumulated.slice(0, artifactOpenIdx) : "").trim();
-
-    let completenessNote: string | undefined;
-
-    if (planText && !abort.signal.aborted) {
-      let validatorAccumulated = "";
-      try {
-        const validRes = await fetch(`/api/books/${slug}/agent-chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: abort.signal,
-          body: JSON.stringify({
-            stageKey,
-            chapterContext: chapter.title,
-        chapterKey: chapter.key,
-            skipContext: true,   // saves ~54K input tokens — no manifest or prior stages needed
-            messages: [
-              {
-                role: "user",
-                content: `You just drafted chapter "${chapter.title}". Your Phase 1 plan was:
-
-${planText}
-
-Current word count: approximately ${extractedContent.split(/\s+/).filter(Boolean).length.toLocaleString()} words.
-
-Review two things:
-1. CONTENT — Is every section from your plan present and fully developed? Is the Author's Workbench complete with all questions or exercises written out?
-2. DEVELOPMENT — Does each section have enough depth, specificity, and example to do its job — or do any sections feel rushed, thin, or summarized? Compare against your NATURAL LENGTH estimate.
-
-If both are satisfied: output only the word COMPLETE
-If there are issues: output only a short bullet list of what is missing or underdeveloped (2–6 bullets). No prose. No explanations. Just the specific gaps the author needs to address.`,
-              },
-            ],
-          }),
-        });
-
-        if (validRes.ok && validRes.body) {
-          const validReader = validRes.body.getReader();
-          const validDecoder = new TextDecoder();
-          valid: while (true) {
-            const { done, value } = await validReader.read();
-            if (done) break;
-            const chunk = validDecoder.decode(value, { stream: true });
-            for (const line of chunk.split("\n")) {
-              if (!line.startsWith("data: ")) continue;
-              const raw = line.slice(6).trim();
-              if (raw === "[DONE]") break valid;
-              try {
-                const { text } = JSON.parse(raw) as { text: string };
-                validatorAccumulated += text;
-              } catch { /* skip */ }
-            }
-          }
-        }
-      } catch { /* validator failed — save chapter without note */ }
-
-      // If NOT "COMPLETE" and has actual content, fire an automatic revision pass
-      const trimmed = validatorAccumulated.trim();
-      const isComplete = /^\s*COMPLETE[.\s]*$/.test(trimmed)
-        || trimmed.replace(/[^a-zA-Z]/g, "").toUpperCase() === "COMPLETE";
-
-      if (!isComplete && trimmed.length > 10) {
-        completenessNote = trimmed;
-
-        // ── Auto-revision pass ───────────────────────────────────────────────
-        // The validator already identified exactly what's wrong — use that list
-        // as precise revision instructions. Full context (manifest materials)
-        // so Quill has everything it needs to expand thin sections properly.
-        // On success: return clean revised content, no badge.
-        // On failure: fall through and save original + show ⚠ for manual review.
-        let autoRevised: string | undefined;
-        try {
-          const revPrompt = `Revise the chapter "${chapter.title}" to address these specific gaps:
-
-${completenessNote}
-
-CURRENT DRAFT — keep everything that works, only fix what is flagged above:
-${extractedContent}
-
-Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same voice, same structure, same Author's Workbench format. Only expand or fix the flagged sections.`;
-
-          const revRes = await fetch(`/api/books/${slug}/agent-chat`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: abort.signal,
-            body: JSON.stringify({
-              stageKey,
-              chapterContext: chapter.title,
-        chapterKey: chapter.key,
-              messages: [{ role: "user", content: revPrompt }],
-            }),
-          });
-
-          if (revRes.ok && revRes.body) {
-            let revAccumulated = "";
-            const revReader = revRes.body.getReader();
-            const revDecoder = new TextDecoder();
-
-            revOuter: while (true) {
-              const { done, value } = await revReader.read();
-              if (done) break;
-              const chunk = revDecoder.decode(value, { stream: true });
-              for (const line of chunk.split("\n")) {
-                if (!line.startsWith("data: ")) continue;
-                const raw = line.slice(6).trim();
-                if (raw === "[DONE]") break revOuter;
-                try {
-                  const { text } = JSON.parse(raw) as { text: string };
-                  revAccumulated += text;
-                  // Show live word count while revision streams in
-                  const displayText = revAccumulated
-                    .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "")
-                    .replace(/## Quill Package Notes[\s\S]*/g, "")
-                    .trim();
-                  setChapters((prev) =>
-                    prev.map((c) =>
-                      c.key === chapter.key ? { ...c, content: displayText || extractedContent } : c
-                    )
-                  );
-                } catch { /* skip */ }
-              }
-            }
-
-            // Extract revised prose from ARTIFACT block
-            const rArtStart = revAccumulated.indexOf("<ARTIFACT>");
-            const rArtEnd   = revAccumulated.indexOf("</ARTIFACT>");
-            if (rArtStart !== -1 && rArtEnd !== -1) {
-              const rJson = revAccumulated.slice(rArtStart + 10, rArtEnd).trim();
-              try {
-                const rParsed = JSON.parse(rJson) as { content: string };
-                if (rParsed.content && rParsed.content.length > 50) autoRevised = rParsed.content;
-              } catch {
-                const rMatch = rJson.match(/"content"\s*:\s*"([\s\S]+)"\s*\}\s*$/);
-                if (rMatch?.[1]) {
-                  const rRaw = rMatch[1]
-                    .replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
-                  if (rRaw.length > 50) autoRevised = rRaw;
-                }
-              }
-            } else {
-              // No ARTIFACT wrapper — use raw prose
-              const notesIdx = revAccumulated.indexOf("## Quill Package Notes");
-              const plain = (notesIdx !== -1 ? revAccumulated.slice(0, notesIdx) : revAccumulated)
-                .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-              if (plain.length > 50) autoRevised = plain;
-            }
-          }
-        } catch { /* auto-revision failed — fall through with original + note */ }
-
-        if (autoRevised) {
-          return { content: autoRevised }; // note cleared — revision resolved the gaps
-        }
-      }
-    }
-
-    return { content: extractedContent, completenessNote };
-  }, [slug, stageKey]);
-
-  // ── Save a chapter draft to DB ───────────────────────────────────────────────
-  const saveChapterDraft = useCallback(async (chapter: Chapter, content: string): Promise<string | null> => {
-    const res = await fetch(`/api/books/${slug}/agent-chat/chapter-draft`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stageKey, chapterKey: chapter.key, chapterTitle: chapter.title, content }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { artifactId: string };
-    return data.artifactId;
-  }, [slug, stageKey]);
-
-  // ── Run sequentially from a given index ─────────────────────────────────────
-  const runFromIndex = useCallback(async (startIdx: number) => {
-    if (runningRef.current) return;
-    runningRef.current = true;
-    setIsRunning(true);
-
-    const abort = new AbortController();
-    abortRef.current = abort;
-
+    setIsQueueing(true);
     try {
-      const snapshot = chaptersRef.current;
-      for (let i = startIdx; i < snapshot.length; i++) {
-        if (abort.signal.aborted) break;
-        const chapter = chaptersRef.current[i];
-        if (!chapter || chapter.status === "approved" || chapter.status === "review") continue;
-
-        // Mark as drafting
-        setChapters((prev) =>
-          prev.map((c) => (c.key === chapter.key ? { ...c, status: "drafting", content: "" } : c)),
-        );
-
-        try {
-          const result = await writeChapter(chapter, abort);
-          if (abort.signal.aborted) break;
-
-          if (result) {
-            const { content, completenessNote } = result;
-            const artifactId = await saveChapterDraft(chapter, content);
-            setChapters((prev) =>
-              prev.map((c) =>
-                c.key === chapter.key
-                  ? { ...c, status: "review", content, artifactId: artifactId ?? undefined, completenessNote }
-                  : c,
-              ),
-            );
-          } else {
-            setChapters((prev) =>
-              prev.map((c) =>
-                c.key === chapter.key
-                  ? { ...c, status: "error", errorMsg: "No content produced" }
-                  : c,
-              ),
-            );
-          }
-        } catch (err) {
-          if (abort.signal.aborted) break;
-          const msg = err instanceof Error ? err.message : "Error";
-          setChapters((prev) =>
-            prev.map((c) =>
-              c.key === chapter.key ? { ...c, status: "error", errorMsg: msg } : c,
-            ),
-          );
-        }
-
-        // Small yield between chapters
-        await new Promise<void>((r) => setTimeout(r, 200));
+      const res = await fetch(`/api/books/${slug}/chapter-draft/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, chapterKey }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(data?.error ?? `Request failed with ${res.status}`);
       }
-    } finally {
-      runningRef.current = false;
-      setIsRunning(false);
-      abortRef.current = null;
 
-      // Auto-approve: if all chapters are drafted with no errors, commit and advance
-      if (autoApproveRef.current) {
-        autoApproveRef.current = false;
-        const final = chaptersRef.current;
-        const allDone = final.every((c) => c.status === "review" || c.status === "approved");
-        const hasErrors = final.some((c) => c.status === "error");
-        if (allDone && !hasErrors) {
-          await approveAllRef.current?.();
-        }
-      }
-    }
-  }, [writeChapter, saveChapterDraft]);
-
-  // ── Retry a single chapter ───────────────────────────────────────────────────
-  const retryChapter = useCallback(async (chapter: Chapter) => {
-    setChapters((prev) =>
-      prev.map((c) => (c.key === chapter.key ? { ...c, status: "pending", content: undefined, errorMsg: undefined, completenessNote: undefined } : c)),
-    );
-    // Small delay so state settles, then write just this chapter
-    await new Promise<void>((r) => setTimeout(r, 100));
-    if (runningRef.current) return;
-    runningRef.current = true;
-    setIsRunning(true);
-    const abort = new AbortController();
-    abortRef.current = abort;
-
-    try {
-      setChapters((prev) =>
-        prev.map((c) => (c.key === chapter.key ? { ...c, status: "drafting", content: "" } : c)),
-      );
-      const result = await writeChapter({ ...chapter, status: "drafting" }, abort);
-      if (result) {
-        const { content, completenessNote } = result;
-        const artifactId = await saveChapterDraft(chapter, content);
+      if (action === "selected" && chapterKey) {
         setChapters((prev) =>
-          prev.map((c) =>
-            c.key === chapter.key
-              ? { ...c, status: "review", content, artifactId: artifactId ?? undefined, completenessNote }
-              : c,
-          ),
-        );
-      } else {
-        setChapters((prev) =>
-          prev.map((c) =>
-            c.key === chapter.key ? { ...c, status: "error", errorMsg: "No content produced" } : c,
+          prev.map((chapter) =>
+            chapter.key === chapterKey
+              ? { ...chapter, status: "drafting", errorMsg: undefined, completenessNote: undefined }
+              : chapter,
           ),
         );
       }
+
+      setIsRunning(action !== "stop");
+      router.refresh();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error";
-      setChapters((prev) =>
-        prev.map((c) =>
-          c.key === chapter.key ? { ...c, status: "error", errorMsg: msg } : c,
-        ),
-      );
+      alert(`Chapter Draft run request failed: ${err instanceof Error ? err.message : "Error"}`);
     } finally {
-      runningRef.current = false;
-      setIsRunning(false);
+      setIsQueueing(false);
     }
-  }, [writeChapter, saveChapterDraft]);
+  }, [router, slug, stageKey]);
 
   // ── Save a manually-edited chapter draft ────────────────────────────────────
   const handleSaveEdit = async (chapter: Chapter) => {
     if (!editDraft.trim() || !chapter.artifactId || isSaving) return;
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/books/${slug}/agent-chat/chapter-draft`, {
+      const res = await fetch(`/api/books/${slug}/chapter-draft/artifacts`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ artifactId: chapter.artifactId, content: editDraft }),
@@ -737,126 +327,9 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same voice, sa
     }
   };
 
-  // ── Revise a chapter with AI using instructions ──────────────────────────────
-  const handleRevise = async (chapter: Chapter) => {
-    if (!revisePrompt.trim() || revisingKey) return;
-    setRevisingKey(chapter.key);
-
-    // Remember this instruction in the book's craft ledger so future chapter
-    // generations honor it too — fire and forget, never blocks the revision.
-    void fetch(`/api/books/${slug}/craft-notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instruction: revisePrompt, source: "chapter-revision" }),
-    }).catch(() => {});
-
-    const prompt = `Revise the chapter "${chapter.title}" based on these instructions:
-
-${revisePrompt}
-
-CURRENT CHAPTER (revise this — keep what works, apply the requested changes):
-${chapter.content ?? ""}
-
-Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure and length range. The artifact contains only the revised prose — no revision notes inside it.`;
-
-    const abort = new AbortController();
-    let accumulated = "";
-
-    try {
-      const res = await fetch(`/api/books/${slug}/agent-chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abort.signal,
-        body: JSON.stringify({
-          stageKey,
-          messages: [{ role: "user", content: prompt }],
-          chapterContext: chapter.title,
-        chapterKey: chapter.key,
-        }),
-      });
-      if (!res.ok || !res.body) throw new Error(`${res.status}`);
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (raw === "[DONE]") break outer;
-          try {
-            const { text } = JSON.parse(raw) as { text: string };
-            accumulated += text;
-            const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-            setChapters((prev) =>
-              prev.map((c) => c.key === chapter.key ? { ...c, content: displayText } : c)
-            );
-          } catch { /* skip */ }
-        }
-      }
-
-      // Extract content (same logic as writeChapter)
-      const artStart = accumulated.indexOf("<ARTIFACT>");
-      const artEnd = accumulated.indexOf("</ARTIFACT>");
-      let newContent: string | null = null;
-
-      if (artStart !== -1 && artEnd !== -1) {
-        const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
-        try {
-          const parsed = JSON.parse(jsonStr) as { content: string };
-          if (parsed.content && parsed.content.length > 50) newContent = parsed.content;
-        } catch {
-          const contentMatch = jsonStr.match(/"content"\s*:\s*"([\s\S]+)"\s*\}\s*$/);
-          if (contentMatch?.[1]) {
-            const raw = contentMatch[1]
-              .replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
-            if (raw.length > 50) newContent = raw;
-          }
-        }
-      }
-
-      if (!newContent) {
-        const notesIdx = accumulated.indexOf("## Quill Package Notes");
-        newContent = (notesIdx !== -1 ? accumulated.slice(0, notesIdx) : accumulated)
-          .replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim() || null;
-      }
-
-      if (newContent) {
-        // Save via PATCH if we have an artifactId, otherwise create new
-        if (chapter.artifactId) {
-          await fetch(`/api/books/${slug}/agent-chat/chapter-draft`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ artifactId: chapter.artifactId, content: newContent }),
-          });
-        } else {
-          await saveChapterDraft(chapter, newContent);
-        }
-        setChapters((prev) =>
-          prev.map((c) =>
-            c.key === chapter.key ? { ...c, content: newContent!, status: "review", completenessNote: undefined } : c
-          )
-        );
-        setRevisePrompt("");
-        setExpanded({ key: chapter.key, mode: "read" });
-        router.refresh();
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error";
-      setChapters((prev) =>
-        prev.map((c) => c.key === chapter.key ? { ...c, status: "error", errorMsg: `Revision failed: ${msg}` } : c)
-      );
-    } finally {
-      setRevisingKey(null);
-    }
-  };
-
   // ── Approve all and commit the stage ────────────────────────────────────────
   const approveAll = useCallback(async () => {
-    const res = await fetch(`/api/books/${slug}/agent-chat/chapter-draft/approve-all`, {
+    const res = await fetch(`/api/books/${slug}/chapter-draft/approve-all`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stageKey }),
@@ -869,31 +342,18 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
     }
   }, [slug, stageKey, router, onStageAdvance]);
 
-  // Keep ref in sync so runFromIndex can call it without a circular dependency
-  approveAllRef.current = approveAll;
-
   // ── Derived state ────────────────────────────────────────────────────────────
   const totalChapters = chapters.length;
   const doneCount = chapters.filter((c) => c.status === "review" || c.status === "approved").length;
   const approvedCount = chapters.filter((c) => c.status === "approved").length;
   const allReviewed = totalChapters > 0 && doneCount === totalChapters;
   const hasErrors = chapters.some((c) => c.status === "error");
+  const generationRunning = isRunning || status === "IN_PROGRESS";
 
   if (!initialized) {
     return (
       <div style={panelStyle}>
-        {manifestBuilding ? (
-          <div style={{ padding: "40px", color: "#8a7a6a", fontSize: "14px" }}>
-            <div style={{ fontSize: "20px", marginBottom: "12px" }}>🗺️</div>
-            <div style={{ fontWeight: 600, marginBottom: "6px", color: "#4a3728" }}>Building Chapter Manifest…</div>
-            <div style={{ fontSize: "13px" }}>
-              Cartographer is pre-assigning your research and stories to each chapter.
-              This runs once and cuts drafting context by 85%.
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: "40px", color: "#8a7a6a", fontSize: "14px" }}>Loading chapters…</div>
-        )}
+        <div style={{ padding: "40px", color: "#8a7a6a", fontSize: "14px" }}>Loading chapters…</div>
       </div>
     );
   }
@@ -923,9 +383,9 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {isRunning && (
+          {generationRunning && (
             <span style={runningBadgeStyle}>
-              <span style={spinnerStyle}>⟳</span> Writing…
+              <span style={spinnerStyle}>⟳</span> Durable job running…
             </span>
           )}
           <div style={progressTextStyle}>
@@ -937,49 +397,33 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
               Approve all & continue →
             </button>
           )}
-          {!isRunning && hasErrors && (
+          {!generationRunning && hasErrors && (
             <button
               style={retryAllBtnStyle}
-              onClick={() => {
-                const firstError = chapters.findIndex((c) => c.status === "error");
-                if (firstError >= 0) void runFromIndex(firstError);
-              }}
+              onClick={() => void queueDurableRun("retry")}
+              disabled={isQueueing}
             >
-              Retry errors
+              {isQueueing ? "Queueing…" : "Retry via durable job"}
             </button>
           )}
-          {!isRunning && chapters.some((c) => c.status === "pending") && (
+          {!generationRunning && chapters.some((c) => c.status === "pending") && (
             <>
               <button
                 style={startBtnStyle}
-                onClick={() => {
-                  const first = chapters.findIndex((c) => c.status === "pending");
-                  if (first >= 0) void runFromIndex(first);
-                }}
+                onClick={() => void queueDurableRun("full")}
+                disabled={isQueueing}
               >
-                ▶ Write chapters
-              </button>
-              <button
-                style={writeFullBookBtnStyle}
-                onClick={() => {
-                  const first = chapters.findIndex((c) => c.status === "pending");
-                  if (first >= 0) {
-                    autoApproveRef.current = true;
-                    void runFromIndex(first);
-                  }
-                }}
-                title="Draft all chapters and auto-commit when done — no review step"
-              >
-                ▶▶ Write full book
+                {isQueueing ? "Queueing…" : "▶ Queue durable draft run"}
               </button>
             </>
           )}
-          {isRunning && (
+          {generationRunning && (
             <button
               style={stopBtnStyle}
-              onClick={() => { abortRef.current?.abort(); }}
+              onClick={() => void queueDurableRun("stop")}
+              disabled={isQueueing}
             >
-              ■ Stop
+              {isQueueing ? "Stopping…" : "■ Stop durable job"}
             </button>
           )}
         </div>
@@ -1001,8 +445,6 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
           const isExpanded = expanded?.key === chapter.key;
           const mode = isExpanded ? expanded!.mode : null;
           const wordCount = chapter.content ? chapter.content.trim().split(/\s+/).length : 0;
-          const isRevising = revisingKey === chapter.key;
-
           return (
             <div key={chapter.key} style={chapterCardStyle(chapter.status)}>
               {/* Chapter row */}
@@ -1015,12 +457,7 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
                       {chapter.content ? `${chapter.content.trim().split(/\s+/).length} words…` : "Planning…"}
                     </div>
                   )}
-                  {isRevising && (
-                    <div style={draftingProgressStyle}>
-                      {chapter.content ? `Revising… ${chapter.content.trim().split(/\s+/).length} words` : "Revising…"}
-                    </div>
-                  )}
-                  {(chapter.status === "review" || chapter.status === "approved") && !isRevising && (
+                  {(chapter.status === "review" || chapter.status === "approved") && (
                     <div style={wordCountStyle}>{wordCount.toLocaleString()} words</div>
                   )}
                   {chapter.completenessNote && chapter.status !== "error" && (
@@ -1037,8 +474,8 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
                   )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <StatusPip status={isRevising ? "drafting" : chapter.status} />
-                  {(chapter.status === "review" || chapter.status === "approved") && !isRevising && (
+                  <StatusPip status={chapter.status} />
+                  {(chapter.status === "review" || chapter.status === "approved") && (
                     <>
                       <button
                         style={actionBtnStyle(mode === "read")}
@@ -1063,8 +500,9 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
                       </button>
                       <button
                         style={regenBtnStyle}
-                        onClick={() => { setExpanded(null); void retryChapter(chapter); }}
-                        title="Regenerate this chapter from scratch"
+                        onClick={() => { setExpanded(null); void queueDurableRun("selected", chapter.key); }}
+                        disabled={isQueueing || generationRunning}
+                        title="Queue this chapter through the durable Chapter Draft workflow"
                       >
                         ↺
                       </button>
@@ -1080,11 +518,15 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
                     </>
                   )}
                   {chapter.status === "error" && (
-                    <button style={retryBtnStyle} onClick={() => void retryChapter(chapter)}>
-                      Retry
+                    <button
+                      style={retryBtnStyle}
+                      onClick={() => void queueDurableRun("selected", chapter.key)}
+                      disabled={isQueueing || generationRunning}
+                    >
+                      Queue retry
                     </button>
                   )}
-                  {chapter.status === "review" && !isRevising && (
+                  {chapter.status === "review" && (
                     <button
                       style={approveBtnStyle}
                       onClick={() =>
@@ -1096,7 +538,7 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
                       ✓
                     </button>
                   )}
-                  {chapter.status === "approved" && !isRevising && (
+                  {chapter.status === "approved" && (
                     <span style={approvedBadgeStyle}>✓</span>
                   )}
                 </div>
@@ -1143,27 +585,20 @@ Produce the complete revised chapter as a CHAPTER_DRAFT artifact. Same structure
               {isExpanded && mode === "revise" && (
                 <div style={expandedContentStyle}>
                   <div style={{ fontSize: 12, color: "#6f6256", marginBottom: 8, fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif' }}>
-                    Tell Quill what to change — be specific. Quill will rewrite the full chapter with your instructions applied.
+                    Browser-side Quill revision has been retired. Use the durable workflow to regenerate this chapter, then make any surgical author edits with the Edit panel.
                   </div>
-                  <textarea
-                    style={{ ...editTextareaStyle, height: "100px" }}
-                    value={revisePrompt}
-                    onChange={(e) => setRevisePrompt(e.target.value)}
-                    placeholder="e.g. Make the opening more personal. Add more from the Scout research on habit formation. Shorten the middle section. Strengthen the closing turn."
-                    disabled={isRevising}
-                  />
                   <div style={editFooterStyle}>
                     <span style={{ fontSize: 11, color: "#8a7a6a" }}>
-                      {isRevising ? "Quill is revising…" : "Quill will rewrite the full chapter with your changes applied."}
+                      Durable jobs enforce workflow leases, budget gates, and LLM gateway attribution.
                     </span>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button style={cancelBtnStyle} onClick={() => setExpanded(null)} disabled={isRevising}>Cancel</button>
+                      <button style={cancelBtnStyle} onClick={() => setExpanded(null)}>Cancel</button>
                       <button
-                        style={{ ...approveBtnStyle, padding: "6px 14px", opacity: isRevising || !revisePrompt.trim() ? 0.5 : 1 }}
-                        onClick={() => void handleRevise(chapter)}
-                        disabled={isRevising || !revisePrompt.trim()}
+                        style={{ ...approveBtnStyle, padding: "6px 14px", opacity: isQueueing || generationRunning ? 0.5 : 1 }}
+                        onClick={() => void queueDurableRun("selected", chapter.key)}
+                        disabled={isQueueing || generationRunning}
                       >
-                        {isRevising ? "Revising…" : "Revise chapter →"}
+                        {isQueueing ? "Queueing…" : "Regenerate via durable job →"}
                       </button>
                     </div>
                   </div>
@@ -1356,19 +791,6 @@ const startBtnStyle: React.CSSProperties = {
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
   cursor: "pointer",
   whiteSpace: "nowrap",
-};
-
-const writeFullBookBtnStyle: React.CSSProperties = {
-  padding: "7px 14px",
-  borderRadius: "7px",
-  border: "none",
-  background: "#B8793A",
-  color: "#fefbf5",
-  fontSize: "12px",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-  fontWeight: 600,
 };
 
 const stopBtnStyle: React.CSSProperties = {

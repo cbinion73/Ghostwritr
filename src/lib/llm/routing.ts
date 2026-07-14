@@ -26,8 +26,15 @@
  *   = ~$38/book (vs. ~$85 with all Opus)
  */
 
-import { getModel, type ModelOptions } from "./providers";
+import type { ModelOptions } from "./providers";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import {
+  acquireLLMGatewayCall,
+  type LLMGatewayAttribution,
+  type LLMGatewayCall,
+  type LLMGatewayPolicy,
+} from "./gateway";
+import { getLLMCallContext } from "./call-context";
 
 export type StageRole =
   // External Stories
@@ -70,7 +77,8 @@ export type StageRole =
   | "social:campaign"
   | "audio:prep"
   | "course:design"
-  | "speaking:kit";
+  | "speaking:kit"
+  | "document:extract";
 
 /**
  * Per-role output token overrides.
@@ -100,6 +108,7 @@ const ROLE_OUTPUT_TOKENS: Partial<Record<StageRole, number>> = {
   "audio:prep":            16000,
   "course:design":         16000,
   "speaking:kit":          16000,
+  "document:extract":       8000,
 };
 
 const DEFAULT_ROUTING: Record<StageRole, string> = {
@@ -158,6 +167,7 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "audio:prep":       "openai:gpt-4o-mini",
   "course:design":    "openai:gpt-4o-mini",
   "speaking:kit":     "openai:gpt-4o-mini",
+  "document:extract": "anthropic:claude-sonnet-4-6",
 };
 
 function envKeyForRole(role: StageRole): string {
@@ -193,6 +203,36 @@ export async function getModelForRole(
   options: ModelOptions = {},
   fallbackRole?: StageRole,
 ): Promise<BaseChatModel | null> {
+  const gatewayCall = await acquireLLMCallForRole(
+    role,
+    options,
+    buildRoleGatewayAttribution(role),
+    fallbackRole,
+  );
+
+  return gatewayCall?.model ?? null;
+}
+
+export function buildRoleGatewayAttribution(role: StageRole): LLMGatewayAttribution {
+  const context = getLLMCallContext();
+  return {
+    bookId: context?.bookId,
+    bookSlug: context?.bookSlug,
+    bookTitle: context?.bookTitle,
+    stageKey: context?.stageKey,
+    workflowRunId: context?.workflowRunId,
+    chapterKey: context?.chapterKey,
+    stageRole: role,
+    operation: context ? "workflow-model-acquisition" : "role-model-acquisition",
+  };
+}
+
+export async function acquireLLMCallForRole(
+  role: StageRole,
+  options: ModelOptions = {},
+  attribution: Omit<LLMGatewayAttribution, "stageRole"> & { stageRole?: string },
+  fallbackRole?: StageRole,
+): Promise<LLMGatewayCall | null> {
   // Apply per-role output token ceiling unless caller already specified one
   const roleMaxTokens = ROLE_OUTPUT_TOKENS[role];
   const resolvedOptions: ModelOptions = {
@@ -202,13 +242,21 @@ export async function getModelForRole(
     stageRole: options.stageRole ?? role,
   };
 
-  const primary = await getModel(resolveModelSpec(role), resolvedOptions);
-  if (primary) return primary;
+  const gatewayCall = await acquireLLMGatewayCall({
+    modelSpec: resolveModelSpec(role),
+    fallbackModelSpec: fallbackRole ? resolveModelSpec(fallbackRole) : undefined,
+    attribution: {
+      ...attribution,
+      stageRole: attribution.stageRole ?? role,
+    },
+    options: resolvedOptions,
+    policy: {
+      timeoutMs: resolvedOptions.timeoutMs,
+      maxRetries: resolvedOptions.maxRetries,
+      maxOutputTokens: resolvedOptions.maxOutputTokens,
+      reasoningEffort: resolvedOptions.reasoningEffort,
+    } satisfies LLMGatewayPolicy,
+  });
 
-  if (fallbackRole) {
-    const secondary = await getModel(resolveModelSpec(fallbackRole), resolvedOptions);
-    if (secondary) return secondary;
-  }
-
-  return null;
+  return gatewayCall;
 }

@@ -46,6 +46,18 @@ interface AgentChatPanelProps {
   persistChat?: boolean;
 }
 
+async function responseErrorMessage(res: Response): Promise<string> {
+  try {
+    const body = await res.clone().json() as { error?: string; message?: string; code?: string };
+    if (body.code === "budget_confirmation_required") {
+      return body.error ?? body.message ?? "LLM budget confirmation required. Confirm the book budget in the cost panel, then try again.";
+    }
+    return body.error ?? body.message ?? `${res.status}`;
+  } catch {
+    return `${res.status}`;
+  }
+}
+
 export function AgentChatPanel({
   slug,
   stageKey,
@@ -248,7 +260,7 @@ export function AgentChatPanel({
       });
 
       if (!res.ok || !res.body) {
-        throw new Error(`${res.status}`);
+        throw new Error(await responseErrorMessage(res));
       }
 
       const reader = res.body.getReader();
@@ -425,7 +437,7 @@ export function AgentChatPanel({
         ),
       });
 
-      if (!res.ok || !res.body) throw new Error(`${res.status}`);
+      if (!res.ok || !res.body) throw new Error(await responseErrorMessage(res));
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

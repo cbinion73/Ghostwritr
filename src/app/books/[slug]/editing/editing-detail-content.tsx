@@ -8,7 +8,7 @@ import {
 
 import { BookWorkflowType } from "@prisma/client";
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
-import { getEditingWorkspace } from "@/lib/workflows/editing";
+import { getEditingWorkspace } from "@/lib/workflows/editing-public";
 import { SubmitButton } from "@/app/components/submit-button";
 import { ChapterRevisionRow } from "./chapter-revision-row";
 
@@ -201,6 +201,8 @@ export async function EditingDetailContent({
                   changeSummary={changed?.changeSummary ?? null}
                   originalText={changed?.originalText ?? chapter.chapterText}
                   revisedText={pending || applied ? (changed?.revisedText ?? null) : null}
+                  approvedDraftVersionId={changed?.approvedDraftVersionId ?? chapter.approvedDraftVersionId ?? null}
+                  assessmentInstructions={changed?.assessmentInstructions ?? []}
                   revisionVersionId={revisionEntry?.id ?? null}
                   chapterNote={chapterNote}
                 />
@@ -259,4 +261,3 @@ const stepThreeSubtitleStyle: React.CSSProperties = {
   color: "#8a7a6a",
   marginTop: 4,
 };
-

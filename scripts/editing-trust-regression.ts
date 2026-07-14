@@ -11,7 +11,7 @@ import {
   preparePublishingPackageWorkflow,
   rejectManuscriptRevisionWorkflow,
   sendEditingMessageWorkflow,
-} from "../src/lib/workflows/editing";
+} from "../src/lib/workflows/editing-public";
 import {
   cloneBookBySlug,
   deleteBookBySlug,

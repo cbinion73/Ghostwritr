@@ -7,6 +7,9 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { getArtifactChapterId } from "@/lib/repositories/chapter-identity";
 
 export async function GET(
   _req: Request,
@@ -14,7 +17,8 @@ export async function GET(
 ) {
   const { slug } = await params;
 
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
   // Saved dossier artifacts for PERSONAL_STORIES (chronological)
@@ -23,7 +27,7 @@ export async function GET(
     select: {
       status: true,
       artifacts: {
-        select: { id: true, title: true, createdAt: true },
+        select: { id: true, chapterId: true, metadataJson: true, title: true, createdAt: true },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -52,6 +56,7 @@ export async function GET(
 
   const dossiers = (dossierStage?.artifacts ?? []).map((a) => ({
     id: a.id,
+    chapterId: getArtifactChapterId(a),
     title: a.title ?? "Untitled Dossier",
     createdAt: a.createdAt,
   }));

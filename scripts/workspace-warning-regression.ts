@@ -2,7 +2,7 @@ import { ActorType, ArtifactStatus, ArtifactType, PrismaClient, StageKey } from 
 
 import { cloneBookBySlug, deleteBookBySlug } from "../src/lib/repositories/books";
 import { getExternalStoriesWorkspace } from "../src/lib/workflows/external-stories";
-import { getResearchWorkspace } from "../src/lib/workflows/research";
+import { getResearchWorkspace } from "../src/lib/workflows/research-public";
 
 const db = new PrismaClient();
 

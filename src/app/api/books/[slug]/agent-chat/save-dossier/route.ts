@@ -12,13 +12,26 @@
 
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { ActorType, ArtifactType, StageStatus } from "@prisma/client";
+import { ActorType, ArtifactStatus, ArtifactType } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { ensureStageStarted } from "@/lib/workflows/stage-transition-service";
+import { chapterIdentityMetadata, chapterIdentityWhere, normalizeChapterId } from "@/lib/repositories/chapter-identity";
+import { createArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 interface ArtifactDraft {
   type: string;
   title: string;
   content: string;
+  chapterId?: string;
+  chapterKey?: string;
 }
 
 interface SaveDossierBody {
@@ -38,10 +51,20 @@ export async function POST(
 ) {
   const { slug } = await params;
 
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = await req.json() as SaveDossierBody;
+  let body: SaveDossierBody;
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Dossier save request",
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { stageKey, artifact } = body;
 
   if (!stageKey || !artifact) {
@@ -58,63 +81,62 @@ export async function POST(
 
   try {
     // Ensure the BookStage exists and stays IN_PROGRESS
-    const bookStage = await db.bookStage.upsert({
-      where: { bookId_stageKey: { bookId: book.id, stageKey } },
-      update: {},
-      create: { bookId: book.id, stageKey, status: StageStatus.IN_PROGRESS },
-    });
+    const bookStage = await ensureStageStarted({ bookId: book.id, stageKey });
 
     const now = new Date();
 
     // Find-or-create by title (one dossier per interview/chapter title) so
     // re-saving the same chapter's dossier versions the existing artifact
     // instead of creating a second "committed" one for the same subject.
+    const chapterId = normalizeChapterId(artifact.chapterId) ?? normalizeChapterId(artifact.chapterKey);
     const existingArtifact = await db.artifact.findFirst({
-      where: { bookId: book.id, stageId: bookStage.id, artifactType, title: artifact.title },
+      where: {
+        bookId: book.id,
+        stageId: bookStage.id,
+        artifactType,
+        ...(chapterId ? chapterIdentityWhere(chapterId) : { title: artifact.title }),
+      },
       select: { id: true, versions: { select: { versionNumber: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
     });
 
     let targetArtifactId: string;
-    let nextVersionNumber: number;
 
     if (existingArtifact) {
       targetArtifactId = existingArtifact.id;
-      nextVersionNumber = (existingArtifact.versions[0]?.versionNumber ?? 0) + 1;
     } else {
       const created = await db.artifact.create({
         data: {
           bookId: book.id,
           stageId: bookStage.id,
           artifactType,
+          ...(chapterId ? { chapterId, metadataJson: chapterIdentityMetadata(chapterId) } : {}),
           title: artifact.title,
           status: "COMMITTED",
         },
       });
       targetArtifactId = created.id;
-      nextVersionNumber = 1;
     }
 
     // Save the artifact as COMMITTED — it's finished content, not a draft
-    const newVersion = await db.artifactVersion.create({
-      data: {
-        artifactId: targetArtifactId,
-        versionNumber: nextVersionNumber,
-        lifecycleState: "COMMITTED",
-        contentJson: { text: artifact.content },
-        contentText: artifact.content,
-        createdByType: ActorType.USER,
-        committedAt: now,
-      },
+    const newVersion = await createArtifactVersionInTransaction(db, {
+      artifactId: targetArtifactId,
+      lifecycleState: ArtifactStatus.COMMITTED,
+      contentJson: { text: artifact.content },
+      contentText: artifact.content,
+      createdByType: ActorType.USER,
+      committedAt: now,
+      artifactStatus: ArtifactStatus.COMMITTED,
     });
 
     await db.artifact.update({
       where: { id: targetArtifactId },
-      data: { committedVersionId: newVersion.id, currentVersionId: newVersion.id, status: "COMMITTED" },
+      data: { committedVersionId: newVersion.id },
     });
 
-    // Only the committed version should persist for this dossier.
-    await db.artifactVersion.deleteMany({
+    // Preserve older versions for audit, but remove them from active selection.
+    await db.artifactVersion.updateMany({
       where: { artifactId: targetArtifactId, id: { not: newVersion.id } },
+      data: { lifecycleState: ArtifactStatus.SUPERSEDED },
     });
 
     // Stage intentionally stays IN_PROGRESS — author has more chapters to interview

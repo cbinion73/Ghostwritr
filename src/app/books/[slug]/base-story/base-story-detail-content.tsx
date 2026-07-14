@@ -215,9 +215,15 @@ export async function BaseStoryDetailContent({ slug }: { slug: string }) {
                       </details>
 
                       <details className="dossier-packet" open>
-                        <summary>Chapter Story</summary>
+                        <summary>Chapter Guidance</summary>
                         <div className="dossier-packet-body">
-                          <p style={{ margin: 0, lineHeight: 1.9 }}>{chapter.chapterStory}</p>
+                          <p style={{ margin: 0, lineHeight: 1.9 }}>
+                            {chapter.guidance.draftingInstruction}
+                          </p>
+                          <div className="muted" style={{ marginTop: 8, lineHeight: 1.6 }}>
+                            Base Story guidance is connective tissue for drafting. It is not a
+                            confirmed personal story, external case study, citation, or final prose.
+                          </div>
                         </div>
                       </details>
 

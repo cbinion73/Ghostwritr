@@ -1,41 +1,16 @@
-/**
- * Direct OpenAI API calls for refinement and optimization
- * Bypasses LangChain to avoid model name issues
- */
+import { invokeValidationText } from "./validation-llm";
 
-async function callOpenAI(prompt: string): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY not set");
-  }
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4-turbo",
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+async function invokeSimpleValidationText(prompt: string): Promise<string> {
+  return invokeValidationText({
+    modelSpec: "openai:gpt-4o-mini",
+    stageRole: "promise:structured",
+    operation: "validation-simple-refinement",
+    prompt,
+    options: {
       temperature: 0.7,
-      max_tokens: 2000,
-    }),
+      maxOutputTokens: 2000,
+    },
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    console.error("[callOpenAI] API error:", error);
-    throw new Error(`OpenAI API error: ${error.error?.message}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
 }
 
 export async function refinePromiseSimple(
@@ -61,7 +36,7 @@ IMPROVE FOR:
 
 Rewrite to be stronger. Same length, better positioning. ONLY return the improved promise.`;
 
-    const improved = await callOpenAI(prompt);
+    const improved = await invokeSimpleValidationText(prompt);
     console.log("[refinePromiseSimple] Success");
     return improved.trim();
   } catch (error) {
@@ -99,8 +74,8 @@ JSON format (EXACT):
 
 Create 2-3 distinct personas. ONLY return valid JSON. No other text.`;
 
-    const response = await callOpenAI(prompt);
-    console.log("[generatePersonasSimple] Raw OpenAI response:", response.substring(0, 500));
+    const response = await invokeSimpleValidationText(prompt);
+    console.log("[generatePersonasSimple] Raw gateway response:", response.substring(0, 500));
 
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -143,7 +118,7 @@ Return JSON with:
 
 ONLY return valid JSON.`;
 
-    const response = await callOpenAI(prompt);
+    const response = await invokeSimpleValidationText(prompt);
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);

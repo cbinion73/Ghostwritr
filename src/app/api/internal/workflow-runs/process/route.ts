@@ -3,22 +3,39 @@ import { NextResponse } from "next/server";
 import { getWorkflowRunById } from "@/lib/repositories/workflow-runs";
 import { triggerWorkflowRunInBackground } from "@/lib/workflow-queue";
 import { runWithLLMContext } from "@/lib/llm/call-context";
+import {
+  INTERNAL_WORKFLOW_TOKEN_HEADER,
+  validateInternalTokenAuth,
+} from "@/lib/auth/shared";
+import {
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 export async function POST(request: Request) {
   try {
-    const expectedToken = process.env.INTERNAL_WORKFLOW_TOKEN;
-    if (expectedToken) {
-      const providedToken = request.headers.get("x-internal-workflow-token");
+    const auth = validateInternalTokenAuth({
+      headers: request.headers,
+      envVarName: "INTERNAL_WORKFLOW_TOKEN",
+      headerName: INTERNAL_WORKFLOW_TOKEN_HEADER,
+      serviceName: "Internal workflow worker",
+    });
 
-      if (providedToken !== expectedToken) {
-        return NextResponse.json(
-          { error: "Unauthorized" },
-          { status: 401 },
-        );
-      }
+    if (!auth.ok) {
+      return NextResponse.json(
+        { error: auth.error },
+        { status: auth.status },
+      );
     }
 
-    const body = (await request.json()) as { runId?: string };
+    let body: { runId?: string };
+    try {
+      body = await parseLimitedJson(request, { label: "Internal workflow request" });
+    } catch (error) {
+      if (error instanceof RequestLimitError) return requestLimitResponse(error);
+      throw error;
+    }
 
     if (!body.runId) {
       return NextResponse.json(
@@ -48,7 +65,7 @@ export async function POST(request: Request) {
       },
       async () => {
         if (run.stage.stageKey === "RESEARCH") {
-          const { processWorkflowRun } = await import("@/lib/workflows/research");
+          const { processWorkflowRun } = await import("@/lib/workflows/research-public");
           return processWorkflowRun(body.runId!);
         } else if (run.stage.stageKey === "EXTERNAL_STORIES") {
           const { processExternalStoriesWorkflowRun } = await import("@/lib/workflows/external-stories");
@@ -57,7 +74,7 @@ export async function POST(request: Request) {
           const { processBaseStoryWorkflowRun } = await import("@/lib/workflows/base-story");
           return processBaseStoryWorkflowRun(body.runId!);
         } else if (run.stage.stageKey === "CHAPTER_DRAFT") {
-          const { processChapterDraftWorkflowRun } = await import("@/lib/workflows/chapter-draft");
+          const { processChapterDraftWorkflowRun } = await import("@/lib/workflows/chapter-draft-public");
           return processChapterDraftWorkflowRun(body.runId!);
         }
         return { skipped: true };

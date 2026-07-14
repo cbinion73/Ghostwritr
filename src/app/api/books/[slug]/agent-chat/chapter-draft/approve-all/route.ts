@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { ArtifactType, StageStatus } from "@prisma/client";
+import { ArtifactStatus, ArtifactType } from "@prisma/client";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
 import { db } from "@/lib/db";
-import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { isLikelyGarbageChapterContent, pruneToSingleCommittedArtifact } from "@/lib/repositories/artifact-lifecycle";
+import { commitStageAndUnlockNext } from "@/lib/workflows/stage-transition-service";
+import { getArtifactChapterId } from "@/lib/repositories/chapter-identity";
+import { commitArtifactVersionInTransaction } from "@/lib/repositories/artifact-transaction-service";
+import { markDraftApproved } from "@/lib/repositories/chapter-approval-state";
+import {
+  RequestLimitError,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 const CHAPTER_STAGE_KEYS: StageKey[] = ["CHAPTER_DRAFT", "FICTION_DRAFT"];
 
@@ -24,13 +34,22 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, workflowType: true },
-  });
-  if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  const user = await requireAuthenticatedAppUser();
 
-  const body = await req.json().catch(() => ({})) as { stageKey?: string };
+  let book;
+  try {
+    book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+  } catch {
+    return NextResponse.json({ error: "Book not found" }, { status: 404 });
+  }
+
+  let body: { stageKey?: string };
+  try {
+    body = await parseLimitedJson(req, { label: "Chapter approve-all request" });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const stageKey = resolveStageKey(body.stageKey);
 
   const bookStage = await db.bookStage.findUnique({
@@ -59,7 +78,7 @@ export async function POST(
   // sitting there as a second "committed" source for the same chapter.
   const byChapterKey = new Map<string, typeof bookStage.artifacts>();
   for (const artifact of bookStage.artifacts) {
-    const chapterKey = (artifact.metadataJson as Record<string, string> | null)?.chapterKey ?? artifact.id;
+    const chapterKey = getArtifactChapterId(artifact) ?? artifact.id;
     const group = byChapterKey.get(chapterKey) ?? [];
     group.push(artifact);
     byChapterKey.set(chapterKey, group);
@@ -79,17 +98,22 @@ export async function POST(
       const version = winner.versions[0];
       if (!version) continue;
 
-      await tx.artifactVersion.update({
-        where: { id: version.id },
-        data: { lifecycleState: "COMMITTED", committedAt: now },
-      });
-      await tx.artifact.update({
-        where: { id: winner.id },
-        data: { status: "COMMITTED", committedVersionId: version.id },
+      await commitArtifactVersionInTransaction(tx, {
+        artifactId: winner.id,
+        versionId: version.id,
+        committedAt: now,
       });
       lastVersionId = version.id;
 
-      const chapterKey = (winner.metadataJson as Record<string, string> | null)?.chapterKey ?? null;
+      const chapterKey = getArtifactChapterId(winner);
+      if (chapterKey) {
+        await markDraftApproved({
+          bookId: book.id,
+          chapterId: chapterKey,
+          versionId: version.id,
+          client: tx,
+        });
+      }
       if (chapterKey) {
         // Only prune sibling artifacts when we have a real chapterKey to
         // scope by — pruneToSingleCommittedArtifact treats a missing
@@ -105,37 +129,21 @@ export async function POST(
           chapterKey,
         });
       } else {
-        await tx.artifactVersion.deleteMany({
+        await tx.artifactVersion.updateMany({
           where: { artifactId: winner.id, id: { not: version.id } },
+          data: { lifecycleState: ArtifactStatus.SUPERSEDED },
         });
       }
     }
   });
 
-  await db.bookStage.update({
-    where: { id: bookStage.id },
-    data: {
-      status: StageStatus.COMMITTED,
-      committedArtifactVersionId: lastVersionId ?? undefined,
-      committedAt: now,
-    },
+  const transition = await commitStageAndUnlockNext({
+    bookId: book.id,
+    workflowType: book.workflowType,
+    stageKey,
+    committedArtifactVersionId: lastVersionId,
+    committedAt: now,
   });
 
-  // Advance to next stage
-  const stageOrder = getWorkflowStageKeys(book.workflowType);
-  const currentIdx = stageOrder.indexOf(stageKey);
-  const nextStageKey =
-    currentIdx >= 0 && currentIdx < stageOrder.length - 1
-      ? stageOrder[currentIdx + 1]
-      : null;
-
-  if (nextStageKey) {
-    await db.bookStage.upsert({
-      where: { bookId_stageKey: { bookId: book.id, stageKey: nextStageKey } },
-      update: { status: StageStatus.IN_PROGRESS },
-      create: { bookId: book.id, stageKey: nextStageKey, status: StageStatus.IN_PROGRESS },
-    });
-  }
-
-  return NextResponse.json({ success: true, nextStageKey: nextStageKey ?? null });
+  return NextResponse.json({ success: true, nextStageKey: transition.nextStageKey ?? null });
 }

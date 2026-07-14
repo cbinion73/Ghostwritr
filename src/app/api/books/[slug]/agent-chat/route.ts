@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { searchWeb } from "@/lib/web-access";
 import { fetchTopPageTexts, formatSearchResults } from "../_research-helpers";
 
@@ -131,10 +133,18 @@ async function fetchReferencedMaterials(
 // Allow up to 5 minutes for long chapter generation and editorial passes
 export const maxDuration = 300;
 import { getAgentForStage } from "@/lib/ui/agent-personas";
-import { getModelForRole, resolveModelSpec } from "@/lib/llm/routing";
-import { parseModelSpec } from "@/lib/llm/providers";
-import { logLLMCall } from "@/lib/llm/call-log";
+import { acquireLLMCallForRole } from "@/lib/llm/routing";
+import { llmGatewayErrorResponse } from "@/lib/llm/gateway-http";
 import { getWorkflowStageKeys } from "@/lib/workflow-registry";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  acquireBookOperationSlot,
+  assertChatMessagesWithinLimit,
+  assertRateLimit,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -147,17 +157,36 @@ export async function POST(
 ) {
   const { slug } = await params;
 
-  const book = await db.book.findUnique({
-    where: { slug },
-    select: { id: true, titleWorking: true, subtitle: true, workflowType: true, metadataJson: true },
-  });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const body = await req.json() as { stageKey: StageKey; messages: ChatMessage[]; chapterContext?: string; chapterKey?: string; skipContext?: boolean; polishMode?: boolean };
+  let body: { stageKey: StageKey; messages: ChatMessage[]; chapterContext?: string; chapterKey?: string; skipContext?: boolean; polishMode?: boolean };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Agent chat request",
+    });
+    assertChatMessagesWithinLimit(body.messages ?? []);
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { stageKey, messages, chapterContext, chapterKey, skipContext } = body;
 
   if (!stageKey || !Array.isArray(messages)) {
     return NextResponse.json({ error: "Missing stageKey or messages" }, { status: 400 });
+  }
+
+  try {
+    assertRateLimit({
+      key: `agent-chat:${book.id}:${stageKey}`,
+      limit: REQUEST_LIMITS.generationRequestsPerWindow,
+      windowMs: REQUEST_LIMITS.apiWindowMs,
+    });
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
   }
 
   const persona = getAgentForStage(stageKey);
@@ -171,9 +200,22 @@ export async function POST(
     ? "final-editor:polish" as const
     : persona.stageRole;
 
-  const model = await getModelForRole(effectiveRole);
-
-  if (!model) {
+  let gatewayCall;
+  try {
+    gatewayCall = await acquireLLMCallForRole(effectiveRole, {}, {
+      bookId: book.id,
+      bookSlug: slug,
+      bookTitle: book.titleWorking ?? undefined,
+      stageKey,
+      chapterKey,
+      operation: "agent-chat-stream",
+    });
+  } catch (error) {
+    const response = llmGatewayErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
+  if (!gatewayCall?.model) {
     // No LLM available — return a canned response so the UI doesn't break
     const stream = buildStaticStream(
       `I need an API key configured to respond. Check that ${persona.stageRole.split(":")[0] === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"} is set in your .env.`,
@@ -181,6 +223,15 @@ export async function POST(
     return new Response(stream, {
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
     });
+  }
+  const model = gatewayCall.model;
+
+  let releaseBookSlot: () => void;
+  try {
+    releaseBookSlot = acquireBookOperationSlot(book.id, "generation");
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
   }
 
   // ── Build prior-stage context ─────────────────────────────────────────────
@@ -756,7 +807,6 @@ PROSE VOICE RULES — these apply to every word you write. No exceptions.
 
   const encoder = new TextEncoder();
 
-  const modelSpec = parseModelSpec(resolveModelSpec(effectiveRole));
   const startMs = Date.now();
 
   const readable = new ReadableStream({
@@ -797,20 +847,13 @@ PROSE VOICE RULES — these apply to every word you write. No exceptions.
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } finally {
         controller.close();
+        releaseBookSlot();
         // Log cost after stream closes (fire-and-forget)
         if (promptTokens > 0 || completionTokens > 0) {
-          void logLLMCall({
-            bookId:       book.id,
-            bookSlug:     slug,
-            bookTitle:    book.titleWorking ?? undefined,
-            stageKey:     stageKey,
-            chapterKey,
-            stageRole:    persona.stageRole,
-            provider:     modelSpec.provider,
-            model:        modelSpec.model,
+          void gatewayCall.recordUsage({
             promptTokens,
             completionTokens,
-            durationMs:   Date.now() - startMs,
+            durationMs: Date.now() - startMs,
           }).catch(() => {/* non-fatal */});
         }
       }

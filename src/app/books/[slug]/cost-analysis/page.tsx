@@ -4,9 +4,10 @@ import { db } from "@/lib/db";
 import { getBookStageLinks } from "@/lib/navigation";
 import { resolveModelSpec } from "@/lib/llm/routing";
 import { getModelPricing } from "@/lib/llm/pricing";
-import { readCostLog } from "@/lib/llm/call-log";
+import { getCanonicalCostLedgerForBook, readCostLog } from "@/lib/llm/call-log";
 import type { StageRole } from "@/lib/llm/routing";
-import type { StageKey } from "@prisma/client";
+import { BookWorkflowType, type StageKey } from "@prisma/client";
+import { getWorkflowDefinition } from "@/lib/workflow-registry";
 
 // ── Stage configuration ─────────────────────────────────────────────────────
 // Each row: how the nonfiction workflow maps to an agent, role, and model.
@@ -21,18 +22,31 @@ interface StageConfig {
   perChapter: boolean;        // true = one LLM call per outline chapter
 }
 
-const NONFICTION_STAGES: StageConfig[] = [
-  { stageKey: "BOOK_SETUP",        label: "Book Setup",        agentName: "Blueprint",  stageRole: "setup:voice-blending",          perChapter: false },
-  { stageKey: "PROMISE",           label: "Promise",           agentName: "Sage",       stageRole: "promise:author",                perChapter: false },
-  { stageKey: "MARKET_ANALYSIS",   label: "Market Analysis",   agentName: "Sage",       stageRole: "promise:author",                perChapter: false, note: "shared role with Promise" },
-  { stageKey: "OUTLINE",           label: "Outline",           agentName: "Cartographer", stageRole: "outline:phase-1",             perChapter: false },
-  { stageKey: "BASE_STORY",        label: "Base Story",        agentName: "Narrator",   stageRole: "base-story:author",             perChapter: false },
-  { stageKey: "RESEARCH",          label: "Research",          agentName: "Scout",      stageRole: "research:agent-1-researcher",   perChapter: true  },
-  { stageKey: "EXTERNAL_STORIES",  label: "External Stories",  agentName: "Chronicle",  stageRole: "external-stories:extract",      perChapter: true  },
-  { stageKey: "PERSONAL_STORIES",  label: "Personal Stories",  agentName: "Muse",       stageRole: "personal-stories:interview",    perChapter: false },
-  { stageKey: "CHAPTER_DRAFT",     label: "Chapter Draft",     agentName: "Quill",      stageRole: "chapter-draft:author",          perChapter: true  },
-  { stageKey: "EDITING",           label: "Editing",           agentName: "Meridian",   stageRole: "final-editor:polish",           perChapter: false },
-];
+const COST_STAGE_DETAILS: Partial<
+  Record<StageKey, Omit<StageConfig, "stageKey" | "label">>
+> = {
+  BOOK_SETUP:       { agentName: "Blueprint",    stageRole: "setup:voice-blending",        perChapter: false },
+  PROMISE:          { agentName: "Sage",         stageRole: "promise:author",              perChapter: false },
+  OUTLINE:          { agentName: "Cartographer", stageRole: "outline:phase-1",             perChapter: false },
+  BASE_STORY:       { agentName: "Narrator",     stageRole: "base-story:author",           perChapter: false },
+  RESEARCH:         { agentName: "Scout",        stageRole: "research:agent-1-researcher", perChapter: true  },
+  EXTERNAL_STORIES: { agentName: "Chronicle",    stageRole: "external-stories:extract",    perChapter: true  },
+  PERSONAL_STORIES: { agentName: "Muse",         stageRole: "personal-stories:interview",  perChapter: false },
+  CHAPTER_DRAFT:    { agentName: "Quill",        stageRole: "chapter-draft:author",        perChapter: true  },
+  EDITING:          { agentName: "Meridian",     stageRole: "final-editor:polish",         perChapter: false },
+};
+
+function getCostStageConfigs(workflowType: BookWorkflowType): StageConfig[] {
+  return getWorkflowDefinition(workflowType).stages.flatMap((stage) => {
+    const details = COST_STAGE_DETAILS[stage.key];
+    if (!details) return [];
+    return [{
+      stageKey: stage.key,
+      label: stage.label,
+      ...details,
+    }];
+  });
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -103,23 +117,18 @@ export default async function CostAnalysisPage({
 
   const stageMap = new Map(bookStages.map((s) => [s.stageKey, s]));
 
-  // LLMCallLog actual costs — grouped by stageRole
-  const logRows = await db.lLMCallLog.groupBy({
-    by: ["stageRole"],
-    where: { bookId: book.id },
-    _sum: { costUsd: true, promptTokens: true, completionTokens: true, totalTokens: true },
-    _count: { id: true },
-  });
-  const actualByRole = new Map(
-    logRows.map((r) => [
-      r.stageRole,
-      {
-        costUsd:      Number(r._sum.costUsd ?? 0),
-        totalTokens:  r._sum.totalTokens ?? 0,
-        callCount:    r._count.id,
-      },
-    ]),
-  );
+  // Canonical LLMCallLog actual costs — grouped by recorded stage key,
+  // operation, generation mode, and status. Role is displayed for audit detail
+  // but no longer drives stage attribution.
+  const canonicalLedger = await getCanonicalCostLedgerForBook(book.id);
+  const actualByStage = new Map<string, { costUsd: number; totalTokens: number; callCount: number }>();
+  for (const row of canonicalLedger) {
+    const existing = actualByStage.get(row.stageKey) ?? { costUsd: 0, totalTokens: 0, callCount: 0 };
+    existing.costUsd += row.costUsd;
+    existing.totalTokens += row.totalTokens;
+    existing.callCount += row.callCount;
+    actualByStage.set(row.stageKey, existing);
+  }
 
   // Count committed chapters (for per-chapter estimates)
   const chapterCount = (() => {
@@ -149,7 +158,7 @@ export default async function CostAnalysisPage({
     multiplier:     number;   // how many LLM calls (1 or chapterCount)
   };
 
-  const rows: Row[] = NONFICTION_STAGES.map((config) => {
+  const rows: Row[] = getCostStageConfigs(book.workflowType).map((config) => {
     const modelSpec  = resolveModelSpec(config.stageRole);
     const pricing    = getModelPricing(modelSpec);
     const stage      = stageMap.get(config.stageKey);
@@ -176,7 +185,7 @@ export default async function CostAnalysisPage({
       (inputEstimate  / 1_000_000) * pricing.inputPer1M +
       (outputEstimate / 1_000_000) * pricing.outputPer1M;
 
-    const actual = actualByRole.get(config.stageRole);
+    const actual = actualByStage.get(config.stageKey);
     const actualCost   = actual?.costUsd ?? 0;
     const actualTokens = actual?.totalTokens ?? 0;
     const callCount    = actual?.callCount ?? 0;
@@ -199,8 +208,9 @@ export default async function CostAnalysisPage({
   });
 
   const totalEstCost    = rows.reduce((s, r) => s + r.estCost, 0);
-  const totalActualCost = rows.reduce((s, r) => s + r.actualCost, 0);
-  const totalActualToks = rows.reduce((s, r) => s + r.actualTokens, 0);
+  const totalActualCost = canonicalLedger.reduce((s, r) => s + r.costUsd, 0);
+  const totalActualToks = canonicalLedger.reduce((s, r) => s + r.totalTokens, 0);
+  const totalActualCalls = canonicalLedger.reduce((s, r) => s + r.callCount, 0);
 
   // ── Flat log — all books, all time ──────────────────────────────────────
   const allLogEntries = readCostLog();
@@ -472,7 +482,7 @@ export default async function CostAnalysisPage({
                 {totalActualCost > 0 && (
                   <span>
                     Total logged: <strong style={{ color: "#4a7c59" }}>{fmtCost(totalActualCost)}</strong>
-                    {" "} across <strong>{rows.reduce((s, r) => s + r.callCount, 0)}</strong> LLM calls
+                    {" "} across <strong>{totalActualCalls}</strong> LLM calls
                     {" "}({fmtTokens(totalActualToks)} tokens)
                   </span>
                 )}
@@ -481,24 +491,36 @@ export default async function CostAnalysisPage({
             <table style={tableStyle}>
               <thead>
                 <tr>
+                  <th style={thStyle}>Stage</th>
+                  <th style={thStyle}>Operation</th>
+                  <th style={thStyle}>Status</th>
+                  <th style={thStyle}>Mode</th>
                   <th style={thStyle}>Stage Role</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Calls</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Tokens</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Search</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
                 </tr>
               </thead>
               <tbody>
-                {logRows
-                  .sort((a, b) => Number(b._sum.costUsd ?? 0) - Number(a._sum.costUsd ?? 0))
+                {canonicalLedger
+                  .sort((a, b) => b.costUsd - a.costUsd)
                   .map((r) => (
-                    <tr key={r.stageRole}>
+                    <tr key={`${r.stageKey}:${r.operation}:${r.generationMode}:${r.status}:${r.stageRole}`}>
+                      <td style={tdStyle}>
+                        <span style={modelTagStyle}>{r.stageKey}</span>
+                      </td>
+                      <td style={tdStyle}>{r.operation}</td>
+                      <td style={tdStyle}>{r.status}</td>
+                      <td style={tdStyle}>{r.generationMode}</td>
                       <td style={tdStyle}>
                         <span style={modelTagStyle}>{r.stageRole}</span>
                       </td>
-                      <td style={numStyle}>{r._count.id}</td>
-                      <td style={numStyle}>{fmtTokens(r._sum.totalTokens ?? 0)}</td>
+                      <td style={numStyle}>{r.callCount}</td>
+                      <td style={numStyle}>{fmtTokens(r.totalTokens)}</td>
+                      <td style={numStyle}>{fmtCost(r.searchCostUsd)}</td>
                       <td style={{ ...numStyle, color: "#4a7c59" }}>
-                        {fmtCost(Number(r._sum.costUsd ?? 0))}
+                        {fmtCost(r.costUsd)}
                       </td>
                     </tr>
                   ))}

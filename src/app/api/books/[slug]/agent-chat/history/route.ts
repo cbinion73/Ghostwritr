@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import type { StageKey } from "@prisma/client";
-import { db } from "@/lib/db";
-
-type PersistedMessage = { role: "user" | "agent"; content: string };
+import { requireAuthenticatedAppUser } from "@/lib/auth/app-auth";
+import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import {
+  listAgentChatMessages,
+  replaceAgentChatMessages,
+  type PersistedAgentChatMessage,
+} from "@/lib/repositories/agent-chat-messages";
+import {
+  REQUEST_LIMITS,
+  RequestLimitError,
+  assertChatMessagesWithinLimit,
+  parseLimitedJson,
+  requestLimitResponse,
+} from "@/lib/request-limits";
 
 // ── GET /api/books/[slug]/agent-chat/history?stageKey=EDITING ─────────────────
 export async function GET(
@@ -14,16 +25,11 @@ export async function GET(
   const stageKey = searchParams.get("stageKey") as StageKey | null;
   if (!stageKey) return NextResponse.json({ messages: [] });
 
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ messages: [] });
 
-  const stage = await db.bookStage.findUnique({
-    where: { bookId_stageKey: { bookId: book.id, stageKey } },
-    select: { metadataJson: true },
-  });
-
-  const meta = (stage?.metadataJson ?? {}) as Record<string, unknown>;
-  const messages = (meta.chatHistory ?? []) as PersistedMessage[];
+  const messages = await listAgentChatMessages(book.id, stageKey);
 
   return NextResponse.json({ messages });
 }
@@ -34,32 +40,27 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const body = await req.json() as { stageKey: StageKey; messages: PersistedMessage[] };
+  let body: { stageKey: StageKey; messages: PersistedAgentChatMessage[] };
+  try {
+    body = await parseLimitedJson(req, {
+      limitBytes: REQUEST_LIMITS.chatJsonBytes,
+      label: "Chat history request",
+    });
+    assertChatMessagesWithinLimit(body.messages ?? []);
+  } catch (error) {
+    if (error instanceof RequestLimitError) return requestLimitResponse(error);
+    throw error;
+  }
   const { stageKey, messages } = body;
   if (!stageKey || !Array.isArray(messages)) {
     return NextResponse.json({ error: "Missing stageKey or messages" }, { status: 400 });
   }
 
-  const book = await db.book.findUnique({ where: { slug }, select: { id: true } });
+  const user = await requireAuthenticatedAppUser();
+  const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id).catch(() => null);
   if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
 
-  const stage = await db.bookStage.findUnique({
-    where: { bookId_stageKey: { bookId: book.id, stageKey } },
-    select: { metadataJson: true },
-  });
-
-  const existing = (stage?.metadataJson ?? {}) as Record<string, unknown>;
-
-  await db.bookStage.upsert({
-    where: { bookId_stageKey: { bookId: book.id, stageKey } },
-    update: { metadataJson: { ...existing, chatHistory: messages } },
-    create: {
-      bookId: book.id,
-      stageKey,
-      status: "NOT_STARTED",
-      metadataJson: { chatHistory: messages },
-    },
-  });
+  await replaceAgentChatMessages(book.id, stageKey, messages);
 
   return NextResponse.json({ ok: true });
 }

@@ -12,6 +12,15 @@ import { db } from "../db";
 import { getStageForBook } from "./books";
 import { ensureDefaultLocalUser } from "../users";
 import { pruneToSingleCommittedArtifact } from "./artifact-lifecycle";
+import {
+  BaseStoryBundleSchema,
+  ParagraphOutlineSchema,
+  parseArtifactWithSchema,
+  parseMetadataRecord,
+} from "../artifact-schemas";
+import { normalizeBaseStoryBundle, validateBaseStoryGuidanceContract } from "../base-story-utils";
+import { getCommittedOutlineExpansion } from "./outline-artifacts";
+import { getStaleDependencyState } from "../stale-dependency";
 
 type UpsertBaseStoryInput = {
   bookId: string;
@@ -129,8 +138,21 @@ export async function commitBaseStory(bookId: string) {
   if (!stage) {
     throw new Error(`Base Story stage not found for book ${bookId}`);
   }
+  const staleDependency = getStaleDependencyState(parseMetadataRecord(stage.metadataJson));
+  if (staleDependency) {
+    throw new Error(`Base Story cannot be committed while stale: ${staleDependency.reason}`);
+  }
 
   const defaultUser = await ensureDefaultLocalUser();
+  const paragraphOutlineVersion = await getCommittedOutlineExpansion(bookId);
+  const paragraphOutline = parseArtifactWithSchema(
+    paragraphOutlineVersion?.contentJson,
+    ParagraphOutlineSchema,
+  );
+  const expectedChapterKeys =
+    paragraphOutline?.sections.flatMap((section) =>
+      section.chapters.map((chapter) => chapter.chapterId),
+    ) ?? [];
 
   return db.$transaction(async (tx) => {
     const candidates = await tx.artifact.findMany({
@@ -146,6 +168,17 @@ export async function commitBaseStory(bookId: string) {
     const artifact = candidates[0];
     if (!artifact?.currentVersionId) {
       throw new Error("No base story version available to commit.");
+    }
+
+    const currentVersion = await tx.artifactVersion.findUnique({
+      where: { id: artifact.currentVersionId },
+    });
+    const bundle = normalizeBaseStoryBundle(
+      parseArtifactWithSchema(currentVersion?.contentJson, BaseStoryBundleSchema),
+    );
+    const contract = validateBaseStoryGuidanceContract(bundle, expectedChapterKeys);
+    if (!contract.ok) {
+      throw new Error(`Base Story cannot be committed: ${contract.issues.join(" ")}`);
     }
 
     await tx.artifactVersion.update({

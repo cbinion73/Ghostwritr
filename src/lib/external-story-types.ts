@@ -102,5 +102,11 @@ export type ChapterExternalStoryDossier = {
     provisional?: boolean;
     retryRecommended?: boolean;
     warning?: string | null;
+    evidenceContractSummary?: {
+      totalRecords: number;
+      admissibleRecords: number;
+      needsCorroborationRecords: number;
+      excludedRecords: number;
+    };
   };
 };

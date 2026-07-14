@@ -11,6 +11,7 @@ import type {
   ChapterExternalStoryItem,
   ChapterExternalStorySource,
 } from "../external-story-types";
+import { chapterIdentityWhere } from "./chapter-identity";
 
 /**
  * Assemble a ChapterResearchDossier / ChapterExternalStoryDossier from the
@@ -33,7 +34,7 @@ async function getLatestPackVersionId(
     where: {
       bookId,
       artifactType,
-      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      ...chapterIdentityWhere(chapterKey),
     },
     orderBy: { createdAt: "desc" },
     select: {

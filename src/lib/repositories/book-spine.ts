@@ -81,3 +81,62 @@ export async function getBookSpine(slug: string): Promise<SpineData | null> {
     stages,
   };
 }
+
+export async function getBookSpineForUser(
+  slug: string,
+  ownerUserId: string,
+): Promise<SpineData | null> {
+  const book = await db.book.findFirst({
+    where: {
+      slug,
+      ownerUserId,
+    },
+    select: {
+      id: true,
+      slug: true,
+      titleWorking: true,
+      subtitle: true,
+      workflowType: true,
+      stages: {
+        select: {
+          id: true,
+          stageKey: true,
+          status: true,
+          updatedAt: true,
+          committedAt: true,
+        },
+      },
+    },
+  });
+
+  if (!book) return null;
+
+  const artifactCounts = book.stages.length
+    ? await db.artifact.groupBy({
+        by: ["stageId"],
+        where: { stageId: { in: book.stages.map((s) => s.id) } },
+        _count: { _all: true },
+      })
+    : [];
+
+  const countByStageId = new Map(
+    artifactCounts.map((row) => [row.stageId, row._count._all]),
+  );
+
+  return {
+    book: {
+      id: book.id,
+      slug: book.slug,
+      titleWorking: book.titleWorking,
+      subtitle: book.subtitle,
+      workflowType: book.workflowType,
+    },
+    stages: book.stages.map((s) => ({
+      stageKey: s.stageKey,
+      status: s.status,
+      artifactCount: countByStageId.get(s.id) ?? 0,
+      updatedAt: s.updatedAt,
+      committedAt: s.committedAt,
+    })),
+  };
+}

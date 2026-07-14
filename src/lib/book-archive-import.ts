@@ -77,6 +77,7 @@ const BookArchiveManifestSchema = z.object({
     status: z.string(),
     currentVersionId: z.string().nullable().optional(),
     committedVersionId: z.string().nullable().optional(),
+    chapterId: z.string().nullable().optional(),
     title: z.string().nullable().optional(),
     summary: z.string().nullable().optional(),
     metadataJson: z.unknown(),
@@ -285,6 +286,7 @@ async function restoreSourceDocumentFile(
 export async function importBookArchiveBuffer(input: {
   bytes: Uint8Array;
   fileName?: string;
+  ownerUserId?: string;
 }) {
   const tempDir = await mkdtemp(path.join(tmpdir(), "ghostwritr-book-import-"));
   const archivePath = path.join(tempDir, input.fileName || "book-archive.zip");
@@ -298,7 +300,10 @@ export async function importBookArchiveBuffer(input: {
     const manifestRaw = await readFile(path.join(extractDir, ARCHIVE_MANIFEST_FILE), "utf8");
     const manifest = BookArchiveManifestSchema.parse(JSON.parse(manifestRaw));
 
-    const owner = await ensureDefaultLocalUser();
+    const owner =
+      input.ownerUserId != null
+        ? { id: input.ownerUserId }
+        : await ensureDefaultLocalUser();
     const sourceSlug = manifest.book.slug;
     const slug = await generateUniqueSlugFromArchive(`${sourceSlug}-imported`);
     const titleWorking = manifest.book.titleWorking?.trim()
@@ -375,6 +380,7 @@ export async function importBookArchiveBuffer(input: {
               stageId: stageIdMap.get(artifact.stageId) ?? "",
               artifactType: artifact.artifactType as Artifact["artifactType"],
               status: artifact.status as Artifact["status"],
+              chapterId: artifact.chapterId ?? null,
               title: artifact.title ?? null,
               summary: artifact.summary ?? null,
               metadataJson: normalizeJsonValue(artifact.metadataJson as Prisma.JsonValue),

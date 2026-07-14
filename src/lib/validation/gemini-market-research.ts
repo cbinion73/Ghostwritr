@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { invokeValidationText } from "./validation-llm";
 
 export interface MarketResearchData {
   marketSize: string;
@@ -23,23 +23,6 @@ export async function performGeminiMarketResearch(
   topic?: string
 ): Promise<MarketResearchData> {
   try {
-    console.log("[performGeminiMarketResearch] API Key configured:", !!process.env.GOOGLE_GENERATIVE_AI_API_KEY);
-
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-      throw new Error("GOOGLE_GENERATIVE_AI_API_KEY not configured");
-    }
-
-    const client = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
-    const model = client.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      generationConfig: {
-        temperature: 0.5,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 3000,
-      },
-    });
-
     // Extract topic from promise if not provided
     const extractedTopic = topic || extractTopicFromPromise(promiseStatement);
 
@@ -88,10 +71,13 @@ RESEARCH TASKS (be specific with real books and real data):
 
 Be data-driven. Use real market information. If uncertain, say "insufficient data" rather than guessing.`;
 
-    const response = await model.generateContent(researchPrompt);
-    const analysisText =
-      response.response?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "Unable to perform market research at this time";
+    const analysisText = await invokeValidationText({
+      modelSpec: "google:gemini-2.5-flash",
+      stageRole: "market-analysis:research",
+      operation: "gemini-market-research",
+      prompt: researchPrompt,
+      options: { temperature: 0.5, maxOutputTokens: 3000 },
+    }).catch(() => "Unable to perform market research at this time");
 
     // Parse the response and structure it
     const marketData = parseGeminiResponse(analysisText);
@@ -228,19 +214,6 @@ export async function validatePromiseStrengthWithGemini(
   overallAssessment: string;
 }> {
   try {
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-      throw new Error("GOOGLE_GENERATIVE_AI_API_KEY not configured");
-    }
-
-    const client = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
-    const model = client.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1024,
-      },
-    });
-
     const evaluationPrompt = `As a publishing strategist, evaluate this book promise on its commercial strength and market fit:
 
 Promise: "${promiseStatement}"
@@ -256,10 +229,13 @@ Provide:
 
 Be direct and specific. Focus on what matters for book sales.`;
 
-    const response = await model.generateContent(evaluationPrompt);
-    const evaluationText =
-      response.response?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "Unable to evaluate promise";
+    const evaluationText = await invokeValidationText({
+      modelSpec: "google:gemini-2.5-flash",
+      stageRole: "market-analysis:research",
+      operation: "gemini-promise-strength",
+      prompt: evaluationPrompt,
+      options: { temperature: 0.7, maxOutputTokens: 1024 },
+    }).catch(() => "Unable to evaluate promise");
 
     return parsePromiseEvaluation(evaluationText);
   } catch (error) {

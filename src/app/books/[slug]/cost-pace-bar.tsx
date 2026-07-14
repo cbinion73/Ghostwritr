@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface ChapterStageCost {
   chapterKey: string;
@@ -16,6 +16,21 @@ interface UsageData {
   totalCalls: number;
   breakdown: { stageRole: string; costUsd: number; totalTokens: number; callCount: number }[];
   byChapterAndStage: ChapterStageCost[];
+  budget: {
+    warningUsd: number;
+    confirmationUsd: number;
+    hardStopUsd: number;
+    currentSpendUsd: number;
+    projectedRequestCostUsd: number;
+    projectedSpendUsd: number;
+    warningReached: boolean;
+    confirmationRequired: boolean;
+    hardStopReached: boolean;
+    confirmed: boolean;
+    confirmedAt: string | null;
+    confirmedBy: string | null;
+    confirmedThroughUsd: number | null;
+  };
 }
 
 const fmtCost   = (n: number) => `$${n.toFixed(4)}`;
@@ -207,22 +222,34 @@ export function CostPaceBar({ slug }: { slug: string }) {
   const [usage, setUsage]       = useState<UsageData | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const loadUsage = useCallback(async (options: { signal?: AbortSignal } = {}) => {
+    try {
+      const res = await fetch(`/api/books/${slug}/llm-usage`, { signal: options.signal });
+      if (!res.ok) return;
+      const data = await res.json() as UsageData;
+      if (!options.signal?.aborted) setUsage(data);
+    } catch {
+      // non-fatal
+    }
+  }, [slug]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`/api/books/${slug}/llm-usage`);
-        if (!res.ok) return;
-        const data = await res.json() as UsageData;
-        if (!cancelled) setUsage(data);
-      } catch {
-        // non-fatal
-      }
+    const controller = new AbortController();
+    void loadUsage({ signal: controller.signal });
+    return () => controller.abort();
+  }, [loadUsage]);
+
+  async function confirmBudget() {
+    setConfirming(true);
+    try {
+      const res = await fetch(`/api/books/${slug}/llm-budget/confirm`, { method: "POST" });
+      if (res.ok) await loadUsage();
+    } finally {
+      setConfirming(false);
     }
-    void load();
-    return () => { cancelled = true; };
-  }, [slug]);
+  }
 
   if (!usage || usage.totalCalls === 0) return null;
 
@@ -254,6 +281,21 @@ export function CostPaceBar({ slug }: { slug: string }) {
     fontSize: "9px",
     opacity: 0.8,
   };
+  const budgetNoticeStyle: React.CSSProperties = {
+    marginTop: 8,
+    padding: "8px 10px",
+    borderRadius: 8,
+    border: usage.budget.confirmationRequired
+      ? "1px solid rgba(180,60,60,0.35)"
+      : "1px solid rgba(184,121,58,0.3)",
+    background: usage.budget.confirmationRequired
+      ? "rgba(180,60,60,0.14)"
+      : "rgba(184,121,58,0.12)",
+    color: "var(--fg, #e8d5b0)",
+    fontSize: 10,
+    lineHeight: 1.45,
+    maxWidth: 280,
+  };
 
   return (
     <div style={{ position: "relative" }}>
@@ -277,6 +319,34 @@ export function CostPaceBar({ slug }: { slug: string }) {
         <span style={labelStyle}>Tokens used</span>
         <span style={{ ...valueStyle, fontWeight: 400 }}>{fmtTokens(usage.totalTokens)}</span>
       </div>
+      {usage.budget.confirmationRequired ? (
+        <div style={budgetNoticeStyle}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>LLM spend approval required</div>
+          <div>
+            This book is at {fmtCost(usage.budget.currentSpendUsd)} and has reached the {fmtCost(usage.budget.confirmationUsd)} confirmation gate.
+          </div>
+          <button
+            onClick={confirmBudget}
+            disabled={confirming}
+            style={{
+              marginTop: 7,
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 999,
+              background: confirming ? "rgba(255,255,255,0.08)" : "rgba(184,121,58,0.35)",
+              color: "inherit",
+              cursor: confirming ? "wait" : "pointer",
+              fontSize: 10,
+              padding: "5px 9px",
+            }}
+          >
+            {confirming ? "Confirming…" : "Confirm budget and continue"}
+          </button>
+        </div>
+      ) : usage.budget.warningReached && !usage.budget.confirmed ? (
+        <div style={budgetNoticeStyle}>
+          LLM spend warning: {fmtCost(usage.budget.currentSpendUsd)} used. New generation will require confirmation if projected spend crosses {fmtCost(usage.budget.confirmationUsd)}.
+        </div>
+      ) : null}
 
       {expanded && usage.breakdown.length > 0 && (
         <div

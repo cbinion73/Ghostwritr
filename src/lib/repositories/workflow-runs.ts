@@ -3,6 +3,17 @@ import { Prisma, StageKey, WorkflowRunStatus, WorkflowRunType } from "@prisma/cl
 import { db } from "../db";
 import { getStageForBook } from "./books";
 
+const DEFAULT_WORKFLOW_LEASE_MS = 60_000;
+const DEFAULT_WORKFLOW_HEARTBEAT_MS = 15_000;
+
+function newLeaseOwner() {
+  return `worker_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function leaseExpiresAt(leaseMs: number) {
+  return new Date(Date.now() + leaseMs);
+}
+
 export async function getActiveWorkflowRunForStage(bookId: string, stageKey: StageKey) {
   const stage = await getStageForBook(bookId, stageKey);
   if (!stage) {
@@ -58,11 +69,26 @@ export async function createWorkflowRun(params: {
   stageKey: StageKey;
   runType?: WorkflowRunType;
   inputJson?: Prisma.InputJsonValue;
+  idempotencyKey?: string;
+  maxAttempts?: number;
 }) {
   const stage = await getStageForBook(params.bookId, params.stageKey);
 
   if (!stage) {
     throw new Error(`Stage ${params.stageKey} not found for book ${params.bookId}`);
+  }
+
+  if (params.idempotencyKey) {
+    const existing = await db.workflowRun.findUnique({
+      where: {
+        bookId_stageId_idempotencyKey: {
+          bookId: params.bookId,
+          stageId: stage.id,
+          idempotencyKey: params.idempotencyKey,
+        },
+      },
+    });
+    if (existing) return existing;
   }
 
   return db.workflowRun.create({
@@ -72,6 +98,8 @@ export async function createWorkflowRun(params: {
       runType: params.runType ?? WorkflowRunType.GENERAL,
       status: WorkflowRunStatus.QUEUED,
       inputJson: params.inputJson ?? {},
+      idempotencyKey: params.idempotencyKey,
+      maxAttempts: Math.max(1, params.maxAttempts ?? 1),
     },
   });
 }
@@ -86,17 +114,106 @@ export async function getWorkflowRunById(runId: string) {
   });
 }
 
-export async function claimWorkflowRun(runId: string) {
+export async function claimWorkflowRun(
+  runId: string,
+  options: {
+    leaseMs?: number;
+    leaseOwner?: string;
+  } = {},
+) {
+  const now = new Date();
+  const leaseMs = Math.max(1_000, options.leaseMs ?? DEFAULT_WORKFLOW_LEASE_MS);
+  const leaseOwner = options.leaseOwner ?? newLeaseOwner();
   return db.workflowRun.updateMany({
     where: {
       id: runId,
-      status: WorkflowRunStatus.QUEUED,
+      attempt: { lt: db.workflowRun.fields.maxAttempts },
+      OR: [
+        { status: WorkflowRunStatus.QUEUED },
+        {
+          status: WorkflowRunStatus.RUNNING,
+          leaseExpiresAt: { lt: now },
+        },
+      ],
     },
     data: {
       status: WorkflowRunStatus.RUNNING,
-      startedAt: new Date(),
+      attempt: { increment: 1 },
+      leaseOwner,
+      leaseExpiresAt: leaseExpiresAt(leaseMs),
+      heartbeatAt: now,
+      startedAt: now,
+    },
+  }).then((result) => ({ ...result, leaseOwner, leaseMs }));
+}
+
+export async function heartbeatWorkflowRun(
+  runId: string,
+  leaseOwner: string,
+  leaseMs = DEFAULT_WORKFLOW_LEASE_MS,
+) {
+  const now = new Date();
+  return db.workflowRun.updateMany({
+    where: {
+      id: runId,
+      status: WorkflowRunStatus.RUNNING,
+      leaseOwner,
+    },
+    data: {
+      heartbeatAt: now,
+      leaseExpiresAt: leaseExpiresAt(leaseMs),
     },
   });
+}
+
+export function startWorkflowRunHeartbeat(
+  runId: string,
+  leaseOwner: string,
+  leaseMs = DEFAULT_WORKFLOW_LEASE_MS,
+  intervalMs = DEFAULT_WORKFLOW_HEARTBEAT_MS,
+) {
+  const timer = setInterval(() => {
+    void heartbeatWorkflowRun(runId, leaseOwner, leaseMs).catch(() => {
+      // Heartbeats are best-effort. The next heartbeat or stale-run recovery
+      // will reconcile if this update fails transiently.
+    });
+  }, Math.min(intervalMs, Math.max(1_000, Math.floor(leaseMs / 2))));
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
+export async function recoverExpiredWorkflowRuns(now = new Date()) {
+  const failed = await db.workflowRun.updateMany({
+    where: {
+      status: WorkflowRunStatus.RUNNING,
+      leaseExpiresAt: { lt: now },
+      attempt: { gte: db.workflowRun.fields.maxAttempts },
+    },
+    data: {
+      status: WorkflowRunStatus.FAILED,
+      finishedAt: now,
+      errorText: "Workflow run lease expired and max attempts were exhausted.",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    },
+  });
+
+  const requeued = await db.workflowRun.updateMany({
+    where: {
+      status: WorkflowRunStatus.RUNNING,
+      leaseExpiresAt: { lt: now },
+      attempt: { lt: db.workflowRun.fields.maxAttempts },
+    },
+    data: {
+      status: WorkflowRunStatus.QUEUED,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+      errorText: "Workflow run lease expired; requeued for recovery.",
+    },
+  });
+
+  return { failed: failed.count, requeued: requeued.count };
 }
 
 export async function completeWorkflowRun(runId: string, outputJson?: Prisma.InputJsonValue) {
@@ -107,6 +224,8 @@ export async function completeWorkflowRun(runId: string, outputJson?: Prisma.Inp
       outputJson: outputJson ?? {},
       finishedAt: new Date(),
       errorText: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
     },
   });
 }
@@ -119,6 +238,8 @@ export async function failWorkflowRun(runId: string, errorText: string, outputJs
       outputJson: outputJson ?? {},
       finishedAt: new Date(),
       errorText,
+      leaseOwner: null,
+      leaseExpiresAt: null,
     },
   });
 }
@@ -135,6 +256,10 @@ export async function cancelWorkflowRun(
       outputJson: outputJson ?? {},
       finishedAt: new Date(),
       errorText: errorText ?? "Canceled by user.",
+      canceledAt: new Date(),
+      cancelReason: errorText ?? "Canceled by user.",
+      leaseOwner: null,
+      leaseExpiresAt: null,
     },
   });
 }

@@ -14,6 +14,7 @@ import {
 import { getModelForRole, resolveModelSpec } from "../llm/routing";
 import { getLLMCallContext, runWithLLMContext } from "../llm/call-context";
 import { resolveResearchLens, buildLensStoryQueries, type ResearchLens } from "../research-lenses";
+import { normalizeBaseStoryBundle } from "../base-story-utils";
 import { getCommittedBookSetup } from "../repositories/book-setup-artifacts";
 import { normalizeBookSetupProfile } from "../book-setup-types";
 import {
@@ -76,6 +77,7 @@ import {
   failWorkflowRun,
   getActiveWorkflowRunForStage,
   getWorkflowRunById,
+  startWorkflowRunHeartbeat,
 } from "../repositories/workflow-runs";
 import {
   getCommittedOutline,
@@ -484,7 +486,9 @@ async function getChapterSeeds(bookId: string) {
   ]);
   const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
   const paragraph = parseArtifactWithSchema(paragraphVersion?.contentJson, ParagraphOutlineSchema);
-  const baseStory = parseArtifactWithSchema(baseStoryVersion?.contentJson, BaseStoryBundleSchema);
+  const baseStory = normalizeBaseStoryBundle(
+    parseArtifactWithSchema(baseStoryVersion?.contentJson, BaseStoryBundleSchema),
+  );
   const baseStoryChapters = new Map(
     (baseStory?.chapters ?? []).map((chapter) => [chapter.chapterKey, chapter]),
   );
@@ -514,8 +518,8 @@ async function getChapterSeeds(bookId: string) {
             sectionId: section.sectionId,
             sectionTitle: section.sectionTitle,
             baseStoryChapterPurpose: baseStoryChapters.get(chapter.chapterId)?.chapterPurpose,
-            baseStoryChapterThread: baseStoryChapters.get(chapter.chapterId)?.chapterStory,
-            baseStoryBookThread: baseStory?.bookThread,
+            baseStoryChapterThread: baseStoryChapters.get(chapter.chapterId)?.guidance.draftingInstruction,
+            baseStoryBookThread: baseStory?.narrativeGuidance.throughLine,
           })),
       ),
     };
@@ -537,8 +541,8 @@ async function getChapterSeeds(bookId: string) {
             sectionId: section.id,
             sectionTitle: section.title,
             baseStoryChapterPurpose: baseStoryChapters.get(chapter.id)?.chapterPurpose,
-            baseStoryChapterThread: baseStoryChapters.get(chapter.id)?.chapterStory,
-            baseStoryBookThread: baseStory?.bookThread,
+            baseStoryChapterThread: baseStoryChapters.get(chapter.id)?.guidance.draftingInstruction,
+            baseStoryBookThread: baseStory?.narrativeGuidance.throughLine,
           })),
       ) ?? [],
   };
@@ -1257,6 +1261,7 @@ export async function processExternalStoriesWorkflowRun(runId: string) {
 
   const claimed = await claimWorkflowRun(runId);
   if (claimed.count === 0) return { skipped: true };
+  const stopHeartbeat = startWorkflowRunHeartbeat(runId, claimed.leaseOwner, claimed.leaseMs);
 
   const input = parseJson<Record<string, unknown>>(run.inputJson, {});
   const bookSlug = typeof input.bookSlug === "string" ? input.bookSlug : run.book.slug;
@@ -1291,10 +1296,12 @@ export async function processExternalStoriesWorkflowRun(runId: string) {
     });
     await runQualityAgentWorkflow(bookSlug);
     throw error;
+  } finally {
+    stopHeartbeat();
   }
 }
 
-// See getUnfinishedResearchChapterKeys in research.ts for why this checks
+// See getUnfinishedResearchChapterKeys in research/jobs.ts for why this checks
 // saved versions rather than trusting only the in-memory failedChapters
 // list — a chapter a dead run never reached is indistinguishable from one
 // that's still pending unless we check what's actually been saved.
@@ -1328,8 +1335,8 @@ export async function enqueueAndTriggerFullExternalStoriesWorkflow(
 export async function commitChapterExternalStoriesWorkflow(bookSlug: string, chapterKey: string) {
   const book = await getOrCreateBookBySlug(bookSlug);
   const result = await commitExternalStoryPack(book.id, chapterKey);
-  await clearStageStaleDependency(bookSlug, StageKey.EXTERNAL_STORIES);
-  await invalidateDependentStagesForBook(bookSlug, StageKey.EXTERNAL_STORIES);
+  await clearStageStaleDependency(bookSlug, StageKey.EXTERNAL_STORIES, { chapterIds: [chapterKey] });
+  await invalidateDependentStagesForBook(bookSlug, StageKey.EXTERNAL_STORIES, { chapterIds: [chapterKey] });
   return result;
 }
 
@@ -1392,6 +1399,8 @@ export async function commitAllExternalStoriesWorkflow(bookSlug: string) {
       lastRunAt: now,
     } as Prisma.InputJsonValue,
   });
+  await clearStageStaleDependency(bookSlug, StageKey.EXTERNAL_STORIES, { chapterIds: committedChapterKeys });
+  await invalidateDependentStagesForBook(bookSlug, StageKey.EXTERNAL_STORIES, { chapterIds: committedChapterKeys });
 
   return {
     committedChapterKeys,

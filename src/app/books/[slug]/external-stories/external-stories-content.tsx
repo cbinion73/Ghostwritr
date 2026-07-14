@@ -28,6 +28,7 @@ import { CollapsibleRightbar } from "@/app/components/collapsible-rightbar";
 import { StageRunPanel } from "@/app/components/stage-run-panel";
 
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
+import { buildExternalStoryEvidenceContract } from "@/lib/source-evidence-contract";
 import { getExternalStoriesWorkspace } from "@/lib/workflows/external-stories";
 
 type ExternalStoriesWorkspace = Awaited<ReturnType<typeof getExternalStoriesWorkspace>>;
@@ -242,6 +243,19 @@ export async function ExternalStoriesContent({
 
                       {entry.dossier ? (
                         <>
+                          {(() => {
+                            const evidence = buildExternalStoryEvidenceContract(entry.dossier);
+                            const admissibleStoryIds = new Set(
+                              evidence.records
+                                .filter((record) => record.admissibility === "ADMISSIBLE")
+                                .map((record) => record.id),
+                            );
+                            const admissibleStories = entry.stories.filter((story) =>
+                              admissibleStoryIds.has(story.id),
+                            );
+
+                            return (
+                              <>
                           {entry.dossier.metadata?.provisional ? (
                             <div className="card" style={{ borderColor: "#b06733", background: "rgba(176, 103, 51, 0.08)" }}>
                               <strong>Provisional Story Vault</strong>
@@ -256,12 +270,25 @@ export async function ExternalStoriesContent({
                             <div className="metric">Stories: {entry.dossier.verificationSummary.totalStories}</div>
                             <div className="metric">Verified: {entry.dossier.verificationSummary.verifiedStories}</div>
                             <div className="metric">Sources: {entry.dossier.verificationSummary.totalSources}</div>
+                            <div className="metric">Draft-admissible: {evidence.summary.admissibleRecords}</div>
+                            <div className="metric">Excluded: {evidence.summary.excludedRecords}</div>
                           </div>
 
+                          {evidence.summary.excludedRecords > 0 ? (
+                            <div className="card" style={{ borderColor: "#b06733", background: "rgba(176, 103, 51, 0.08)" }}>
+                              <strong>Story evidence warning</strong>
+                              <div className="muted" style={{ marginTop: 8 }}>
+                                Some stories are blocked from Quill because they are missing
+                                source metadata, supporting excerpts, or verified attribution.
+                                Regenerate or repair the vault before relying on them.
+                              </div>
+                            </div>
+                          ) : null}
+
                           <details className="dossier-packet" open>
-                            <summary>Best Story Candidates</summary>
+                            <summary>Draft-Admissible Story Candidates</summary>
                             <div className="dossier-packet-body source-register">
-                              {entry.stories.map((story) => (
+                              {admissibleStories.length > 0 ? admissibleStories.map((story) => (
                                 <article className="source-card" key={story.id}>
                                   <div className="source-card-header">
                                     <div>
@@ -277,7 +304,12 @@ export async function ExternalStoriesContent({
                                   <div className="source-note">{story.summary}</div>
                                   <div className="muted" style={{ marginTop: 10 }}>{story.whyItMatters}</div>
                                 </article>
-                              ))}
+                              )) : (
+                                <div className="muted">
+                                  No draft-admissible external stories yet. Case studies need
+                                  verified attribution and a supporting excerpt before Quill can use them.
+                                </div>
+                              )}
                             </div>
                           </details>
 
@@ -311,6 +343,9 @@ export async function ExternalStoriesContent({
                               ))}
                             </div>
                           </details>
+                              </>
+                            );
+                          })()}
                         </>
                       ) : (
                         <div className="empty-state" style={{ padding: 0 }}>

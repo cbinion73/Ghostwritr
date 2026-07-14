@@ -103,5 +103,11 @@ export type ChapterResearchDossier = {
     warning?: string | null;
     failureReason?: string | null;
     timeout?: boolean;
+    evidenceContractSummary?: {
+      totalRecords: number;
+      admissibleRecords: number;
+      needsCorroborationRecords: number;
+      excludedRecords: number;
+    };
   };
 };

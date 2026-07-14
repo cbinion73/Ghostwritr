@@ -1,4 +1,3 @@
-import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import {
   Prisma,
@@ -42,6 +41,7 @@ import {
   failWorkflowRun,
   getActiveWorkflowRunForStage,
   getWorkflowRunById,
+  startWorkflowRunHeartbeat,
 } from "../repositories/workflow-runs";
 import {
   getCommittedOutline,
@@ -303,7 +303,7 @@ These movement fields are narrative design notes for later drafting, not final c
       bookThread: result.bookThread,
       bookMovement: result.bookMovement,
       chapters: result.chapters,
-    } satisfies BaseStoryBundle);
+    });
     if (!normalized) {
       console.error(`[generateBaseStory] normalizeBaseStoryBundle rejected the LLM result for "${bookTitle}":`, JSON.stringify(result).slice(0, 500));
     }
@@ -454,6 +454,7 @@ export async function processBaseStoryWorkflowRun(runId: string) {
 
   const claimed = await claimWorkflowRun(runId);
   if (claimed.count === 0) return { skipped: true };
+  const stopHeartbeat = startWorkflowRunHeartbeat(runId, claimed.leaseOwner, claimed.leaseMs);
 
   const input = parseJson<Record<string, unknown>>(run.inputJson, {});
   const bookSlug = typeof input.bookSlug === "string" ? input.bookSlug : run.book.slug;
@@ -474,6 +475,8 @@ export async function processBaseStoryWorkflowRun(runId: string) {
     });
     await runQualityAgentWorkflow(bookSlug);
     throw error;
+  } finally {
+    stopHeartbeat();
   }
 }
 

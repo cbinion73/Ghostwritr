@@ -30,6 +30,7 @@ import {
   getExternalStoriesForVersion,
   getExternalStorySourcesForVersion,
 } from "./external-stories-artifacts";
+import { chapterIdentityWhere } from "./chapter-identity";
 
 export type LinkedResearchNote = {
   id: string;
@@ -94,7 +95,7 @@ async function getDraftCitationTrace(bookId: string, chapterKey: string) {
     where: {
       bookId,
       artifactType: ArtifactType.CHAPTER_DRAFT,
-      metadataJson: { path: ["chapterKey"], equals: chapterKey },
+      ...chapterIdentityWhere(chapterKey),
     },
     orderBy: { createdAt: "desc" },
     select: {

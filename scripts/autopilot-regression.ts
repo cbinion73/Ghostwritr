@@ -3,7 +3,7 @@ import {
   assembleManuscriptWorkflow,
   commitEditingStageWorkflow,
   getEditingWorkspace,
-} from "../src/lib/workflows/editing";
+} from "../src/lib/workflows/editing-public";
 import {
   runWorkflowAutopilot,
   setWorkflowAutomationMode,

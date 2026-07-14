@@ -13,9 +13,9 @@ import {
 } from "./actions";
 import { StageRunPanel } from "@/app/components/stage-run-panel";
 
-import { STAGE_LINKS } from "@/lib/navigation";
+import { getBookStageLinks } from "@/lib/navigation";
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
-import { getChapterDraftWorkspace } from "@/lib/workflows/chapter-draft";
+import { getChapterDraftWorkspace } from "@/lib/workflows/chapter-draft-public";
 
 type QualitySignal = {
   label: string;
@@ -39,6 +39,39 @@ function chapterStatusLabel(status: string) {
     default:
       return "Not generated";
   }
+}
+
+function approvalStatusLabel(
+  approvalState: Awaited<ReturnType<typeof getChapterDraftWorkspace>>["selectedEntry"] extends infer T
+    ? T extends { approvalState: infer A }
+      ? A
+      : never
+    : never,
+) {
+  if (!approvalState) {
+    return "Approval pending";
+  }
+  if (approvalState.isStale) {
+    return "Approval stale";
+  }
+  switch (approvalState.status) {
+    case "DRAFT_APPROVED":
+      return "Draft approved";
+    case "DRAFT_PENDING":
+      return "Awaiting approval";
+    case "FINAL_REVISION_PENDING":
+      return "Final revision pending";
+    case "FINAL_REVISION_APPROVED":
+      return "Final approved";
+    case "STALE":
+      return "Approval stale";
+    default:
+      return "Approval pending";
+  }
+}
+
+function shortVersionId(versionId: string | null | undefined) {
+  return versionId ? versionId.slice(0, 8) : "none";
 }
 
 function chapterTargetStatusLabel(
@@ -247,6 +280,7 @@ export default async function ChapterDraftStagePage({
         entry.review?.verdict === "needs_revision"
       ),
   ).length;
+  const stageLinks = getBookStageLinks(workspace.book.workflowType, slug);
 
   return (
     <div className="dark-shell" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -271,10 +305,10 @@ export default async function ChapterDraftStagePage({
         </div>
 
         <div className="stage-list">
-          {STAGE_LINKS.map((stage) => (
+          {stageLinks.map((stage) => (
             <Link
               key={stage.key}
-              href={stage.href(slug)}
+              href={stage.href}
               className={`stage-chip ${stage.key === "CHAPTER_DRAFT" ? "active" : ""}`}
             >
               {stage.label}
@@ -332,7 +366,7 @@ export default async function ChapterDraftStagePage({
                       <form action={commitSelectedChapterDraft.bind(null, slug)}>
                         <input type="hidden" name="chapterKey" value={selected.chapterKey} />
                         <button className="btn btn-primary" type="submit">
-                          Commit Chapter
+                          Approve Chapter Draft
                         </button>
                       </form>
                     ) : null}
@@ -507,6 +541,10 @@ export default async function ChapterDraftStagePage({
                       {entry.sourceAvailability.personalStoryCount} personal stories
                     </div>
                     <div className="pill">
+                      {entry.quillContextSummary.ready ? "Quill ready" : "Quill blocked"}
+                    </div>
+                    <div className="pill">{approvalStatusLabel(entry.approvalState)}</div>
+                    <div className="pill">
                       {entry.review?.verdict === "ready_for_review"
                         ? "Review: ready"
                         : entry.review?.verdict === "needs_revision"
@@ -543,7 +581,7 @@ export default async function ChapterDraftStagePage({
                     <form action={commitSelectedChapterDraft.bind(null, slug)}>
                       <input type="hidden" name="chapterKey" value={selected.chapterKey} />
                       <button className="btn" type="submit">
-                        Commit Chapter
+                        Approve Chapter Draft
                       </button>
                     </form>
                   ) : null}
@@ -612,6 +650,17 @@ export default async function ChapterDraftStagePage({
                         ? "This chapter has a draft. Regenerate only if you want a fresh version."
                         : "Generate this chapter first. Then move to the next chapter when you are ready."}
                     </div>
+                    <div className="metric">
+                      Approval state: {approvalStatusLabel(selected.approvalState)}
+                    </div>
+                    <div className="metric">
+                      Pending draft version:{" "}
+                      {shortVersionId(selected.approvalState?.draftPendingVersionId)}
+                    </div>
+                    <div className="metric">
+                      Approved draft version:{" "}
+                      {shortVersionId(selected.approvalState?.approvedDraftVersionId)}
+                    </div>
                   </>
                 ) : null}
               </div>
@@ -636,6 +685,39 @@ export default async function ChapterDraftStagePage({
       </main>
 
       <aside className="glass-panel rightbar">
+        <div className="card">
+          <div className="label">Author Approval</div>
+          <h3 style={{ marginTop: 6 }}>Chapter Review</h3>
+          {selected ? (
+            <div className="stack" style={{ padding: 0 }}>
+              <div className="recommendation">
+                {approvalStatusLabel(selected.approvalState)}
+              </div>
+              <div className="muted">
+                Pending version: {shortVersionId(selected.approvalState?.draftPendingVersionId)}
+              </div>
+              <div className="muted">
+                Approved version: {shortVersionId(selected.approvalState?.approvedDraftVersionId)}
+              </div>
+              {selected.approvalState?.isStale ? (
+                <div className="muted">
+                  Stale reason: {selected.approvalState.staleReason ?? "Upstream chapter inputs changed."}
+                </div>
+              ) : null}
+              {selected.draft ? (
+                <div className="muted" style={{ lineHeight: 1.7 }}>
+                  Read this chapter in the manuscript pane. If it is the version you want Quill to hand to Editing,
+                  use <strong>Approve Chapter Draft</strong>. GHOSTWRITR stores the exact approved draft version ID.
+                </div>
+              ) : (
+                <div className="muted">Generate this chapter before approving it.</div>
+              )}
+            </div>
+          ) : (
+            <div className="muted">Choose a chapter to approve one draft version at a time.</div>
+          )}
+        </div>
+
         <div className="card">
           <div className="label">Quality Signals</div>
           <h3 style={{ marginTop: 6 }}>Draft Quality</h3>
@@ -719,6 +801,109 @@ export default async function ChapterDraftStagePage({
         </div>
 
         <div className="card">
+          <div className="label">Quill Context</div>
+          <h3 style={{ marginTop: 6 }}>Approved Inputs</h3>
+          {selected ? (
+            <div className="stack" style={{ padding: 0 }}>
+              <div className="recommendation">
+                {selected.quillContextSummary.ready
+                  ? "Quill is ready to draft this chapter from approved, chapter-scoped context."
+                  : "Quill is blocked until this chapter context is cleaned up."}
+              </div>
+              {selected.quillContextSummary.issues.length > 0 ? (
+                <ul className="clean-list">
+                  {selected.quillContextSummary.issues.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <div>
+                <strong>Approved brief</strong>
+                <div className="muted" style={{ lineHeight: 1.7 }}>
+                  {selected.quillContextSummary.approvedBrief.present
+                    ? selected.quillContextSummary.approvedBrief.summary
+                    : "No approved Phase 1 strategic brief is available."}
+                </div>
+              </div>
+
+              <div>
+                <strong>Current paragraph outline</strong>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  {selected.quillContextSummary.paragraphOutline.paragraphCount} paragraph anchors
+                </div>
+                <ul className="clean-list">
+                  {selected.quillContextSummary.paragraphOutline.anchors.map((paragraph) => (
+                    <li key={paragraph.id}>
+                      {paragraph.topicSentence}
+                      <span className="muted"> — {paragraph.purpose}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <strong>Base Story guidance</strong>
+                <div className="muted" style={{ lineHeight: 1.7 }}>
+                  {selected.quillContextSummary.baseStoryGuidance.present
+                    ? selected.quillContextSummary.baseStoryGuidance.draftingInstruction
+                    : "No chapter Base Story guidance is available."}
+                </div>
+              </div>
+
+              <div>
+                <strong>Verified chapter sources</strong>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  {selected.quillContextSummary.evidence.researchCount} research records ·{" "}
+                  {selected.quillContextSummary.evidence.externalStoryCount} external stories
+                </div>
+                <ul className="clean-list">
+                  {[
+                    ...selected.quillContextSummary.evidence.researchTitles,
+                    ...selected.quillContextSummary.evidence.externalStoryTitles,
+                  ].slice(0, 6).map((title) => (
+                    <li key={title}>{title}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <strong>Assigned personal stories</strong>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  {selected.quillContextSummary.personalStories.count} permissioned story card
+                  {selected.quillContextSummary.personalStories.count === 1 ? "" : "s"}
+                </div>
+                {selected.quillContextSummary.personalStories.titles.length > 0 ? (
+                  <ul className="clean-list">
+                    {selected.quillContextSummary.personalStories.titles.map((title) => (
+                      <li key={title}>{title}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+
+              <div>
+                <strong>Voice and craft</strong>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Dominant voice: {selected.quillContextSummary.voiceGuide.dominantPersona ?? "not set"} ·{" "}
+                  {selected.quillContextSummary.craftNotes.count} craft notes
+                </div>
+                <ul className="clean-list">
+                  {[
+                    ...selected.quillContextSummary.voiceGuide.guidance,
+                    ...selected.quillContextSummary.craftNotes.notes,
+                  ].slice(0, 6).map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : (
+            <div className="muted">Choose a chapter to see the exact approved packet Quill will use.</div>
+          )}
+        </div>
+
+        <div className="card">
           <div className="label">Input Mix</div>
           <h3 style={{ marginTop: 6 }}>Source Context</h3>
           {selected ? (
@@ -753,10 +938,10 @@ export default async function ChapterDraftStagePage({
               </div>
 
               <div>
-                <strong>Base Story Thread</strong>
+                <strong>Base Story Guidance</strong>
                 <div className="muted" style={{ lineHeight: 1.7 }}>
-                  {selected.baseStoryChapter?.chapterStory ??
-                    "No base story thread is available for this chapter yet."}
+                  {selected.baseStoryChapter?.guidance.draftingInstruction ??
+                    "No base story guidance is available for this chapter yet."}
                 </div>
               </div>
             </div>

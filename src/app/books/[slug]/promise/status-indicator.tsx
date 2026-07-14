@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { fetchJson } from "@/lib/ui/client-request";
 
 interface StatusIndicatorProps {
   slug: string;
@@ -13,8 +14,7 @@ export function PromiseStatusIndicator({ slug }: StatusIndicatorProps) {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const response = await fetch(`/api/books/${slug}/promise-status`);
-        const data = await response.json();
+        const data = await fetchJson<{ isRunning: boolean; elapsedSeconds: number }>(`/api/books/${slug}/promise-status`);
         setIsRunning(data.isRunning);
         setElapsedSeconds(data.elapsedSeconds);
       } catch (error) {

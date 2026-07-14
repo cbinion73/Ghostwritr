@@ -14,7 +14,7 @@ import {
   enqueueAndTriggerFullExternalStoriesWorkflow,
   renameExternalStoryBinderTabWorkflow,
   separateExternalStoryBinderTabWorkflow,
-} from "@/lib/workflows/external-stories";
+} from "@/lib/workflows/external-stories-public";
 import {
   cancelStageWorkflow,
   resumeFailedStageWorkflow,

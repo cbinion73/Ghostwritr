@@ -178,7 +178,7 @@ test("Phase 1 guided UI surfaces the required foundation choices", () => {
 
 test("Phase 1 gate cleanup makes downstream nonfiction stages depend on approved strategic brief", () => {
   const workspacePage = read("src/app/books/[slug]/page.tsx");
-  const commitRoute = read("src/app/api/books/[slug]/agent-chat/commit/route.ts");
+  const commitRoute = read("src/app/api/books/[slug]/stage-artifacts/commit/route.ts");
   const outlineWorkflow = read("src/lib/workflows/outline.ts");
   const outlineActions = read("src/app/books/[slug]/outline/actions.ts");
   const marketPage = read("src/app/books/[slug]/market-analysis/page.tsx");

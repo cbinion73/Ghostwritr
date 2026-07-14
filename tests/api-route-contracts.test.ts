@@ -71,8 +71,8 @@ test("archive import API assigns imported books to the authenticated user", () =
 test("mutating JSON APIs parse bounded request bodies before validation", () => {
   const routes = [
     "src/app/api/books/[slug]/agent-chat/route.ts",
-    "src/app/api/books/[slug]/agent-chat/commit/route.ts",
-    "src/app/api/books/[slug]/agent-chat/approve/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/commit/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/approve/route.ts",
     "src/app/api/books/[slug]/chapter-draft/run/route.ts",
     "src/app/api/books/[slug]/source-docs/route.ts",
     "src/app/api/internal/workflow-runs/process/route.ts",
@@ -124,8 +124,8 @@ test("generation APIs enforce per-book rate limits before provider work", () => 
 
 test("API validation rejects missing or unsupported mutation fields", () => {
   const runRoute = read("src/app/api/books/[slug]/chapter-draft/run/route.ts");
-  const commitRoute = read("src/app/api/books/[slug]/agent-chat/commit/route.ts");
-  const approveRoute = read("src/app/api/books/[slug]/agent-chat/approve/route.ts");
+  const commitRoute = read("src/app/api/books/[slug]/stage-artifacts/commit/route.ts");
+  const approveRoute = read("src/app/api/books/[slug]/stage-artifacts/approve/route.ts");
   const sourceDocsRoute = read("src/app/api/books/[slug]/source-docs/route.ts");
   const workflowProcessRoute = read("src/app/api/internal/workflow-runs/process/route.ts");
 

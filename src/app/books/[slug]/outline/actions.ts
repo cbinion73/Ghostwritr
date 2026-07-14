@@ -12,7 +12,7 @@ import {
   commitOutlineWorkflow,
   finalizeOutlineWorkflow,
   runOutlineWorkflow,
-} from "@/lib/workflows/outline";
+} from "@/lib/workflows/outline-public";
 import { assertApprovedPhase1StrategicBrief } from "@/lib/workflows/phase1-gates";
 import {
   commitParagraphOutlineWorkflow,

@@ -22,7 +22,7 @@ import type {
 } from "@/lib/paragraph-outline-types";
 import type { OutlinePhaseApprovals, OutlineTocArtifact } from "@/lib/outline-toc-types";
 import { getParagraphOutlineWorkspace } from "@/lib/workflows/outline-paragraphs";
-import { getOutlineWorkspace } from "@/lib/workflows/outline";
+import { getOutlineWorkspace } from "@/lib/workflows/outline-public";
 import {
   getStoredOutlineTocArtifact,
   normalizeOutlinePhaseApprovals,

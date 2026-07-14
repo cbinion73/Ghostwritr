@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SubmitButton } from "@/app/components/submit-button";
+import { fetchJson } from "@/lib/ui/client-request";
 
 type FailedChapter = { chapterKey: string; message: string };
 type ActivityEntry = { at: string; message: string };
@@ -76,10 +77,8 @@ export function StageRunPanel({
 
     const poll = async () => {
       try {
-        const res = await fetch(progressUrl, { cache: "no-store" });
-        if (res.ok && !cancelled) {
-          setData((await res.json()) as ProgressResponse);
-        }
+        const payload = await fetchJson<ProgressResponse>(progressUrl, { cache: "no-store" });
+        if (!cancelled) setData(payload);
       } catch {
         // transient network error — keep last known state, try again next tick
       }

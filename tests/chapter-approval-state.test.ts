@@ -59,14 +59,14 @@ test("approval-state repository exposes one transition per required state", () =
 
 test("chapter draft and final revision paths update approval states", () => {
   const requiredUsages: Record<string, string[]> = {
-    "src/app/api/books/[slug]/agent-chat/chapter-draft/route.ts": ["markDraftPending"],
+    "src/app/api/books/[slug]/chapter-draft/artifacts/route.ts": ["markDraftPending"],
     "src/lib/repositories/chapter-draft-artifacts.ts": ["markDraftPending", "markDraftApproved"],
-    "src/app/api/books/[slug]/agent-chat/chapter-draft/approve-all/route.ts": ["markDraftApproved"],
-    "src/app/api/books/[slug]/agent-chat/save-draft/route.ts": ["markDraftPending"],
-    "src/app/api/books/[slug]/agent-chat/commit/route.ts": ["markDraftApproved"],
-    "src/app/api/books/[slug]/agent-chat/editing/route.ts": ["markFinalRevisionPending"],
+    "src/app/api/books/[slug]/chapter-draft/approve-all/route.ts": ["markDraftApproved"],
+    "src/app/api/books/[slug]/stage-artifacts/save-draft/route.ts": ["markDraftPending"],
+    "src/app/api/books/[slug]/stage-artifacts/commit/route.ts": ["markDraftApproved"],
+    "src/app/api/books/[slug]/editing/artifacts/route.ts": ["markFinalRevisionPending"],
     "src/lib/repositories/editing-artifacts.ts": ["markFinalRevisionPending"],
-    "src/app/api/books/[slug]/agent-chat/editing/approve-all/route.ts": [
+    "src/app/api/books/[slug]/editing/approve-all/route.ts": [
       "markFinalRevisionApproved",
       "markDraftApproved",
     ],

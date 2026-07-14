@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { StageKey, StageStatus } from "@prisma/client";
+import { fetchJson, fetchOk } from "@/lib/ui/client-request";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ export function EditingBmadPanel({ slug, status, bookTitle, onStageAdvance }: Ed
   // ── Bootstrap: load chapters ─────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      const res = await fetch(`/api/books/${slug}/agent-chat/editing`);
+      const res = await fetch(`/api/books/${slug}/editing/artifacts`);
       if (!res.ok) { setInitialized(true); return; }
 
       const data = await res.json() as {
@@ -212,7 +213,7 @@ After the artifact, write your "## Reed's Editorial Summary" — 3–6 specific 
   ): Promise<string | null> => {
     if (chapter.editArtifactId) {
       // Update existing
-      await fetch(`/api/books/${slug}/agent-chat/editing`, {
+      await fetchOk(`/api/books/${slug}/editing/artifacts`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -224,7 +225,8 @@ After the artifact, write your "## Reed's Editorial Summary" — 3–6 specific 
       });
       return chapter.editArtifactId;
     } else {
-      const res = await fetch(`/api/books/${slug}/agent-chat/editing`, {
+      const data = await fetchJson<{ editArtifactId: string }>(
+        `/api/books/${slug}/editing/artifacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -235,8 +237,6 @@ After the artifact, write your "## Reed's Editorial Summary" — 3–6 specific 
           sourceDraftId: chapter.sourceDraftId,
         }),
       });
-      if (!res.ok) return null;
-      const data = await res.json() as { editArtifactId: string };
       return data.editArtifactId;
     }
   }, [slug]);
@@ -493,15 +493,18 @@ Produce the complete revised chapter as a MANUSCRIPT_REVISION artifact. Same voi
 
   // ── Approve all and advance to TYPESET ───────────────────────────────────────
   const approveAll = useCallback(async () => {
-    const res = await fetch(`/api/books/${slug}/agent-chat/editing/approve-all`, {
+    try {
+      const { nextStageKey } = await fetchJson<{ nextStageKey: StageKey | null }>(
+        `/api/books/${slug}/editing/approve-all`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-    });
-    if (!res.ok) { alert("Approve failed"); return; }
-    const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };
-    router.refresh();
-    if (nextStageKey && onStageAdvance) {
-      setTimeout(() => onStageAdvance(nextStageKey), 400);
+      });
+      router.refresh();
+      if (nextStageKey && onStageAdvance) {
+        setTimeout(() => onStageAdvance(nextStageKey), 400);
+      }
+    } catch {
+      alert("Approve failed");
     }
   }, [slug, router, onStageAdvance]);
 

@@ -33,6 +33,9 @@ test("Book Studio Chapter Draft panel uses canonical Chapter Draft lifecycle rou
   assert.equal(panel.includes("/agent-chat/chapter-draft"), false);
   assert.match(panel, /\/chapter-draft\/artifacts/);
   assert.match(panel, /\/chapter-draft\/approve-all/);
-  assert.match(artifactsRoute, /agent-chat\/chapter-draft\/route/);
-  assert.match(approveAllRoute, /agent-chat\/chapter-draft\/approve-all\/route/);
+  assert.match(artifactsRoute, /export async function GET/);
+  assert.match(artifactsRoute, /createArtifactVersionInTransaction/);
+  assert.match(approveAllRoute, /commitArtifactVersionInTransaction/);
+  assert.equal(artifactsRoute.includes("agent-chat/chapter-draft/route"), false);
+  assert.equal(approveAllRoute.includes("agent-chat/chapter-draft/approve-all/route"), false);
 });

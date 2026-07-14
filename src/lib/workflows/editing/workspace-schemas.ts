@@ -270,6 +270,15 @@ export const SuggestedEditorialRevisionTargetSchema = z.object({
   preserveNotes: z.array(z.string()).default([]),
 });
 
+export const EditorialReadinessGateSchema = z.object({
+  evaluatedAt: z.string(),
+  score: z.number(),
+  recommendation: z.enum(["ready_for_commit", "needs_revision", "blocked"]),
+  strengths: z.array(z.string()).default([]),
+  risks: z.array(z.string()).default([]),
+  nextActions: z.array(z.string()).default([]),
+});
+
 export const FinalHandoffStateSchema = z.object({
   finalizedAt: z.string(),
   archivedAt: z.string().nullable().optional(),

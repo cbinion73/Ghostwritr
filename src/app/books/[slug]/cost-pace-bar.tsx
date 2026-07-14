@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchJson, fetchOk } from "@/lib/ui/client-request";
 
 interface ChapterStageCost {
   chapterKey: string;
@@ -50,15 +51,16 @@ function compareChapterKeys(a: string, b: string) {
 function CostBreakdownModal({ slug, onClose }: { slug: string; onClose: () => void }) {
   const [data, setData] = useState<ChapterStageCost[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`/api/books/${slug}/llm-usage`);
-        if (!res.ok) return;
-        const json = await res.json() as UsageData;
+        const json = await fetchJson<UsageData>(`/api/books/${slug}/llm-usage`);
         if (!cancelled) setData(json.byChapterAndStage);
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Unable to load cost data.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -170,6 +172,8 @@ function CostBreakdownModal({ slug, onClose }: { slug: string; onClose: () => vo
         <div style={{ overflow: "auto", padding: "8px 20px 20px" }}>
           {loading ? (
             <div style={{ padding: 20, fontSize: 12, color: "var(--muted, #9ca3af)" }}>Loading cost data…</div>
+          ) : error ? (
+            <div style={{ padding: 20, fontSize: 12, color: "#d98b7d" }}>{error}</div>
           ) : chapters.length === 0 ? (
             <div style={{ padding: 20, fontSize: 12, color: "var(--muted, #9ca3af)" }}>No LLM calls logged yet for this book.</div>
           ) : (
@@ -223,12 +227,11 @@ export function CostPaceBar({ slug }: { slug: string }) {
   const [expanded, setExpanded] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
 
   const loadUsage = useCallback(async (options: { signal?: AbortSignal } = {}) => {
     try {
-      const res = await fetch(`/api/books/${slug}/llm-usage`, { signal: options.signal });
-      if (!res.ok) return;
-      const data = await res.json() as UsageData;
+      const data = await fetchJson<UsageData>(`/api/books/${slug}/llm-usage`, { signal: options.signal });
       if (!options.signal?.aborted) setUsage(data);
     } catch {
       // non-fatal
@@ -243,9 +246,12 @@ export function CostPaceBar({ slug }: { slug: string }) {
 
   async function confirmBudget() {
     setConfirming(true);
+    setConfirmationError(null);
     try {
-      const res = await fetch(`/api/books/${slug}/llm-budget/confirm`, { method: "POST" });
-      if (res.ok) await loadUsage();
+      await fetchOk(`/api/books/${slug}/llm-budget/confirm`, { method: "POST" });
+      await loadUsage();
+    } catch (caught) {
+      setConfirmationError(caught instanceof Error ? caught.message : "Budget confirmation failed.");
     } finally {
       setConfirming(false);
     }
@@ -341,6 +347,9 @@ export function CostPaceBar({ slug }: { slug: string }) {
           >
             {confirming ? "Confirming…" : "Confirm budget and continue"}
           </button>
+          {confirmationError ? (
+            <div role="alert" style={{ marginTop: 6, color: "#d98b7d" }}>{confirmationError}</div>
+          ) : null}
         </div>
       ) : usage.budget.warningReached && !usage.budget.confirmed ? (
         <div style={budgetNoticeStyle}>

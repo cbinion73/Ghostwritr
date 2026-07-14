@@ -37,10 +37,10 @@ test("chapter-scoped artifact writers set chapterId instead of relying only on t
     "src/lib/repositories/external-stories-artifacts.ts",
     "src/lib/repositories/editing-artifacts.ts",
     "src/lib/repositories/chapter-paragraph-artifacts.ts",
-    "src/app/api/books/[slug]/agent-chat/chapter-draft/route.ts",
+    "src/app/api/books/[slug]/chapter-draft/artifacts/route.ts",
     "src/app/api/books/[slug]/scout-research/save-chapter/route.ts",
     "src/app/api/books/[slug]/chronicle-stories/save-chapter/route.ts",
-    "src/app/api/books/[slug]/agent-chat/editing/route.ts",
+    "src/app/api/books/[slug]/editing/artifacts/route.ts",
   ]) {
     const source = read(path);
     assert.ok(source.includes("chapterId:"), `${path} does not set chapterId`);

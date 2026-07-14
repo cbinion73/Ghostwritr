@@ -47,11 +47,11 @@ test("public API routes do not update BookStage lifecycle state directly", () =>
 
 test("transition callers use commitStageAndUnlockNext for stage commits", () => {
   for (const path of [
-    "src/app/api/books/[slug]/agent-chat/approve/route.ts",
-    "src/app/api/books/[slug]/agent-chat/commit/route.ts",
-    "src/app/api/books/[slug]/agent-chat/commit-stage/route.ts",
-    "src/app/api/books/[slug]/agent-chat/chapter-draft/approve-all/route.ts",
-    "src/app/api/books/[slug]/agent-chat/editing/approve-all/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/approve/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/commit/route.ts",
+    "src/app/api/books/[slug]/stage-transition/commit/route.ts",
+    "src/app/api/books/[slug]/chapter-draft/approve-all/route.ts",
+    "src/app/api/books/[slug]/editing/approve-all/route.ts",
     "src/app/api/books/[slug]/workbook-design/route.ts",
     "src/lib/workflows/manifest-generator.ts",
   ]) {

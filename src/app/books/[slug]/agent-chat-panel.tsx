@@ -3,60 +3,22 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { StageKey, StageStatus } from "@prisma/client";
+import type { StageKey } from "@prisma/client";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
 import { STAGE_STATE_DISPLAY } from "@/lib/ui/stage-tokens";
+import {
+  ClientRequestError,
+  fetchJson,
+  fetchOk,
+  getClientResponseError,
+} from "@/lib/ui/client-request";
 import { SourceDocsTray } from "./source-docs-tray";
-
-type ChatMessage = {
-  role: "user" | "agent";
-  content: string;
-  streaming?: boolean;
-};
-
-type ArtifactDraft = {
-  type: string;
-  title: string;
-  content: string;
-};
-
-type DossierChapter = {
-  title: string;
-  status: "saved" | "pending";
-};
-
-type DossierData = {
-  dossiers: Array<{ id: string; title: string }>;
-  outlineContent: string | null;
-};
-
-interface AgentChatPanelProps {
-  slug: string;
-  stageKey: StageKey;
-  stageLabel: string;
-  stageRoute: string;
-  status: StageStatus;
-  artifactCount: number;
-  bookTitle: string;
-  committedContent?: string | null;
-  onStageAdvance?: (key: StageKey) => void;
-  /** Dossier mode: save individual dossiers without committing the whole stage */
-  dossierMode?: boolean;
-  /** Persist chat history to DB so conversation survives page refreshes */
-  persistChat?: boolean;
-}
-
-async function responseErrorMessage(res: Response): Promise<string> {
-  try {
-    const body = await res.clone().json() as { error?: string; message?: string; code?: string };
-    if (body.code === "budget_confirmation_required") {
-      return body.error ?? body.message ?? "LLM budget confirmation required. Confirm the book budget in the cost panel, then try again.";
-    }
-    return body.error ?? body.message ?? `${res.status}`;
-  } catch {
-    return `${res.status}`;
-  }
-}
+import { ArtifactCard } from "./agent-chat/artifact-card";
+import { DossierChecklist } from "./agent-chat/dossier-checklist";
+import { MarkdownText } from "./agent-chat/markdown-text";
+import type { AgentChatPanelProps, ArtifactDraft, ChatMessage } from "./agent-chat/types";
+import { useAgentChatHistory } from "./agent-chat/use-agent-chat-history";
+import { useDossierProgress } from "./agent-chat/use-dossier-progress";
 
 export function AgentChatPanel({
   slug,
@@ -75,65 +37,30 @@ export function AgentChatPanel({
   const persona = getAgentForStage(stageKey);
   const stateDisplay = STAGE_STATE_DISPLAY[status];
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const { messages, setMessages, persistMessages } = useAgentChatHistory({
+    slug,
+    stageKey,
+    persistChat,
+    intro: persona.intro(bookTitle, status, artifactCount),
+  });
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [artifact, setArtifact] = useState<ArtifactDraft | null>(null);
   const [artifactExpanded, setArtifactExpanded] = useState(false);
   const [isAutoRunning, setIsAutoRunning] = useState(false);
   const [autoRunFailed, setAutoRunFailed] = useState(false);
-  const [savedDossierCount, setSavedDossierCount] = useState(artifactCount);
-  const [dossierChapters, setDossierChapters] = useState<DossierChapter[]>([]);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const {
+    chapters: dossierChapters,
+    savedCount: savedDossierCount,
+    setSavedCount: setSavedDossierCount,
+    refresh: fetchDossierProgress,
+  } = useDossierProgress({ slug, enabled: dossierMode, artifactCount });
   const [autoPolishActive, setAutoPolishActive] = useState(false);
   const [autoPolishCount, setAutoPolishCount] = useState(0);
   const autoRunFiredRef = useRef(false);
   const autoPolishRef = useRef(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Save chat history to DB (non-blocking, best-effort)
-  const persistMessages = (msgs: ChatMessage[]) => {
-    if (!persistChat) return;
-    const toSave = msgs
-      .filter((m) => !m.streaming)
-      .map(({ role, content }) => ({ role, content }));
-    fetch(`/api/books/${slug}/agent-chat/history`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stageKey, messages: toSave }),
-    }).catch((err: unknown) => {
-      console.warn("[AgentChatPanel] History save failed:", err);
-    });
-  };
-
-  // Load persisted history on mount, or show intro if none exists
-  useEffect(() => {
-    if (!persistChat) {
-      const intro = persona.intro(bookTitle, status, artifactCount);
-      setMessages([{ role: "agent", content: intro }]);
-      setHistoryLoaded(true);
-      return;
-    }
-    void (async () => {
-      try {
-        const res = await fetch(`/api/books/${slug}/agent-chat/history?stageKey=${stageKey}`);
-        if (res.ok) {
-          const data = await res.json() as { messages: ChatMessage[] };
-          if (data.messages && data.messages.length > 0) {
-            setMessages(data.messages);
-            setHistoryLoaded(true);
-            return;
-          }
-        }
-      } catch { /* fall through to intro */ }
-      // No persisted history — show intro
-      const intro = persona.intro(bookTitle, status, artifactCount);
-      setMessages([{ role: "agent", content: intro }]);
-      setHistoryLoaded(true);
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Reset messages and show intro when stage changes (non-persisted panels only)
   useEffect(() => {
@@ -148,34 +75,6 @@ export function AgentChatPanel({
     autoRunFiredRef.current = false;
     setSavedDossierCount(artifactCount);
   }, [stageKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Keep saved dossier count in sync with artifactCount prop
-  useEffect(() => {
-    setSavedDossierCount(artifactCount);
-  }, [artifactCount]);
-
-  // Fetch dossier chapter progress when in dossier mode
-  const fetchDossierProgress = async () => {
-    if (!dossierMode) return;
-    try {
-      const res = await fetch(`/api/books/${slug}/agent-chat/dossiers`);
-      if (!res.ok) return;
-      const data = await res.json() as DossierData;
-      const savedTitles = new Set(data.dossiers.map((d) => d.title.toLowerCase()));
-      const chapters = parseOutlineChapters(data.outlineContent ?? "");
-      setDossierChapters(
-        chapters.map((title) => ({
-          title,
-          status: savedTitles.has(title.toLowerCase()) ? "saved" : "pending",
-        }))
-      );
-    } catch { /* non-fatal */ }
-  };
-
-  useEffect(() => {
-    void fetchDossierProgress();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, dossierMode]);
 
   // Auto-run: when stage is IN_PROGRESS with no prior artifact, draft autonomously.
   // BOOK_SETUP and PERSONAL_STORIES are conversational — greet the author first.
@@ -260,7 +159,7 @@ export function AgentChatPanel({
       });
 
       if (!res.ok || !res.body) {
-        throw new Error(await responseErrorMessage(res));
+        throw new Error(await getClientResponseError(res));
       }
 
       const reader = res.body.getReader();
@@ -350,20 +249,15 @@ export function AgentChatPanel({
           setAutoPolishCount((n) => n + 1);
           setArtifact(null);
           try {
-            const commitRes = await fetch(`/api/books/${slug}/agent-chat/commit`, {
+            await fetchOk(`/api/books/${slug}/stage-artifacts/commit`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ stageKey, artifact: latestParsedArtifact }),
             });
-            if (commitRes.ok) {
-              router.refresh();
-              setTimeout(() => {
-                if (autoPolishRef.current) void send("Continue to the next chapter");
-              }, 1500);
-            } else {
-              autoPolishRef.current = false;
-              setAutoPolishActive(false);
-            }
+            router.refresh();
+            setTimeout(() => {
+              if (autoPolishRef.current) void send("Continue to the next chapter");
+            }, 1500);
           } catch {
             autoPolishRef.current = false;
             setAutoPolishActive(false);
@@ -437,7 +331,7 @@ export function AgentChatPanel({
         ),
       });
 
-      if (!res.ok || !res.body) throw new Error(await responseErrorMessage(res));
+      if (!res.ok || !res.body) throw new Error(await getClientResponseError(res));
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -467,21 +361,19 @@ export function AgentChatPanel({
         const jsonStr = accumulated.slice(artStart + 10, artEnd).trim();
         try {
           const parsed = JSON.parse(jsonStr) as ArtifactDraft;
-          const saveRes = await fetch(`/api/books/${slug}/agent-chat/save-draft`, {
+          await fetchOk(`/api/books/${slug}/stage-artifacts/save-draft`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ stageKey, artifact: parsed }),
           });
-          if (saveRes.ok) {
-            const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
-            replaceStreaming({
-              role: "agent",
-              content: (displayText || "Draft complete.") + "\n\n**Ready for your review — approve to continue.**",
-              streaming: false,
-            });
-            router.refresh();
-            return;
-          }
+          const displayText = accumulated.replace(/<ARTIFACT>[\s\S]*?<\/ARTIFACT>/g, "").trim();
+          replaceStreaming({
+            role: "agent",
+            content: (displayText || "Draft complete.") + "\n\n**Ready for your review — approve to continue.**",
+            streaming: false,
+          });
+          router.refresh();
+          return;
         } catch { /* fall through */ }
       }
 
@@ -516,13 +408,12 @@ export function AgentChatPanel({
   // ── Approve existing REVIEW_READY draft ────────────────────────────────────
   const handleApprove = async () => {
     try {
-      const res = await fetch(`/api/books/${slug}/agent-chat/approve`, {
+      const { nextStageKey } = await fetchJson<{ nextStageKey: StageKey | null }>(
+        `/api/books/${slug}/stage-artifacts/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stageKey }),
       });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };
       setMessages((prev) => [
         ...prev,
         { role: "agent", content: "Approved — moving to the next stage." },
@@ -567,28 +458,12 @@ export function AgentChatPanel({
   const handleCommitArtifact = async (force = false): Promise<void> => {
     if (!artifact) return;
     try {
-      const res = await fetch(`/api/books/${slug}/agent-chat/commit`, {
+      const { nextStageKey } = await fetchJson<{ nextStageKey: StageKey | null }>(
+        `/api/books/${slug}/stage-artifacts/commit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stageKey, artifact, force }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as {
-          error?: string;
-          gate?: { overridable?: boolean };
-        };
-        // An enforced gate (e.g. Market Viability below 70/100) can be
-        // overridden by an explicit human decision — offer that here.
-        if (res.status === 422 && body.gate?.overridable && !force) {
-          const override = window.confirm(
-            `${body.error ?? "This stage is below its quality gate."}\n\nCommit anyway?`,
-          );
-          if (override) return handleCommitArtifact(true);
-          return;
-        }
-        throw new Error(body.error ?? `${res.status}`);
-      }
-      const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };
       setArtifact(null);
       setMessages((prev) => [
         ...prev,
@@ -599,6 +474,15 @@ export function AgentChatPanel({
         setTimeout(() => onStageAdvance(nextStageKey), 400);
       }
     } catch (err) {
+      const gate = err instanceof ClientRequestError
+        ? (err.payload as { gate?: { overridable?: boolean } } | undefined)?.gate
+        : undefined;
+      if (err instanceof ClientRequestError && err.status === 422 && gate?.overridable && !force) {
+        if (window.confirm(`${err.message}\n\nCommit anyway?`)) {
+          return handleCommitArtifact(true);
+        }
+        return;
+      }
       alert(`Failed to commit: ${err instanceof Error ? err.message : "Error"}`);
     }
   };
@@ -607,13 +491,12 @@ export function AgentChatPanel({
   const handleSaveDossier = async () => {
     if (!artifact) return;
     try {
-      const res = await fetch(`/api/books/${slug}/agent-chat/save-dossier`, {
+      const { savedCount } = await fetchJson<{ savedCount: number }>(
+        `/api/books/${slug}/stage-artifacts/save-dossier`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stageKey, artifact }),
       });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const { savedCount } = await res.json() as { savedCount: number };
       setSavedDossierCount(savedCount);
       setArtifact(null);
       setMessages((prev) => [
@@ -633,13 +516,12 @@ export function AgentChatPanel({
   // ── Dossier mode: commit the whole stage after all dossiers are saved ────────
   const handleCommitStage = async () => {
     try {
-      const res = await fetch(`/api/books/${slug}/agent-chat/commit-stage`, {
+      const { nextStageKey } = await fetchJson<{ nextStageKey: StageKey | null }>(
+        `/api/books/${slug}/stage-transition/commit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stageKey }),
       });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };
       setMessages((prev) => [
         ...prev,
         { role: "agent", content: `All ${savedDossierCount} dossiers committed — moving to the next stage.` },
@@ -840,170 +722,6 @@ export function AgentChatPanel({
       </div>{/* end chatColumnStyle */}
     </div>
   );
-}
-
-// ── ArtifactCard ─────────────────────────────────────────────────────────────
-
-function ArtifactCard({
-  artifact,
-  onCommit,
-  commitLabel = "Commit artifact →",
-  onDismiss,
-  tall,
-}: {
-  artifact: ArtifactDraft;
-  onCommit: () => void;
-  commitLabel?: string;
-  onDismiss: () => void;
-  tall?: boolean;
-}) {
-  return (
-    <div style={artifactCardStyle}>
-      <div style={artifactHeaderStyle}>
-        Artifact ready · {artifact.title}
-      </div>
-      <div style={{ ...artifactPreviewStyle, maxHeight: tall ? "600px" : "320px" }}>
-        <MarkdownText text={artifact.content} />
-      </div>
-      <div style={{ display: "flex", gap: "8px", paddingTop: 4 }}>
-        <button style={commitBtnStyle} onClick={onCommit}>
-          {commitLabel}
-        </button>
-        <button style={dismissBtnStyle} onClick={onDismiss}>
-          Dismiss
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Outline chapter title parser (mirrors chapter-draft-bmad-panel logic) ────
-
-function parseOutlineChapters(outline: string): string[] {
-  if (!outline.trim()) return [];
-  const lines = outline.split("\n");
-  const titles: string[] = [];
-
-  // Heading-based
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^#{1,3}\s/.test(trimmed)) {
-      const title = trimmed.replace(/^#{1,3}\s+/, "").trim();
-      if (title) titles.push(title);
-      continue;
-    }
-    const boldMatch = trimmed.match(/^\*\*(.{3,80})\*\*\s*$/);
-    if (boldMatch && /chapter|part|act|\d/i.test(boldMatch[1])) {
-      titles.push(boldMatch[1]);
-      continue;
-    }
-    if (/^Chapter\s+\d+/i.test(trimmed)) {
-      titles.push(trimmed);
-      continue;
-    }
-  }
-
-  // Fall back to numbered list items
-  if (titles.length === 0) {
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].trim().match(/^(\d{1,2})[.)]\s+(.+)$/);
-      if (m && !lines[i].startsWith("  ") && !lines[i].startsWith("\t")) {
-        titles.push(m[2]);
-      }
-    }
-  }
-
-  return titles;
-}
-
-// ── DossierChecklist sidebar ──────────────────────────────────────────────────
-
-function DossierChecklist({
-  chapters,
-  savedCount,
-}: {
-  chapters: DossierChapter[];
-  savedCount: number;
-}) {
-  const total = chapters.length;
-  const pct = total > 0 ? Math.round((savedCount / total) * 100) : 0;
-
-  return (
-    <div style={checklistSidebarStyle}>
-      <div style={checklistHeaderStyle}>
-        <div style={checklistTitleStyle}>Chapter Dossiers</div>
-        <div style={checklistProgressLabelStyle}>{savedCount}/{total} saved</div>
-      </div>
-
-      {/* Progress bar */}
-      <div style={checklistTrackStyle}>
-        <div style={{ ...checklistFillStyle, width: `${pct}%` }} />
-      </div>
-
-      {/* Chapter rows */}
-      <div style={checklistListStyle}>
-        {chapters.map((ch, i) => (
-          <div key={i} style={checklistRowStyle}>
-            <div style={checklistPipStyle(ch.status)}>
-              {ch.status === "saved" ? "✓" : ""}
-            </div>
-            <div style={checklistChapterTitleStyle(ch.status)}>
-              {ch.title}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** Minimal markdown renderer: bold (**text**), italic (*text*), line breaks */
-function inlineMarkdown(line: string): React.ReactNode[] {
-  // Handle **bold** and *italic* inline
-  const parts = line.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
-  return parts.map((part, j) => {
-    if (part.startsWith("**") && part.endsWith("**")) return <strong key={j}>{part.slice(2, -2)}</strong>;
-    if (part.startsWith("*") && part.endsWith("*")) return <em key={j}>{part.slice(1, -1)}</em>;
-    return part;
-  });
-}
-
-function MarkdownText({ text }: { text: string }) {
-  if (!text) return null;
-  const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    if (/^#{1,3} /.test(line)) {
-      const level = (line.match(/^(#+)/)?.[1].length ?? 1);
-      const content = line.replace(/^#+\s+/, "");
-      const sizes = ["18px", "15px", "13px"];
-      elements.push(
-        <div key={i} style={{ fontSize: sizes[level - 1] ?? "13px", fontWeight: 700, marginTop: level === 1 ? 16 : 12, marginBottom: 4, color: "#2a1f14" }}>
-          {inlineMarkdown(content)}
-        </div>
-      );
-    } else if (/^---+$/.test(line.trim())) {
-      elements.push(<hr key={i} style={{ border: "none", borderTop: "1px solid rgba(45,36,29,0.12)", margin: "10px 0" }} />);
-    } else if (line.trim() === "") {
-      elements.push(<div key={i} style={{ height: 8 }} />);
-    } else if (/^- /.test(line)) {
-      elements.push(
-        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 2 }}>
-          <span style={{ color: "#B8793A", flexShrink: 0 }}>•</span>
-          <span>{inlineMarkdown(line.slice(2))}</span>
-        </div>
-      );
-    } else {
-      elements.push(<p key={i} style={{ margin: "2px 0 6px" }}>{inlineMarkdown(line)}</p>);
-    }
-    i++;
-  }
-
-  return <>{elements}</>;
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -1227,58 +945,6 @@ const sendBtnStyle: React.CSSProperties = {
   transition: "opacity 120ms",
 };
 
-// Artifact card styles
-const artifactCardStyle: React.CSSProperties = {
-  background: "rgba(184,121,58,0.06)",
-  border: "1px solid rgba(184,121,58,0.3)",
-  borderRadius: "8px",
-  padding: "16px",
-  display: "flex",
-  flexDirection: "column",
-  gap: "10px",
-};
-
-const artifactHeaderStyle: React.CSSProperties = {
-  fontSize: "13px",
-  fontWeight: 600,
-  color: "#B8793A",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-};
-
-const artifactPreviewStyle: React.CSSProperties = {
-  fontSize: "13px",
-  color: "#4a3e33",
-  lineHeight: 1.7,
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-  maxHeight: "320px",
-  overflowY: "auto",
-  borderTop: "1px solid rgba(184,121,58,0.15)",
-  borderBottom: "1px solid rgba(184,121,58,0.15)",
-  padding: "12px 0",
-};
-
-const commitBtnStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: "6px",
-  border: "none",
-  background: "#2d241d",
-  color: "#fefbf5",
-  fontSize: "12px",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-  cursor: "pointer",
-};
-
-const dismissBtnStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: "6px",
-  border: "1px solid rgba(45,36,29,0.2)",
-  background: "transparent",
-  color: "#6f6256",
-  fontSize: "12px",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-  cursor: "pointer",
-};
-
 const approvalGateStyle: React.CSSProperties = {
   flexShrink: 0,
   borderBottom: "1px solid rgba(184,121,58,0.3)",
@@ -1350,91 +1016,6 @@ const committedContentStyle: React.CSSProperties = {
   overflowY: "auto",
 };
 
-// ── Dossier checklist sidebar styles ─────────────────────────────────────────
-
-const checklistSidebarStyle: React.CSSProperties = {
-  width: "220px",
-  flexShrink: 0,
-  display: "flex",
-  flexDirection: "column",
-  borderLeft: "1px solid rgba(45,36,29,0.1)",
-  background: "rgba(254,251,245,0.7)",
-  overflow: "hidden",
-};
-
-const checklistHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  justifyContent: "space-between",
-  padding: "14px 16px 8px",
-  flexShrink: 0,
-};
-
-const checklistTitleStyle: React.CSSProperties = {
-  fontSize: "11px",
-  fontWeight: 700,
-  color: "#6f6256",
-  letterSpacing: "0.06em",
-  textTransform: "uppercase",
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-};
-
-const checklistProgressLabelStyle: React.CSSProperties = {
-  fontSize: "11px",
-  color: "#B8793A",
-  fontWeight: 600,
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-};
-
-const checklistTrackStyle: React.CSSProperties = {
-  height: "2px",
-  background: "rgba(45,36,29,0.08)",
-  margin: "0 16px 10px",
-  borderRadius: "1px",
-  overflow: "hidden",
-  flexShrink: 0,
-};
-
-const checklistFillStyle: React.CSSProperties = {
-  height: "100%",
-  background: "#4a7c59",
-  borderRadius: "1px",
-  transition: "width 400ms ease",
-};
-
-const checklistListStyle: React.CSSProperties = {
-  flex: 1,
-  overflowY: "auto",
-  padding: "0 0 16px",
-};
-
-const checklistRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  gap: "8px",
-  padding: "5px 16px",
-};
-
-function checklistPipStyle(status: DossierChapter["status"]): React.CSSProperties {
-  const saved = status === "saved";
-  return {
-    width: "16px",
-    height: "16px",
-    borderRadius: "4px",
-    flexShrink: 0,
-    marginTop: "1px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "10px",
-    fontWeight: 700,
-    background: saved ? "#4a7c59" : "transparent",
-    border: saved ? "none" : "1.5px solid rgba(45,36,29,0.2)",
-    color: saved ? "#fff" : "transparent",
-    transition: "all 250ms ease",
-  };
-}
-
 const autoPolishBtnStyle: React.CSSProperties = {
   padding: "5px 10px",
   borderRadius: "6px",
@@ -1459,15 +1040,3 @@ const stopPolishBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   whiteSpace: "nowrap",
 };
-
-function checklistChapterTitleStyle(status: DossierChapter["status"]): React.CSSProperties {
-  const saved = status === "saved";
-  return {
-    fontSize: "12px",
-    lineHeight: 1.4,
-    color: saved ? "#2d241d" : "#9a8a7a",
-    fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
-    fontWeight: saved ? 500 : 400,
-    textDecoration: saved ? "none" : "none",
-  };
-}

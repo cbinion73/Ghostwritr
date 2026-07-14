@@ -29,7 +29,7 @@ import { StageRunPanel } from "@/app/components/stage-run-panel";
 
 import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/stale-dependency";
 import { buildExternalStoryEvidenceContract } from "@/lib/source-evidence-contract";
-import { getExternalStoriesWorkspace } from "@/lib/workflows/external-stories";
+import { getExternalStoriesWorkspace } from "@/lib/workflows/external-stories-public";
 
 type ExternalStoriesWorkspace = Awaited<ReturnType<typeof getExternalStoriesWorkspace>>;
 

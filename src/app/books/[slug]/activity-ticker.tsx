@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { fetchJson } from "@/lib/ui/client-request";
 
 type ActivityRun = {
   runId: string;
@@ -74,13 +75,10 @@ export function ActivityTicker({ slug }: { slug: string }) {
     const poll = async () => {
       let nextDelay = IDLE_POLL_MS;
       try {
-        const res = await fetch(`/api/books/${slug}/activity`, { cache: "no-store" });
-        if (res.ok) {
-          const payload = (await res.json()) as ActivityResponse;
-          if (!cancelled) {
-            setData(payload);
-            nextDelay = payload.active ? ACTIVE_POLL_MS : IDLE_POLL_MS;
-          }
+        const payload = await fetchJson<ActivityResponse>(`/api/books/${slug}/activity`, { cache: "no-store" });
+        if (!cancelled) {
+          setData(payload);
+          nextDelay = payload.active ? ACTIVE_POLL_MS : IDLE_POLL_MS;
         }
       } catch {
         // transient network error — keep last state, retry on idle cadence

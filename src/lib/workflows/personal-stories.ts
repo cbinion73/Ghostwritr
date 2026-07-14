@@ -1,102 +1,39 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ArtifactType, StageKey, StageStatus } from "@prisma/client";
-import { z } from "zod";
 
-import { ParagraphOutlineSchema, parseArtifactWithSchema, parseMetadataRecord } from "../artifact-schemas";
+import { parseMetadataRecord } from "../artifact-schemas";
 import { getModelForRole, resolveModelSpec } from "../llm/routing";
 import type {
   PersonalStoryEncyclopedia,
   PersonalStoryEntry,
   PersonalStoryMessage,
 } from "../personal-story-types";
-import { normalizePersonalStoryEncyclopedia } from "../personal-story-contract";
-import type { ParagraphOutline } from "../paragraph-outline-types";
 import {
   getBookBySlugOrThrow,
   getStageForBook,
   updateStageForBook,
 } from "../repositories/books";
-import { getCommittedOutlineExpansion } from "../repositories/outline-artifacts";
 import {
-  commitPersonalStoriesStageBundle,
   createPersonalStoriesArtifactVersion,
-  getCommittedPersonalStoryEncyclopedia,
   getPersonalStoryArtifactVersions,
   getPersonalStoriesArtifacts,
 } from "../repositories/personal-stories-artifacts";
-import { clearStageStaleDependency, invalidateDependentStagesForBook } from "../workflow-dependencies";
-
-const InterviewReplySchema = z.object({
-  reply: z.string(),
-});
-
-const EncyclopediaSchema = z.object({
-  interviewFocus: z.string(),
-  nextQuestion: z.string(),
-  entries: z
-    .array(
-      z.object({
-        id: z.string(),
-        title: z.string(),
-        summary: z.string(),
-        lesson: z.string(),
-        whyItMatters: z.string(),
-        storyType: z.enum([
-          "origin",
-          "turning_point",
-          "failure",
-          "recovery",
-          "leadership",
-          "conflict",
-          "identity",
-          "moral",
-          "micro_story",
-          "observation",
-        ]),
-        lifeArea: z.string(),
-        emotionalNotes: z.array(z.string()).default([]),
-        chapterFitHints: z.array(z.string()).default([]),
-        status: z.enum(["candidate", "strong", "needs_detail", "not_applicable"]),
-        sourceQuote: z.string().nullable().optional(),
-      }),
-    )
-    .default([]),
-  noStoryTopics: z.array(z.string()).default([]),
-  coverageGaps: z.array(z.string()).default([]),
-  interviewerNotes: z.array(z.string()).default([]),
-});
-
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value && typeof value === "object") {
-    return value as T;
-  }
-
-  return fallback;
-}
-
-type ChapterBlueprint = {
-  chapterKey: string;
-  chapterLabel: string;
-  chapterTitle: string;
-  chapterDescription: string;
-  sectionTitle: string;
-};
-
-function normalizeTranscript(value: unknown): PersonalStoryMessage[] {
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is PersonalStoryMessage =>
-          Boolean(
-            item &&
-              typeof item === "object" &&
-              "role" in item &&
-              "content" in item &&
-              (item as { role?: unknown }).role &&
-              typeof (item as { content?: unknown }).content === "string",
-          ),
-      )
-    : [];
-}
+import { EncyclopediaSchema, InterviewReplySchema } from "./personal-stories/schemas";
+import {
+  getCommittedChapterBlueprints,
+  getDefaultEncyclopedia,
+  inferInterviewFocus,
+  inferNextQuestion,
+  mergeEntries,
+  normalizeEncyclopedia,
+  normalizeEntry,
+  normalizeTranscript,
+  parseJson,
+  type ChapterBlueprint,
+} from "./personal-stories/support";
+import { commitPersonalStoriesWorkflow } from "./personal-stories/commit";
+import { getPersonalStoriesWorkspace } from "./personal-stories/workspace";
+export { commitPersonalStoriesWorkflow, getPersonalStoriesWorkspace };
 
 async function getChatModel() {
   // Routed via provider layer: Sonnet for interview-based story generation
@@ -117,164 +54,6 @@ async function getChatModel() {
   });
 }
 
-function getDefaultEncyclopedia(): PersonalStoryEncyclopedia {
-  return {
-    interviewFocus:
-      "Build a wide-ranging encyclopedia of lived experiences, leadership moments, failures, recoveries, identity stories, and observations that can later support the book.",
-    nextQuestion:
-      "What is one experience from your life or work that changed how you lead, decide, or communicate?",
-    entries: [],
-    noStoryTopics: [],
-    coverageGaps: [
-      "origin story",
-      "failure or setback",
-      "turning point",
-      "leadership under pressure",
-      "identity or belief shift",
-    ],
-    interviewerNotes: [
-      "Gather more stories than the book strictly needs.",
-      "A short concrete memory is better than a polished speech.",
-      "If there is no story for an area, record that clearly and move on.",
-    ],
-  };
-}
-
-function buildChapterBlueprints(outline: ParagraphOutline | null): ChapterBlueprint[] {
-  return (
-    outline?.sections.flatMap((section) =>
-      section.chapters.map((chapter) => ({
-        chapterKey: chapter.chapterId,
-        chapterLabel: `Chapter ${chapter.chapterNumber}: ${chapter.chapterTitle}`,
-        chapterTitle: chapter.chapterTitle,
-        chapterDescription: chapter.chapterDescription,
-        sectionTitle: section.sectionTitle,
-      })),
-    ) ?? []
-  );
-}
-
-async function getCommittedChapterBlueprints(bookId: string) {
-  const committedOutlineVersion = await getCommittedOutlineExpansion(bookId);
-  const outline = parseArtifactWithSchema(
-    committedOutlineVersion?.contentJson,
-    ParagraphOutlineSchema,
-  );
-  return buildChapterBlueprints(outline);
-}
-
-function inferInterviewFocus(chapters: ChapterBlueprint[]) {
-  if (chapters.length === 0) {
-    return getDefaultEncyclopedia().interviewFocus;
-  }
-
-  const preview = chapters
-    .slice(0, 4)
-    .map((chapter) => chapter.chapterLabel)
-    .join(", ");
-
-  return `Build a chapter-aware encyclopedia of lived experiences, leadership moments, failures, recoveries, identity stories, and observations that can support specific chapters in this book. Prioritize memories that could fit ${preview}${chapters.length > 4 ? ", and the rest of the outline" : ""}.`;
-}
-
-function inferNextQuestion(chapters: ChapterBlueprint[]) {
-  const firstChapter = chapters[0];
-  if (!firstChapter) {
-    return getDefaultEncyclopedia().nextQuestion;
-  }
-
-  return `For ${firstChapter.chapterLabel}, what real experience from your life or work best illustrates the chapter's central tension or lesson?`;
-}
-
-function buildChapterCoverage(
-  chapters: ChapterBlueprint[],
-  encyclopedia: PersonalStoryEncyclopedia,
-) {
-  return chapters.map((chapter) => {
-    const matchedEntries = encyclopedia.entries.filter((entry) =>
-      entry.chapterFitHints.some((hint) =>
-        hint.toLowerCase().includes(chapter.chapterTitle.toLowerCase()) ||
-        hint.toLowerCase().includes(chapter.chapterLabel.toLowerCase()),
-      ),
-    );
-
-    return {
-      ...chapter,
-      matchedStoryCount: matchedEntries.length,
-      matchedStoryTitles: matchedEntries.slice(0, 3).map((entry) => entry.title),
-    };
-  });
-}
-
-function normalizeEncyclopedia(
-  value: Partial<PersonalStoryEncyclopedia> | null | undefined,
-): PersonalStoryEncyclopedia {
-  const fallback = getDefaultEncyclopedia();
-  return {
-    interviewFocus: value?.interviewFocus ?? fallback.interviewFocus,
-    nextQuestion: value?.nextQuestion ?? fallback.nextQuestion,
-    entries: Array.isArray(value?.entries)
-      ? value.entries.map((entry, index) => normalizeEntry(entry, index))
-      : fallback.entries,
-    noStoryTopics: Array.isArray(value?.noStoryTopics) ? value.noStoryTopics : fallback.noStoryTopics,
-    coverageGaps: Array.isArray(value?.coverageGaps) ? value.coverageGaps : fallback.coverageGaps,
-    interviewerNotes: Array.isArray(value?.interviewerNotes)
-      ? value.interviewerNotes
-      : fallback.interviewerNotes,
-  };
-}
-
-function normalizeEntry(
-  entry: Omit<PersonalStoryEntry, "emotionalNotes" | "chapterFitHints" | "sourceQuote"> & {
-    emotionalNotes?: string[];
-    chapterFitHints?: string[];
-    sourceQuote?: string | null;
-  },
-  index: number,
-): PersonalStoryEntry {
-  return {
-    ...entry,
-    id: entry.id || `story-${index + 1}`,
-    emotionalNotes: entry.emotionalNotes ?? [],
-    chapterFitHints: entry.chapterFitHints ?? [],
-    sourceQuote: entry.sourceQuote ?? null,
-  };
-}
-
-function mergeEntries(
-  existing: PersonalStoryEntry[],
-  incoming: PersonalStoryEntry[],
-): PersonalStoryEntry[] {
-  const byId = new Map<string, PersonalStoryEntry>();
-  const byTitle = new Map<string, string>();
-
-  for (const entry of existing) {
-    const normalized = normalizeEntry(entry, byId.size);
-    byId.set(normalized.id, normalized);
-    byTitle.set(normalized.title.trim().toLowerCase(), normalized.id);
-  }
-
-  for (const entry of incoming) {
-    const normalized = normalizeEntry(entry, byId.size);
-    const titleKey = normalized.title.trim().toLowerCase();
-    const existingId = byId.has(normalized.id) ? normalized.id : byTitle.get(titleKey);
-    const targetId = existingId ?? normalized.id;
-    const prior = byId.get(targetId);
-
-    byId.set(targetId, {
-      ...normalized,
-      id: targetId,
-      emotionalNotes: Array.from(
-        new Set([...(prior?.emotionalNotes ?? []), ...normalized.emotionalNotes]),
-      ),
-      chapterFitHints: Array.from(
-        new Set([...(prior?.chapterFitHints ?? []), ...normalized.chapterFitHints]),
-      ),
-    });
-    byTitle.set(titleKey, targetId);
-  }
-
-  return Array.from(byId.values());
-}
 
 function fallbackReply(
   userInput: string,
@@ -693,97 +472,4 @@ export async function reprocessPersonalStoriesEncyclopediaWorkflow(bookSlug: str
   ).length;
 
   return { encyclopedia: reprocessed, usableBefore: before, usableAfter: after, commitResult: result };
-}
-
-export async function commitPersonalStoriesWorkflow(bookSlug: string) {
-  const book = await getBookBySlugOrThrow(bookSlug);
-  const chapterBlueprints = await getCommittedChapterBlueprints(book.id);
-  if (chapterBlueprints.length === 0) {
-    throw new Error("Commit the paragraph-level Outline before committing Personal Stories.");
-  }
-  const encyclopediaVersions = await getPersonalStoryArtifactVersions(
-    book.id,
-    ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
-    1,
-  );
-  const latestEncyclopedia = normalizeEncyclopedia(
-    parseJson<Partial<PersonalStoryEncyclopedia> | null>(encyclopediaVersions[0]?.contentJson, null),
-  );
-  if (latestEncyclopedia.entries.length === 0) {
-    throw new Error("Capture at least one personal story before committing the encyclopedia.");
-  }
-  const result = await commitPersonalStoriesStageBundle(book.id);
-  await clearStageStaleDependency(bookSlug, StageKey.PERSONAL_STORIES);
-  await invalidateDependentStagesForBook(bookSlug, StageKey.PERSONAL_STORIES);
-  return result;
-}
-
-export async function getPersonalStoriesWorkspace(bookSlug: string) {
-  const book = await getBookBySlugOrThrow(bookSlug);
-  const chapterBlueprints = await getCommittedChapterBlueprints(book.id);
-  const stage = await getStageForBook(book.id, StageKey.PERSONAL_STORIES);
-  const artifacts = await getPersonalStoriesArtifacts(book.id);
-  const chatVersions = await getPersonalStoryArtifactVersions(
-    book.id,
-    ArtifactType.PERSONAL_STORY_CHAT,
-  );
-  const encyclopediaVersions = await getPersonalStoryArtifactVersions(
-    book.id,
-    ArtifactType.PERSONAL_STORY_ENCYCLOPEDIA,
-  );
-  const committedEncyclopediaVersion = await getCommittedPersonalStoryEncyclopedia(book.id);
-
-  const latestTranscript = normalizeTranscript(chatVersions[0]?.contentJson);
-  const latestEncyclopedia = parseJson<PersonalStoryEncyclopedia>(
-    encyclopediaVersions[0]?.contentJson,
-    getDefaultEncyclopedia(),
-  );
-  const committedEncyclopedia = parseJson<PersonalStoryEncyclopedia | null>(
-    committedEncyclopediaVersion?.contentJson,
-    null,
-  );
-  const normalizedLatestEncyclopedia = normalizeEncyclopedia(latestEncyclopedia);
-  const normalizedCommittedEncyclopedia = committedEncyclopedia
-    ? normalizeEncyclopedia(committedEncyclopedia)
-    : null;
-  const contractLatestEncyclopedia = normalizePersonalStoryEncyclopedia(
-    normalizedLatestEncyclopedia,
-  );
-  const contractCommittedEncyclopedia = normalizedCommittedEncyclopedia
-    ? normalizePersonalStoryEncyclopedia(normalizedCommittedEncyclopedia)
-    : null;
-  const metadata = parseMetadataRecord(stage?.metadataJson);
-  const chapterCoverage = buildChapterCoverage(chapterBlueprints, contractLatestEncyclopedia);
-
-  return {
-    book,
-    stage,
-    artifacts,
-    transcript: latestTranscript,
-    encyclopedia: contractLatestEncyclopedia,
-    committedEncyclopedia: contractCommittedEncyclopedia,
-    versions: {
-      chat: chatVersions,
-      encyclopedia: encyclopediaVersions,
-    },
-    outlineReady: chapterBlueprints.length > 0,
-    chapterBlueprints,
-    chapterCoverage,
-    progress: {
-      interviewStatus:
-        typeof metadata.interviewStatus === "string" ? metadata.interviewStatus : "idle",
-      storyCount:
-        typeof metadata.storyCount === "number"
-          ? metadata.storyCount
-          : normalizedLatestEncyclopedia.entries.length,
-      noStoryTopicCount:
-        typeof metadata.noStoryTopicCount === "number"
-          ? metadata.noStoryTopicCount
-          : normalizedLatestEncyclopedia.noStoryTopics.length,
-      nextQuestion:
-        typeof metadata.nextQuestion === "string"
-          ? metadata.nextQuestion
-          : normalizedLatestEncyclopedia.nextQuestion,
-    },
-  };
 }

@@ -154,8 +154,8 @@ test("workflow prerequisites are derived from registry order", () => {
 });
 
 test("artifact and stale-dependency callers use registry helpers instead of local maps", () => {
-  const commitRoute = readFileSync(join(root, "src/app/api/books/[slug]/agent-chat/commit/route.ts"), "utf8");
-  const saveDraftRoute = readFileSync(join(root, "src/app/api/books/[slug]/agent-chat/save-draft/route.ts"), "utf8");
+  const commitRoute = readFileSync(join(root, "src/app/api/books/[slug]/stage-artifacts/commit/route.ts"), "utf8");
+  const saveDraftRoute = readFileSync(join(root, "src/app/api/books/[slug]/stage-artifacts/save-draft/route.ts"), "utf8");
   const dependencies = readFileSync(join(root, "src/lib/workflow-dependencies.ts"), "utf8");
   const activityRoute = readFileSync(join(root, "src/app/api/books/[slug]/activity/route.ts"), "utf8");
 
@@ -177,12 +177,12 @@ test("duplicate registry maps stay removed from known former call sites", () => 
       reason: "stage tokens must be generated from workflow-registry.ts",
     },
     {
-      file: "src/app/api/books/[slug]/agent-chat/commit/route.ts",
+      file: "src/app/api/books/[slug]/stage-artifacts/commit/route.ts",
       pattern: /STAGE_ARTIFACT_TYPE\s*:/,
       reason: "commit artifact type must come from getPrimaryArtifactTypeForStage",
     },
     {
-      file: "src/app/api/books/[slug]/agent-chat/save-draft/route.ts",
+      file: "src/app/api/books/[slug]/stage-artifacts/save-draft/route.ts",
       pattern: /STAGE_ARTIFACT_TYPE\s*:/,
       reason: "draft artifact type must come from getPrimaryArtifactTypeForStage",
     },

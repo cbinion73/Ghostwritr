@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { StageKey } from "@prisma/client";
+import { fetchJson } from "@/lib/ui/client-request";
 
 /**
  * Live in-panel activity strip — while the selected stage has an active
@@ -57,9 +58,7 @@ export function StageLiveFeed({ slug, stageKey }: { slug: string; stageKey: Stag
 
     async function poll() {
       try {
-        const res = await fetch(`/api/books/${slug}/activity`, { cache: "no-store" });
-        if (!res.ok) throw new Error();
-        const payload = (await res.json()) as { runs?: ActivityRun[] };
+        const payload = await fetchJson<{ runs?: ActivityRun[] }>(`/api/books/${slug}/activity`, { cache: "no-store" });
         if (cancelled) return;
         const match = (payload.runs ?? []).find((r) => r.stageKey === stageKey) ?? null;
         setRun(match);

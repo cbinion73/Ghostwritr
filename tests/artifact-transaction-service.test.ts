@@ -57,10 +57,10 @@ test("application code does not destructively delete artifacts or artifact versi
 
 test("core approval routes use central artifact commit service", () => {
   for (const path of [
-    "src/app/api/books/[slug]/agent-chat/approve/route.ts",
-    "src/app/api/books/[slug]/agent-chat/commit/route.ts",
-    "src/app/api/books/[slug]/agent-chat/chapter-draft/approve-all/route.ts",
-    "src/app/api/books/[slug]/agent-chat/editing/approve-all/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/approve/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/commit/route.ts",
+    "src/app/api/books/[slug]/chapter-draft/approve-all/route.ts",
+    "src/app/api/books/[slug]/editing/approve-all/route.ts",
   ]) {
     assert.ok(read(path).includes("commitArtifactVersionInTransaction"), `${path} bypasses commit service`);
   }
@@ -68,9 +68,9 @@ test("core approval routes use central artifact commit service", () => {
 
 test("core chapter save routes use central artifact version creation service", () => {
   for (const path of [
-    "src/app/api/books/[slug]/agent-chat/save-draft/route.ts",
-    "src/app/api/books/[slug]/agent-chat/save-dossier/route.ts",
-    "src/app/api/books/[slug]/agent-chat/chapter-draft/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/save-draft/route.ts",
+    "src/app/api/books/[slug]/stage-artifacts/save-dossier/route.ts",
+    "src/app/api/books/[slug]/chapter-draft/artifacts/route.ts",
     "src/app/api/books/[slug]/scout-research/save-chapter/route.ts",
     "src/app/api/books/[slug]/chronicle-stories/save-chapter/route.ts",
   ]) {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { StageKey, StageStatus } from "@prisma/client";
+import { fetchJson } from "@/lib/ui/client-request";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -353,7 +354,8 @@ export function ScoutResearchPanel({
         .map((c) => `# ${c.title}\n\n${c.content}`)
         .join("\n\n---\n\n");
 
-      const res = await fetch(`/api/books/${slug}/agent-chat/commit`, {
+      const { nextStageKey } = await fetchJson<{ nextStageKey: StageKey | null }>(
+        `/api/books/${slug}/stage-artifacts/commit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -365,8 +367,6 @@ export function ScoutResearchPanel({
           },
         }),
       });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const { nextStageKey } = await res.json() as { nextStageKey: StageKey | null };
       router.refresh();
       if (nextStageKey && onStageAdvance) onStageAdvance(nextStageKey);
     } catch (err) {

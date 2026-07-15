@@ -4,6 +4,32 @@ export const APP_AUTH_MODE_HEADER = "x-ghostwritr-auth-mode";
 export const INTERNAL_WORKFLOW_TOKEN_HEADER = "x-internal-workflow-token";
 export const JARVIS_INTERNAL_TOKEN_HEADER = "x-ghostwritr-jarvis-token";
 
+export type NativeAuthConfig =
+  | { enabled: true; token: string; email: string; name: string; mode: "native-token" }
+  | { enabled: false };
+
+export function getNativeAuthConfig(
+  env: Record<string, string | undefined> = process.env,
+): NativeAuthConfig {
+  const token = env.GHOSTWRITR_NATIVE_TOKEN?.trim();
+  const email = env.GHOSTWRITR_NATIVE_USER_EMAIL?.trim();
+  if (!token || !email) return { enabled: false };
+
+  return {
+    enabled: true,
+    token,
+    email,
+    name: env.GHOSTWRITR_NATIVE_USER_NAME?.trim() || "Ghostwritr Author",
+    mode: "native-token",
+  };
+}
+
+export function getBearerToken(headers: Headers): string | null {
+  const authorization = headers.get("authorization")?.trim();
+  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
+  return authorization.slice("bearer ".length).trim() || null;
+}
+
 export type LocalAuthConfig =
   | {
       enabled: true;

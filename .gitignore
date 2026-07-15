@@ -50,6 +50,9 @@ db-snapshots/
 tsconfig.tsbuildinfo
 /bibliography-*.html
 /bibliography-*.docx
+/apps/apple/.derived/
+/apps/apple/*.xcworkspace/xcuserdata/
+/apps/apple/*.xcodeproj/xcuserdata/
 
 # User-uploaded content — runtime data, not source; needs a persistent
 # volume in production so it survives container rebuilds on deploy.

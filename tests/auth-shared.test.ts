@@ -3,9 +3,36 @@ import assert from "node:assert/strict";
 
 import {
   buildAuthRequiredMessage,
+  getBearerToken,
   getLocalAuthConfig,
+  getNativeAuthConfig,
   validateInternalTokenAuth,
 } from "@/lib/auth/shared";
+
+test("native auth fails closed until token and user are both configured", () => {
+  assert.deepEqual(getNativeAuthConfig({ GHOSTWRITR_NATIVE_TOKEN: "secret" }), { enabled: false });
+  assert.deepEqual(getNativeAuthConfig({ GHOSTWRITR_NATIVE_USER_EMAIL: "chris@example.com" }), { enabled: false });
+});
+
+test("native auth binds a device token to an explicit Ghostwritr user", () => {
+  assert.deepEqual(getNativeAuthConfig({
+    GHOSTWRITR_NATIVE_TOKEN: " secret ",
+    GHOSTWRITR_NATIVE_USER_EMAIL: " chris@example.com ",
+    GHOSTWRITR_NATIVE_USER_NAME: "Chris",
+  }), {
+    enabled: true,
+    token: "secret",
+    email: "chris@example.com",
+    name: "Chris",
+    mode: "native-token",
+  });
+});
+
+test("bearer token parsing is case insensitive and rejects other schemes", () => {
+  assert.equal(getBearerToken(new Headers({ authorization: "bEaReR native-secret" })), "native-secret");
+  assert.equal(getBearerToken(new Headers({ authorization: "Basic native-secret" })), null);
+  assert.equal(getBearerToken(new Headers()), null);
+});
 
 test("local auth stays disabled in production", () => {
   const config = getLocalAuthConfig({

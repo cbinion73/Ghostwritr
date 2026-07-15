@@ -1,0 +1,15 @@
+.panel { max-width: 100%; background: #f5efe4; }
+
+@media (max-width: 800px) {
+  .panel {
+    position: relative;
+    z-index: 20;
+    width: min(var(--panel-width), calc(100vw - 54px)) !important;
+    max-width: calc(100vw - 54px);
+    box-shadow: -12px 0 30px rgba(30,25,18,.13);
+  }
+  .panel[data-collapsed="true"] { width: 46px !important; flex-basis: 46px; box-shadow: none; }
+  .content { width: min(var(--panel-width), calc(100vw - 54px)); }
+}
+
+@media (prefers-reduced-motion: reduce) { .panel { transition: none !important; } }

@@ -9,7 +9,8 @@
  * main content.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import styles from "./collapsible-side-panel.module.css";
 
 export function CollapsibleSidePanel({
   title,
@@ -22,17 +23,24 @@ export function CollapsibleSidePanel({
 }) {
   const [collapsed, setCollapsed] = useState(false);
 
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 800px)").matches) setCollapsed(true);
+  }, []);
+
   return (
     <div
+      className={styles.panel}
+      data-collapsed={collapsed}
       style={{
         width: collapsed ? 48 : width,
+        "--panel-width": `${width}px`,
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
         borderLeft: "1px solid var(--line)",
         transition: "width 0.2s ease-out",
         overflow: "hidden",
-      }}
+      } as React.CSSProperties}
     >
       <div
         style={{
@@ -66,7 +74,7 @@ export function CollapsibleSidePanel({
       </div>
 
       {!collapsed && (
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <div className={styles.content} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
           {children}
         </div>
       )}

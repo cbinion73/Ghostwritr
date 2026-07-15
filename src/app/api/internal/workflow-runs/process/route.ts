@@ -64,7 +64,16 @@ export async function POST(request: Request) {
         workflowRunId: run.id,
       },
       async () => {
-        if (run.stage.stageKey === "RESEARCH") {
+        const input = run.inputJson && typeof run.inputJson === "object" && !Array.isArray(run.inputJson)
+          ? run.inputJson as Record<string, unknown>
+          : {};
+        if (input.kind === "adversarial_source_verification") {
+          const { processSourceVerificationWorkflowRun } = await import("@/lib/workflows/source-verification/jobs");
+          return processSourceVerificationWorkflowRun(body.runId!);
+        } else if (input.kind === "final_citation_audit") {
+          const { processCitationAuditWorkflowRun } = await import("@/lib/workflows/citation-audit/jobs");
+          return processCitationAuditWorkflowRun(body.runId!);
+        } else if (run.stage.stageKey === "RESEARCH") {
           const { processWorkflowRun } = await import("@/lib/workflows/research-public");
           return processWorkflowRun(body.runId!);
         } else if (run.stage.stageKey === "EXTERNAL_STORIES") {
@@ -81,7 +90,15 @@ export async function POST(request: Request) {
       },
     );
 
-    if (!("skipped" in (result as Record<string, unknown>)) && !("canceled" in (result as Record<string, unknown>))) {
+    const runInput = run.inputJson && typeof run.inputJson === "object" && !Array.isArray(run.inputJson)
+      ? run.inputJson as Record<string, unknown>
+      : {};
+    if (
+      runInput.kind !== "adversarial_source_verification" &&
+      runInput.kind !== "final_citation_audit" &&
+      !("skipped" in (result as Record<string, unknown>)) &&
+      !("canceled" in (result as Record<string, unknown>))
+    ) {
       const { continueWorkflowAutomationIfEnabled } = await import("@/lib/workflows/workflow-automation");
       const automationResult = await continueWorkflowAutomationIfEnabled(
         run.book.slug,

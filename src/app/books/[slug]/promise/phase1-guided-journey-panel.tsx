@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { getPromiseWorkspace } from "@/lib/workflows/promise-public";
+import styles from "./phase1-guided-journey-panel.module.css";
 
 type PromiseWorkspace = Awaited<ReturnType<typeof getPromiseWorkspace>>;
 
@@ -108,7 +109,7 @@ export function Phase1GuidedJourneyPanel({
 
   return (
     <section
-      className="glass-panel"
+      className={`glass-panel ${styles.foundationGate}`}
       style={{
         margin: "10px 4px 0",
         padding: 14,
@@ -116,7 +117,7 @@ export function Phase1GuidedJourneyPanel({
         borderColor: approvedBrief ? "rgba(74,124,89,0.3)" : "rgba(184,121,58,0.26)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+      <div className={styles.gateHeader} style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="microlabel" style={{ color: "var(--muted)" }}>
             Unified Phase 1 · Strategic Brief Gate
@@ -136,6 +137,7 @@ export function Phase1GuidedJourneyPanel({
       </div>
 
       <div
+        className={styles.ingredients}
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
@@ -147,6 +149,8 @@ export function Phase1GuidedJourneyPanel({
           <Link
             href={item.href}
             key={item.label}
+            className={styles.ingredient}
+            data-complete={item.complete}
             style={{
               border: "1px solid var(--line)",
               borderRadius: 12,
@@ -158,7 +162,7 @@ export function Phase1GuidedJourneyPanel({
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-              <strong style={{ fontSize: 12 }}>{item.label}</strong>
+              <strong style={{ fontSize: 12 }}><span className={styles.ingredientNumber}>{String(guideItems.indexOf(item) + 1).padStart(2, "0")}</span>{item.label}</strong>
               <span style={statusStyle(item.complete)}>{statusLabel(item.complete)}</span>
             </div>
             <div className="muted" style={{ marginTop: 6, fontSize: 11, lineHeight: 1.35 }}>

@@ -23,6 +23,7 @@
     "qa:promise-phase2": "tsx scripts/promise-phase2-regression.ts",
     "qa:prod-runtime": "node tests/production-runtime-smoke.mjs",
     "qa:stale-dependencies": "tsx scripts/stale-dependency-regression.ts",
+    "qa:source-citations": "GHOSTWRITR_LIVE_LLM_TESTS=0 GHOSTWRITR_SOURCE_QA=1 tsx --test tests/source-verification-engine.test.ts tests/source-verification-admission.test.ts tests/source-evidence-contract.test.ts tests/source-citation-safe-rollout.test.ts tests/citation-audit-engine.test.ts tests/citation-audit-contracts.test.ts tests/citation-publication-rendering.test.ts tests/database-integrity-contracts.test.ts tests/api-route-contracts.test.ts tests/dependency-invalidation.test.ts tests/workflow-durable-jobs.test.ts tests/llm-budget.test.ts",
     "qa:workspace-warnings": "tsx scripts/workspace-warning-regression.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

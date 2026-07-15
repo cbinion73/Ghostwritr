@@ -121,3 +121,36 @@ test("workflow integrity database code does not use destructive deletes for vers
 
   assert.deepEqual(offenders, []);
 });
+
+test("source admission and citation audit migrations are additive and intentionally separate", () => {
+  const migrationPaths = [
+    "prisma/migrations/20260714120000_pre_draft_source_admission/migration.sql",
+    "prisma/migrations/20260714170000_final_citation_audit/migration.sql",
+  ];
+  for (const migrationPath of migrationPaths) {
+    assert.equal(existsSync(join(root, migrationPath)), true, `${migrationPath} must exist`);
+    const migration = read(migrationPath);
+    assert.match(migration, /CREATE (?:TABLE|TYPE)|ALTER TYPE/);
+    assert.doesNotMatch(migration, /DROP (?:TABLE|COLUMN|TYPE)|TRUNCATE|DELETE FROM/i, `${migrationPath} must remain additive`);
+  }
+  const admission = read(migrationPaths[0]!);
+  const citation = read(migrationPaths[1]!);
+  for (const table of ["SourceVerificationResult", "SourceAdmissionReview"]) assert.ok(admission.includes(table), table);
+  for (const table of ["CitationAuditFinding", "CitationAuditReview", "CitationAuditChapterState", "CitationLedger"]) assert.ok(citation.includes(table), table);
+});
+
+test("safe rollout never applies migrations from package scripts", () => {
+  const packageJson = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  const command = packageJson.scripts?.["qa:source-citations"] ?? "";
+  assert.ok(command.includes("tsx --test"));
+  assert.doesNotMatch(command, /migrate|db push|deploy/);
+});
+
+test("evidence provenance has safe foreign keys except the deliberate polymorphic source reference", () => {
+  const admission = read("prisma/migrations/20260714120000_pre_draft_source_admission/migration.sql");
+  const citation = read("prisma/migrations/20260714170000_final_citation_audit/migration.sql");
+  for (const field of ["SourceVerificationResult_artifactVersionId_fkey", "SourceVerificationResult_workflowRunId_fkey", "SourceAdmissionReview_artifactVersionId_fkey"]) assert.ok(admission.includes(field), field);
+  for (const field of ["approvedFinalVersionId_fkey", "workflowRunId_fkey", "currentWorkflowRunId_fkey", "approvedByUserId_fkey", "createdByUserId_fkey"]) assert.ok(citation.includes(field), field);
+  assert.doesNotMatch(admission, /SourceVerificationResult_sourceRecordId_fkey/);
+  assert.match(read("docs/SOURCE-CITATION-ROLLOUT.md"), /sourceRecordId.*polymorphic/i);
+});

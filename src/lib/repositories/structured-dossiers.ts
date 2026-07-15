@@ -13,6 +13,21 @@ import type {
 } from "../external-story-types";
 import { chapterIdentityWhere } from "./chapter-identity";
 
+function metadataObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+export function canonicalPersistedArtifactId(
+  value: unknown,
+  key: "artifactRecordId" | "artifactSourceId",
+  fallback: string,
+) {
+  const candidate = metadataObject(value)[key];
+  return typeof candidate === "string" && candidate.trim() ? candidate : fallback;
+}
+
 /**
  * Assemble a ChapterResearchDossier / ChapterExternalStoryDossier from the
  * structured ResearchItem/ExternalStoryItem tables.
@@ -64,22 +79,27 @@ export async function buildResearchDossierFromStructuredRows(
   if (items.length === 0) return null;
 
   const toItem = (row: (typeof items)[number]): ChapterResearchItem => ({
-    id: row.id,
+    id: canonicalPersistedArtifactId(row.metadataJson, "artifactRecordId", row.id),
     itemType: row.itemType,
     claimText: row.claimText,
     evidenceExcerpt: row.evidenceExcerpt,
     summary: row.summary,
-    sourceId: row.sourceRecordId,
+    sourceId: canonicalPersistedArtifactId(
+      sources.find((source) => source.id === row.sourceRecordId)?.metadataJson,
+      "artifactSourceId",
+      row.sourceRecordId,
+    ),
     sourceTier: row.sourceTier,
     tierWeight: Number(row.tierWeight),
     verificationStatus: row.verificationStatus,
+    metadata: metadataObject(row.metadataJson),
   });
 
   const byType = (type: ResearchItemType) =>
     items.filter((row) => row.itemType === type).map(toItem);
 
   const sourceRegister: ChapterResearchSource[] = sources.map((row) => ({
-    id: row.id,
+    id: canonicalPersistedArtifactId(row.metadataJson, "artifactSourceId", row.id),
     url: row.url,
     title: row.title,
     publisher: row.publisher,
@@ -138,8 +158,12 @@ export async function buildExternalStoryDossierFromStructuredRows(
   if (items.length === 0) return null;
 
   const storyCandidates: ChapterExternalStoryItem[] = items.map((row) => ({
-    id: row.id,
-    sourceId: row.sourceRecordId,
+    id: canonicalPersistedArtifactId(row.metadataJson, "artifactRecordId", row.id),
+    sourceId: canonicalPersistedArtifactId(
+      sources.find((source) => source.id === row.sourceRecordId)?.metadataJson,
+      "artifactSourceId",
+      row.sourceRecordId,
+    ),
     title: row.title,
     summary: row.summary,
     whyItMatters: row.whyItMatters,
@@ -150,10 +174,11 @@ export async function buildExternalStoryDossierFromStructuredRows(
     sourceTier: row.sourceTier,
     tierWeight: Number(row.tierWeight),
     verificationStatus: row.verificationStatus,
+    metadata: metadataObject(row.metadataJson),
   }));
 
   const sourceRegister: ChapterExternalStorySource[] = sources.map((row) => ({
-    id: row.id,
+    id: canonicalPersistedArtifactId(row.metadataJson, "artifactSourceId", row.id),
     url: row.url,
     title: row.title,
     publisher: row.publisher,

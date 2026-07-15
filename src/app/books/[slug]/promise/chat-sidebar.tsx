@@ -5,6 +5,7 @@ import { PromiseComposer } from "./promise-composer";
 import { PromiseWorkflowWatcher } from "./promise-workflow-watcher";
 import { PromiseReplyStream } from "./promise-reply-stream";
 import type { PromiseMessage } from "@/lib/promise-types";
+import roomStyles from "./chat-sidebar.module.css";
 
 interface ChatSidebarProps {
   slug: string;
@@ -34,16 +35,16 @@ export function ChatSidebar({
   const isWaitingForReply = armed != null && messages.length <= armed.baselineCount;
 
   return (
-    <div style={{ ...styles.container, ...(localCollapsed ? styles.containerCollapsed : {}) }}>
+    <div className={roomStyles.refineStudio} data-collapsed={localCollapsed} style={{ ...styles.container, ...(localCollapsed ? styles.containerCollapsed : {}) }}>
       <PromiseWorkflowWatcher
         slug={slug}
         messageCount={messages.length}
         armedFor={armed?.armedFor ?? null}
       />
-      <div style={styles.sidebar}>
+      <div style={styles.sidebar} className={roomStyles.sidebar}>
         {/* Header */}
-        <div style={styles.header}>
-          <h3 style={styles.title}>Refine</h3>
+        <div style={styles.header} className={roomStyles.header}>
+          <h3 style={styles.title}><small>Promise Editor</small>Refine</h3>
           <button
             onClick={handleToggle}
             style={styles.collapseButton}
@@ -56,7 +57,7 @@ export function ChatSidebar({
         {!localCollapsed && (
           <>
             {/* Messages */}
-            <div style={styles.messagesContainer}>
+            <div style={styles.messagesContainer} className={roomStyles.messagesContainer}>
               {messages.length === 0 ? (
                 <div style={styles.emptyState}>
                   <p style={styles.emptyText}>

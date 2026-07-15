@@ -6,6 +6,8 @@ import { buildKdpDocx } from "@/lib/kdp-docx-export";
 import { buildManuscriptExportPayload, buildTypesetPlanInput } from "@/lib/manuscript-export";
 import { buildManuscriptMarkdown, sanitizeManuscriptFilename } from "@/lib/manuscript-document";
 import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
+import { requirePublicationCitationReady } from "@/lib/publication-citation-gate";
+import { generateBibliography } from "@/lib/workflows/bibliography-generator";
 
 export const runtime = "nodejs";
 
@@ -72,6 +74,9 @@ export async function GET(
 
   const url = new URL(req.url);
   const format: string = url.searchParams.get("format") ?? "markdown";
+  let citationGate;
+  try { citationGate = await requirePublicationCitationReady(book.id, url.searchParams.get("mode") === "proof"); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Publication is blocked." }, { status: 409 }); }
 
   const title = book.titleWorking ?? "Untitled Book";
 
@@ -86,6 +91,9 @@ export async function GET(
     // Use the one already-correct, chapterKey-based pipeline (same as
     // Publish Package) instead of maintaining a second implementation.
     const payload = await buildManuscriptExportPayload(slug);
+    const bibliography = citationGate.ledger ? await generateBibliography(book.id, payload.title) : null;
+    payload.bibliography = bibliography?.citations ?? [];
+    payload.proofNotice = citationGate.proofNotice;
 
     const manuscriptFilename = sanitizeManuscriptFilename(title) + "-manuscript.md";
 
@@ -101,6 +109,8 @@ export async function GET(
         typesetContent: "",
         typesetPlan: plan,
         chapters: payload.chapters.map((c) => ({ title: c.chapterLabel, body: c.chapterText })),
+        bibliography: payload.bibliography,
+        proofNotice: payload.proofNotice,
       });
 
       const docxFilename = sanitizeManuscriptFilename(title) + "-manuscript.docx";
@@ -187,7 +197,7 @@ export async function GET(
     ? `# ${title}\n### ${subtitle}\n`
     : `# ${title}\n`;
 
-  const markdown = `${header}\n---\n\n${sections.join("\n\n---\n\n")}\n`;
+  const markdown = `${citationGate.proofNotice ? `# ${citationGate.proofNotice}\n\n` : ""}${header}\n---\n\n${sections.join("\n\n---\n\n")}\n`;
 
   const filename = title
     .replace(/[^a-z0-9\s]/gi, "")

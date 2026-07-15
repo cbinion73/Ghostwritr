@@ -113,8 +113,16 @@ const NONFICTION_WORKFLOW: WorkflowDefinition = {
       description: "Review, revise, assemble, and export the manuscript.",
     },
     {
-      key: StageKey.TYPESET,
+      key: StageKey.CITATION_AUDIT,
       number: 11,
+      label: "Citation Audit",
+      href: (slug) => `/books/${slug}/citation-audit`,
+      group: "production",
+      description: "Verify the exact approved final prose and lock its reader bibliography.",
+    },
+    {
+      key: StageKey.TYPESET,
+      number: 12,
       label: "Typeset",
       href: (slug) => `/books/${slug}/typeset`,
       group: "production",
@@ -122,7 +130,7 @@ const NONFICTION_WORKFLOW: WorkflowDefinition = {
     },
     {
       key: StageKey.AUDIO_PREP,
-      number: 12,
+      number: 13,
       label: "Audio Prep",
       href: (slug) => `/books/${slug}/audio-prep`,
       group: "post-production",
@@ -130,7 +138,7 @@ const NONFICTION_WORKFLOW: WorkflowDefinition = {
     },
     {
       key: StageKey.COURSE_DESIGN,
-      number: 13,
+      number: 14,
       label: "Course Design",
       href: (slug) => `/books/${slug}/course-design`,
       group: "post-production",
@@ -399,6 +407,13 @@ export const STAGE_OPERATIONAL_METADATA: Partial<
     stageRoles: ["final-editor:assess", "final-editor:polish"],
     approvalMode: "chapter",
     staleArtifactTypes: [ArtifactType.MANUSCRIPT_REVISION],
+  },
+  [StageKey.CITATION_AUDIT]: {
+    primaryArtifactType: ArtifactType.CITATION_AUDIT_REPORT,
+    artifactTypes: [ArtifactType.CITATION_AUDIT_REPORT, ArtifactType.CITATION_LEDGER],
+    stageRoles: ["source-verification:adversarial"],
+    approvalMode: "chapter",
+    staleArtifactTypes: [ArtifactType.CITATION_AUDIT_REPORT, ArtifactType.CITATION_LEDGER],
   },
   [StageKey.TYPESET]: {
     primaryArtifactType: ArtifactType.TYPESET_PACKAGE,

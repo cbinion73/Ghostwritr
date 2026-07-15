@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { StageKey, StageStatus } from "@prisma/client";
+import { SourceReviewGate } from "./source-review-gate";
 
 interface ManifestPanelProps {
   slug: string;
@@ -145,6 +146,7 @@ export function ManifestPanel({ slug, status, onStageAdvance, bookTitle }: Manif
   const [expandedChapter, setExpandedChapter] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [allSourcesReady, setAllSourcesReady] = useState(false);
   const hasInitialized = useRef(false);
 
   const triggerGeneration = useCallback(async () => {
@@ -233,10 +235,12 @@ export function ManifestPanel({ slug, status, onStageAdvance, bookTitle }: Manif
         return;
       }
 
-      // NOT_STARTED — trigger
-      void triggerGeneration();
-    } catch {
-      void triggerGeneration();
+      // NOT_STARTED — remain idle until the author completes Gate 1 and
+      // explicitly requests Manifest generation.
+      setPanelStatus("idle");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to load manifest status.");
+      setPanelStatus("error");
     }
   }, [slug, triggerGeneration]);
 
@@ -264,10 +268,13 @@ export function ManifestPanel({ slug, status, onStageAdvance, bookTitle }: Manif
 
       {/* Body */}
       <div style={bodyStyle}>
+        <SourceReviewGate slug={slug} onChanged={() => router.refresh()} onReadinessChange={setAllSourcesReady} />
         {panelStatus === "idle" && (
           <div style={centeredStyle}>
-            <div style={spinnerStyle}>⟳</div>
-            <div style={statusTextStyle}>Loading…</div>
+            <div style={statusTextStyle}>Complete Gate 1, then generate the Chapter Manifest.</div>
+            <button disabled={!allSourcesReady} onClick={() => void triggerGeneration()} style={retryBtnStyle}>
+              {allSourcesReady ? "Generate Manifest" : "Admit every chapter source first"}
+            </button>
           </div>
         )}
 
@@ -284,7 +291,7 @@ export function ManifestPanel({ slug, status, onStageAdvance, bookTitle }: Manif
             <div style={{ fontSize: "32px" }}>⚠</div>
             <div style={{ ...statusTextStyle, color: "#C026D3" }}>Generation failed</div>
             <div style={{ ...subTextStyle, color: "#6b4040" }}>{errorMessage}</div>
-            <button onClick={() => void triggerGeneration()} style={retryBtnStyle}>
+            <button disabled={!allSourcesReady} onClick={() => void triggerGeneration()} style={retryBtnStyle}>
               Try Again
             </button>
           </div>

@@ -1,0 +1,34 @@
+.verdictRoom {
+  padding: 20px;
+  gap: 14px;
+  background:
+    radial-gradient(circle at 15% 0%,rgba(189,139,67,.14),transparent 26rem),
+    linear-gradient(180deg,#eae2d5,#e3d9ca);
+}
+.promiseMain { border: 1px solid rgba(54,47,36,.13); border-radius: 14px; background: rgba(255,253,248,.78); box-shadow: 0 16px 42px rgba(48,40,28,.1); }
+.promiseHero {
+  position: relative;
+  padding: 30px 34px 22px !important;
+  color: #fff8e9;
+  background:
+    radial-gradient(circle at 87% 15%,rgba(216,174,92,.22),transparent 20rem),
+    linear-gradient(118deg,#102d26,#1c493d 66%,#16382f);
+  border-radius: 13px 13px 0 0;
+}
+.promiseHero h2 { max-width: 790px; color: #fff8e9; font-size: clamp(30px,3.7vw,48px) !important; line-height: 1 !important; letter-spacing: -.035em; font-weight: 500 !important; }
+.promiseHero :global(.muted) { color: rgba(255,248,233,.7) !important; font-size: 14px !important; line-height: 1.55; }
+.eyebrow { color: #ddb876; font: 700 10px/1.2 ui-sans-serif,system-ui,sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+.verdictWell { padding: 16px 28px 4px !important; background: linear-gradient(180deg,rgba(16,45,38,.06),transparent); }
+.promiseWorkbench { margin: 12px 28px 18px !important; overflow: hidden; border: 1px solid rgba(54,47,36,.13) !important; border-radius: 12px !important; background: #fffdf8 !important; box-shadow: 0 10px 28px rgba(49,41,29,.07) !important; }
+.decisionRail { padding: 14px 28px !important; border-top-color: rgba(54,47,36,.12) !important; background: #f6f0e6; border-radius: 0 0 13px 13px; }
+.decisionLabel { color: #3c362d !important; font: 600 13px/1.2 Georgia,serif; }
+.decisionLabel small { display: block; margin-top: 3px; color: #907d63; font: 700 8px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+
+@media (max-width: 900px) {
+  .verdictRoom { padding: 10px; }
+  .promiseHero { padding: 25px 21px 20px !important; }
+  .verdictWell { padding: 12px 14px 2px !important; }
+  .promiseWorkbench { margin: 10px 14px 14px !important; }
+  .decisionRail { padding: 13px 15px !important; flex-wrap: wrap; }
+  .decisionLabel { width: 100%; }
+}

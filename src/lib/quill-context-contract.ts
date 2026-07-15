@@ -79,8 +79,14 @@ export function validateQuillContextPacket(packet: QuillContextPacket) {
   if (packet.evidence.research.some((record) => record.admissibility !== "ADMISSIBLE")) {
     issues.push("Research evidence includes non-admissible records.");
   }
+  if (packet.evidence.research.some((record) => record.humanAdmitted !== true || !record.verificationFingerprint)) {
+    issues.push("Research evidence is missing current human admission.");
+  }
   if (packet.evidence.externalStories.some((record) => record.admissibility !== "ADMISSIBLE")) {
     issues.push("External story evidence includes non-admissible records.");
+  }
+  if (packet.evidence.externalStories.some((record) => record.humanAdmitted !== true || !record.verificationFingerprint)) {
+    issues.push("External story evidence is missing current human admission.");
   }
   if (packet.personalStories.some((story) => story.permissionStatus !== "granted")) {
     issues.push("Personal story context includes a story without granted permission.");

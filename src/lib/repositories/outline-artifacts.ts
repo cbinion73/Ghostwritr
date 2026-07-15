@@ -69,18 +69,10 @@ export async function getCommittedOutline(bookId: string) {
         not: null,
       },
     },
-    include: {
-      versions: {
-        where: {
-          lifecycleState: ArtifactStatus.COMMITTED,
-        },
-        orderBy: { versionNumber: "desc" },
-        take: 1,
-      },
-    },
+    select: { committedVersionId: true },
   });
-
-  return artifact?.versions[0] ?? null;
+  if (!artifact?.committedVersionId) return null;
+  return db.artifactVersion.findUnique({ where: { id: artifact.committedVersionId } });
 }
 
 export async function getOutlineExpansionVersions(bookId: string, limit = 6) {

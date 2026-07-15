@@ -692,7 +692,10 @@ export async function runChapterDraftWorkflow(
 ) {
   const book = await getBookBySlugOrThrow(bookSlug);
   const { phase1StrategicBrief, promise, chapterContexts, baseStory, personalStories, bookSetup } =
-    await getDraftInputs(book.id);
+    await getDraftInputs(
+      book.id,
+      chapterKeys && chapterKeys.length > 0 ? chapterKeys : chapterKey ? [chapterKey] : undefined,
+    );
   const chapterTargets = buildChapterWordTargets(chapterContexts, bookSetup?.targetWordCount);
 
   const requestedKeys = chapterKeys && chapterKeys.length > 0 ? new Set(chapterKeys) : null;

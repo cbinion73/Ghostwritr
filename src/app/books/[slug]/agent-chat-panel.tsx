@@ -19,6 +19,7 @@ import { MarkdownText } from "./agent-chat/markdown-text";
 import type { AgentChatPanelProps, ArtifactDraft, ChatMessage } from "./agent-chat/types";
 import { useAgentChatHistory } from "./agent-chat/use-agent-chat-history";
 import { useDossierProgress } from "./agent-chat/use-dossier-progress";
+import styles from "./agent-chat-panel.module.css";
 
 export function AgentChatPanel({
   slug,
@@ -536,18 +537,18 @@ export function AgentChatPanel({
   };
 
   return (
-    <div style={panelStyle}>
+    <div style={panelStyle} className={styles.agentStudio}>
       {/* Dossier checklist — right sidebar, only in dossier mode */}
       {dossierMode && dossierChapters.length > 0 && (
         <DossierChecklist chapters={dossierChapters} savedCount={savedDossierCount} />
       )}
 
       {/* Main chat column */}
-      <div style={chatColumnStyle}>
+      <div style={chatColumnStyle} className={styles.chatColumn}>
       {/* Agent header */}
-      <div style={headerStyle}>
+      <div style={headerStyle} className={styles.agentHeader}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ ...avatarStyle, background: persona.color }}>
+          <div style={{ ...avatarStyle, background: persona.color }} className={styles.agentPortrait}>
             {persona.icon}
           </div>
           <div>
@@ -636,7 +637,7 @@ export function AgentChatPanel({
       )}
 
       {/* Message thread */}
-      <div ref={threadRef} style={threadStyle} onScroll={handleThreadScroll}>
+      <div ref={threadRef} style={threadStyle} className={styles.thread} onScroll={handleThreadScroll}>
         {messages.filter((m): m is ChatMessage => m !== undefined).map((msg, i) => (
           <div
             key={i}
@@ -646,11 +647,12 @@ export function AgentChatPanel({
             }}
           >
             {msg.role === "agent" && (
-              <div style={{ ...smallAvatarStyle, background: persona.color }}>
+              <div style={{ ...smallAvatarStyle, background: persona.color }} className={styles.smallPortrait}>
                 {persona.name[0]}
               </div>
             )}
             <div
+              className={msg.role === "user" ? styles.userBubble : styles.agentBubble}
               style={{
                 ...bubbleStyle,
                 ...(msg.role === "user" ? userBubbleStyle : agentBubbleStyle),
@@ -678,7 +680,7 @@ export function AgentChatPanel({
       <SourceDocsTray slug={slug} />
 
       {/* Composer */}
-      <div style={composerStyle}>
+      <div style={composerStyle} className={styles.composer}>
         {autoRunFailed ? (
           <button
             style={retryAutoRunBtnStyle}
@@ -698,6 +700,7 @@ export function AgentChatPanel({
           </button>
         )}
         <textarea
+          className={styles.composerInput}
           ref={inputRef}
           style={textareaStyle}
           value={draft}
@@ -708,6 +711,7 @@ export function AgentChatPanel({
           disabled={isSending}
         />
         <button
+          className={styles.sendButton}
           style={{
             ...sendBtnStyle,
             opacity: draft.trim() && !isSending ? 1 : 0.4,

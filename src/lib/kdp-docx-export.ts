@@ -194,6 +194,8 @@ export interface ManuscriptInput {
   typesetContent: string;
   typesetPlan?: TypesetPlanInput;
   chapters: Array<{ title: string; body: string }>;
+  bibliography?: string[];
+  proofNotice?: string | null;
 }
 
 export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
@@ -676,6 +678,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
 
   // ── Assemble document ───────────────────────────────────────────────────────
   const allChildren: Array<Paragraph> = [
+    ...(input.proofNotice ? [new Paragraph({ children: [new TextRun({ text: input.proofNotice, bold: true, color: "AA0000", size: SZ_SEC })], alignment: AlignmentType.CENTER, spacing: { after: 480 } })] : []),
     ...buildTitlePage(title, subtitle, author),
     pageBreakPara(),
     ...buildCopyrightPage(ts.copyrightPage),
@@ -683,6 +686,7 @@ export async function buildKdpDocx(input: ManuscriptInput): Promise<Buffer> {
     ...(ts.dedication ? [...buildDedicationPage(ts.dedication), pageBreakPara()] : []),
     ...buildTocPage(chapters),
     ...chapters.flatMap(ch => buildChapter(ch.title, ch.body)),
+    ...buildBackSection("Bibliography", (input.bibliography ?? []).join("\n\n")),
     ...buildBackSection("Acknowledgments", ts.acknowledgments),
     ...buildBackSection("About the Author", ts.aboutAuthor),
   ];

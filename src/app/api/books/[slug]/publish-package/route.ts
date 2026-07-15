@@ -30,6 +30,7 @@ import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { getLatestEditingArtifactVersion } from "@/lib/repositories/editing-artifacts";
 import { ArtifactType } from "@prisma/client";
 import { generateBibliography } from "@/lib/workflows/bibliography-generator";
+import { buildPublicationProofMetadata, requirePublicationCitationReady } from "@/lib/publication-citation-gate";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,10 +47,16 @@ export async function GET(
     const { slug } = await context.params;
     const user = await requireAuthenticatedAppUser();
     const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
+    const proofMode = new URL(_request.url).searchParams.get("mode") === "proof";
+    const citationGate = await requirePublicationCitationReady(book.id, proofMode);
     const payload = await buildManuscriptExportPayload(slug);
     const { plan } = await buildTypesetPlanInput(slug);
     const publishingPackage = await getLatestPublishingPackage(slug);
-    const bibliography = await generateBibliography(book.id, payload.title);
+    const bibliography = citationGate.ledger
+      ? await generateBibliography(book.id, payload.title)
+      : { citations: [] as string[], html: `<!doctype html><html><body><h1>${citationGate.proofNotice}</h1></body></html>`, report: { generatedAt: new Date().toISOString(), citations: [] as string[], sourceCount: 0, incompleteCitations: citationGate.blockers.map((detail) => ({ severity: "fail" as const, chapterKey: "publication", chapterLabel: "Publication", detail })) } };
+    payload.bibliography = bibliography.citations;
+    payload.proofNotice = citationGate.proofNotice;
     const [provenanceVersion, marketingVersion] = await Promise.all([
       getLatestEditingArtifactVersion(book.id, ArtifactType.PROVENANCE_REPORT),
       getLatestEditingArtifactVersion(book.id, ArtifactType.MARKETING_HANDOFF_PACKAGE),
@@ -58,15 +65,16 @@ export async function GET(
     const html = buildManuscriptHtml(payload);
     const interiorHtml = buildTypesetInteriorHtml(payload, plan);
     const printCss = buildPrintStylesheet(plan);
-    const layoutManifest = buildTypesetLayoutManifest(payload, plan);
+    const publicationMetadata = buildPublicationProofMetadata({ ready: citationGate.ready, proofOnly: citationGate.proofOnly, proofNotice: citationGate.proofNotice, citationStyle: citationGate.citationStyle, ledgerFingerprint: citationGate.ledger?.ledgerFingerprint, bibliography: bibliography.citations });
+    const layoutManifest = { ...buildTypesetLayoutManifest(payload, plan), ...publicationMetadata };
     const coverBrief = buildCoverBrief(payload, plan);
-    const distributionManifest = buildDistributionManifest(payload, plan);
+    const distributionManifest = { ...buildDistributionManifest(payload, plan), ...publicationMetadata };
     const markdown = buildManuscriptMarkdown(payload);
     const ebookSourceHtml = buildEbookSourceHtml(payload);
     const meta = book.metadataJson as Record<string, unknown> | null;
     const authorName = (meta?.authorName as string) ?? (meta?.authorBioShort as string)?.split(".")[0] ?? "Author";
-    const audiobookPackage = buildAudiobookProductionPackage(payload, meta);
-    const audiobookMarkdown = buildAudiobookPackageMarkdown(audiobookPackage);
+    const audiobookPackage = { ...buildAudiobookProductionPackage(payload, meta), ...publicationMetadata };
+    const audiobookMarkdown = `${citationGate.proofNotice ? `# ${citationGate.proofNotice}\n\n` : ""}${buildAudiobookPackageMarkdown(audiobookPackage)}`;
     const docx = await buildKdpDocx({
       title: payload.title,
       subtitle: payload.subtitle ?? null,
@@ -77,6 +85,8 @@ export async function GET(
         title: chapter.chapterLabel,
         body: chapter.chapterText,
       })),
+      bibliography: bibliography.citations,
+      proofNotice: citationGate.proofNotice,
     });
     const pdf = await buildKdpPdfFromHtml(interiorHtml, plan);
     const includedFiles = [
@@ -138,6 +148,13 @@ export async function GET(
           title: payload.title,
           subtitle: payload.subtitle ?? null,
           generatedAt: new Date().toISOString(),
+          proofOnly: citationGate.proofOnly,
+          proofNotice: citationGate.proofNotice,
+          printReady: publicationMetadata.printReady,
+          ebookReady: publicationMetadata.ebookReady,
+          citationLedgerFingerprint: publicationMetadata.citationLedgerFingerprint,
+          citationStyle: publicationMetadata.citationStyle,
+          bibliography: publicationMetadata.bibliography,
           manuscript: {
             totalWords: payload.totalWords,
             chapterCount: payload.chapterCount,
@@ -158,6 +175,7 @@ export async function GET(
       JSON.stringify(
         {
           generatedAt: preflightReport.generatedAt,
+          ...publicationMetadata,
           title: payload.title,
           subtitle: payload.subtitle ?? null,
           canonicalManuscript: {
@@ -205,6 +223,7 @@ export async function GET(
       JSON.stringify(
         {
           generatedAt: preflightReport.generatedAt,
+          ...publicationMetadata,
           title: payload.title,
           status: preflightReport.status,
           packageStatus: publishingPackage?.packageStatus ?? "draft",
@@ -227,21 +246,21 @@ export async function GET(
       "utf8",
     );
 
-    const zipPath = join(tempDir, `${filenameBase}-publish-package.zip`);
+    const zipPath = join(tempDir, `${filenameBase}${citationGate.proofOnly ? "-PROOF-ONLY" : ""}-publish-package.zip`);
     await execFileAsync("zip", ["-qjr", zipPath, bundleDir]);
     const zipBuffer = await readFile(zipPath);
 
     return new Response(new Uint8Array(zipBuffer), {
       headers: {
         "content-type": "application/zip",
-        "content-disposition": contentDisposition(`${filenameBase}-publish-package.zip`),
+        "content-disposition": contentDisposition(`${filenameBase}${citationGate.proofOnly ? "-PROOF-ONLY" : ""}-publish-package.zip`),
       },
     });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to export publish package.";
     const status =
-      /required before manuscript export|No chapter drafts exist yet/i.test(message) ? 409 : 500;
+      /required before manuscript export|No chapter drafts exist yet|PUBLICATION_CITATION_BLOCKED/i.test(message) ? 409 : 500;
     return new Response(message, { status });
   } finally {
     await rm(tempDir, { recursive: true, force: true });

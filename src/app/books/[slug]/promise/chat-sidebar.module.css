@@ -1,0 +1,13 @@
+.refineStudio { width: 390px !important; flex-shrink: 0; border: 1px solid rgba(54,47,36,.13) !important; border-radius: 14px; background: #f6efe4 !important; box-shadow: 0 16px 42px rgba(48,40,28,.09); }
+.refineStudio[data-collapsed="true"] { width: 54px !important; }
+.sidebar { width: 390px !important; }
+.header { padding: 18px !important; color: #f9efdd; background: linear-gradient(135deg,#173d33,#245448) !important; border-radius: 13px 13px 0 0; }
+.header h3 { display: grid; gap: 3px; color: #fff8e9 !important; font: 500 20px/1 Georgia,serif !important; }
+.header h3 small { color: #d6b06e; font: 700 8px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing: .13em; text-transform: uppercase; }
+.header button { color: #ddc89f !important; }
+.messagesContainer { padding: 20px !important; background-image: linear-gradient(rgba(93,73,45,.04) 1px,transparent 1px); background-size: 100% 27px; }
+@media (max-width: 900px) {
+  .refineStudio { width: 54px !important; }
+  .refineStudio:not([data-collapsed="true"]) { position: absolute; z-index: 50; right: 10px; top: 10px; bottom: 10px; width: min(390px,calc(100vw - 74px)) !important; }
+  .sidebar { width: min(390px,calc(100vw - 74px)) !important; }
+}

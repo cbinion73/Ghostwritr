@@ -47,6 +47,7 @@ export type StageRole =
   | "research:agent-1-researcher"
   | "research:agent-2-extractor"
   | "research:agent-3-verifier"
+  | "source-verification:adversarial"
   // Chapter Draft
   | "chapter-draft:author"
   | "chapter-draft:revise"
@@ -132,6 +133,8 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "research:agent-1-researcher": "openai:gpt-5.4", // Finds sources, synthesizes, produces claims + citations (with web search)
   "research:agent-2-extractor": "openai:gpt-5.4-mini", // Lightweight: opens URLs, pulls relevant passages
   "research:agent-3-verifier": "anthropic:claude-haiku-4-5-20251001", // Compares claim vs excerpt, outputs verdict
+  // Gate 1 must be independent of Research agent 3 (Anthropic Haiku).
+  "source-verification:adversarial": "openai:gpt-5.4-mini",
 
   // --- Chapter Draft: Sonnet for author (cost), Sonnet for revise, Opus for final polish ---
   "chapter-draft:author": "anthropic:claude-sonnet-4-6",
@@ -188,6 +191,18 @@ export function resolveModelSpec(role: StageRole): string {
     return override.trim();
   }
   return DEFAULT_ROUTING[role];
+}
+
+export function assertIndependentSourceVerificationRouting() {
+  const adversarial = resolveModelSpec("source-verification:adversarial");
+  const researchVerifier = resolveModelSpec("research:agent-3-verifier");
+  const provider = (spec: string) => spec.split(":", 1)[0];
+  if (provider(adversarial) === provider(researchVerifier)) {
+    throw new Error(
+      "Adversarial source verification must use a different provider family from Research agent 3.",
+    );
+  }
+  return { adversarial, researchVerifier };
 }
 
 /**

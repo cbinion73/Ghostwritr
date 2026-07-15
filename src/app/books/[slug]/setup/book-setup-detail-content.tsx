@@ -19,17 +19,18 @@ import { VoiceBlendSection } from "./voice-blend-section";
 
 import { getBookSetupWorkspace } from "@/lib/workflows/book-setup";
 import { RESEARCH_LENS_OPTIONS } from "@/lib/research-lenses";
+import styles from "./book-setup-detail-content.module.css";
 
 export async function BookSetupDetailContent({ slug }: { slug: string }) {
   const workspace = await getBookSetupWorkspace(slug);
   const isCommitted = workspace.stage?.status === "COMMITTED";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
-      <section className="glass-panel topbar">
+    <div className={styles.setupRoom} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
+      <section className={`glass-panel topbar ${styles.setupHero}`}>
         <div>
-          <div className="microlabel" style={{ color: "var(--muted)" }}>Stage Workspace</div>
-          <h2 style={{ margin: "6px 0" }}>Book Setup</h2>
+          <div className={styles.eyebrow}>The Blueprint Room · Foundational Decisions</div>
+          <h2 style={{ margin: "6px 0" }}>Design the book before you write it.</h2>
           <div className="muted">
             This stage defines writer persona, length targets, publishing intent,
             provenance tracking, and the anti-AI-authorship guard before the creative
@@ -37,7 +38,7 @@ export async function BookSetupDetailContent({ slug }: { slug: string }) {
           </div>
         </div>
 
-        <div className="button-row">
+        <div className={`button-row ${styles.heroAction}`}>
           <form action={commitBookSetupAction.bind(null, slug)}>
             <button className="btn btn-primary" type="submit">
               {isCommitted ? "Recommit Setup" : "Commit Setup"}
@@ -46,8 +47,15 @@ export async function BookSetupDetailContent({ slug }: { slug: string }) {
         </div>
       </section>
 
-      <section className="workspace-grid" style={{ gridTemplateColumns: "1.15fr 0.85fr" }}>
-        <section className="glass-panel section-panel">
+      <section className={styles.blueprintStrip} aria-label="Book blueprint summary">
+        <div><span>Form</span><strong>{workspace.book.workflowType === BookWorkflowType.FICTION ? "Fiction" : "Nonfiction"}</strong></div>
+        <div><span>Target</span><strong>{workspace.profile.targetWordCount?.toLocaleString() ?? "Not set"} words</strong></div>
+        <div><span>Edition</span><strong>{workspace.profile.trimSize || "Trim not set"}</strong></div>
+        <div><span>Foundation</span><strong>{isCommitted ? "Committed" : "In progress"}</strong></div>
+      </section>
+
+      <section className={`workspace-grid ${styles.setupGrid}`} style={{ gridTemplateColumns: "1.15fr 0.85fr" }}>
+        <section className={`glass-panel section-panel ${styles.blueprintDesk}`}>
           <div className="section-header">
             <h3>Core Setup</h3>
             <div className="muted">
@@ -55,7 +63,7 @@ export async function BookSetupDetailContent({ slug }: { slug: string }) {
             </div>
           </div>
 
-          <form action={saveAndCommitSetupAction.bind(null, slug)} className="stack">
+          <form action={saveAndCommitSetupAction.bind(null, slug)} className={`stack ${styles.setupForm}`}>
             <label className="form-field">
               <span className="field-label">Working Title</span>
               <input
@@ -306,7 +314,7 @@ export async function BookSetupDetailContent({ slug }: { slug: string }) {
           </form>
         </section>
 
-        <section className="glass-panel section-panel">
+        <section className={`glass-panel section-panel ${styles.enablementRail}`}>
           <div className="section-header">
             <h3>What This Enables</h3>
             <div className="muted">
@@ -382,7 +390,7 @@ export async function BookSetupDetailContent({ slug }: { slug: string }) {
         </section>
       </section>
 
-      <section className="glass-panel section-panel">
+      <section className={`glass-panel section-panel ${styles.ledger}`}>
         <div className="section-header">
           <h3>Setup Direction Ledger</h3>
           <div className="muted">

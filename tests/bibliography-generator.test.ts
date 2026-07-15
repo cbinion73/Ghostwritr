@@ -9,17 +9,13 @@ function read(path: string) {
   return readFileSync(join(root, path), "utf8");
 }
 
-test("Bibliography generation is deterministic and uses approved final chapter source traces", () => {
+test("Bibliography generation is deterministic and uses only the immutable approved citation ledger", () => {
   const source = read("src/lib/workflows/bibliography-generator.ts");
 
-  assert.ok(source.includes("ChapterApprovalStatus.FINAL_REVISION_APPROVED"));
-  assert.ok(source.includes("approvedFinalVersionId"));
-  assert.ok(source.includes("approvedDraftVersionId"));
-  assert.ok(source.includes("sourceUsage"));
-  assert.ok(source.includes("researchItemIds"));
-  assert.ok(source.includes("externalStoryItemIds"));
-  assert.ok(source.includes("db.researchItem.findMany"));
-  assert.ok(source.includes("db.externalStoryItem.findMany"));
+  assert.ok(source.includes("getCurrentLockedCitationLedger"));
+  assert.ok(source.includes("ledger.entriesJson"));
+  assert.ok(source.includes("ledger.citationStyle"));
+  assert.ok(source.includes("ledger.ledgerFingerprint"));
   assert.ok(source.includes("incompleteCitations"));
   assert.ok(!source.includes("acquireLLMCallForRole"));
   assert.ok(!source.includes("model.stream"));

@@ -7,7 +7,8 @@
 
 import { db } from "@/lib/db";
 import { getBookStageLinks } from "@/lib/navigation";
-import { ArtifactType, type BookWorkflowType } from "@prisma/client";
+import { ArtifactType, BookWorkflowType } from "@prisma/client";
+import { getCurrentLockedCitationLedger } from "@/lib/repositories/citation-audit";
 import { getCommittedBookSetup } from "@/lib/repositories/book-setup-artifacts";
 import { getCommittedOutlineExpansion } from "@/lib/repositories/outline-artifacts";
 import { isLikelyGarbageChapterContent } from "@/lib/repositories/artifact-lifecycle";
@@ -36,6 +37,7 @@ export type StageReadiness = {
   outline: string | null;
   chapterDraft: string | null;
   editing: string | null;
+  citationAudit: string | null;
 };
 
 export type PublishPipelineData = {
@@ -81,7 +83,7 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
   const stages = await db.bookStage.findMany({
     where: {
       bookId: book.id,
-      stageKey: { in: ["BOOK_SETUP", "OUTLINE", "CHAPTER_DRAFT", "EDITING"] },
+      stageKey: { in: ["BOOK_SETUP", "OUTLINE", "CHAPTER_DRAFT", "EDITING", "CITATION_AUDIT"] },
     },
     select: { stageKey: true, status: true, id: true },
   });
@@ -193,6 +195,7 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
     outline: stageMap.get("OUTLINE")?.status ?? null,
     chapterDraft: stageMap.get("CHAPTER_DRAFT")?.status ?? null,
     editing: stageMap.get("EDITING")?.status ?? null,
+    citationAudit: stageMap.get("CITATION_AUDIT")?.status ?? null,
   };
 
   // ── Validation report ────────────────────────────────────────────────────────
@@ -231,6 +234,14 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
       code: "EDITING_NOT_COMMITTED",
       message:
         "Reed's editing stage is not committed. The manuscript has not received a final editorial pass.",
+    });
+  }
+
+  if (book.workflowType === BookWorkflowType.NONFICTION && !(await getCurrentLockedCitationLedger(book.id))) {
+    validation.push({
+      level: "error",
+      code: "CITATION_AUDIT_NOT_APPROVED",
+      message: "Final downloads are locked until every chapter Citation Audit is approved and the bibliography ledger is locked.",
     });
   }
 

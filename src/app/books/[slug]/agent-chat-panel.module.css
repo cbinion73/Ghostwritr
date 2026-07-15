@@ -1,0 +1,70 @@
+.agentStudio {
+  background:
+    radial-gradient(circle at 0 0, rgba(189,139,67,.08), transparent 24rem),
+    #f2ecdf !important;
+}
+
+.chatColumn { background: transparent; }
+
+.agentHeader {
+  padding: 15px 20px !important;
+  border-bottom: 1px solid rgba(39,53,45,.13) !important;
+  background: rgba(255,253,248,.84) !important;
+  backdrop-filter: blur(14px);
+}
+
+.agentPortrait {
+  position: relative;
+  border: 1px solid rgba(255,255,255,.55);
+  border-radius: 50% !important;
+  box-shadow: 0 6px 14px rgba(35,39,30,.17), 0 0 0 3px rgba(189,139,67,.1);
+}
+
+.thread {
+  gap: 19px !important;
+  padding: 28px clamp(18px,3vw,36px) !important;
+  background-image: linear-gradient(rgba(85,70,48,.035) 1px, transparent 1px);
+  background-size: 100% 28px;
+}
+
+.smallPortrait { border-radius: 50% !important; box-shadow: 0 3px 8px rgba(35,39,30,.12); }
+
+.agentBubble, .userBubble {
+  max-width: min(76%, 680px) !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 5px 14px rgba(49,41,29,.07);
+}
+.agentBubble {
+  border-color: rgba(55,47,36,.11) !important;
+  background: rgba(255,253,248,.96) !important;
+}
+.userBubble {
+  background: linear-gradient(135deg,#173f35,#24594b) !important;
+  box-shadow: 0 7px 17px rgba(22,63,52,.18);
+}
+
+.composer {
+  padding: 14px 20px 18px !important;
+  border-top: 1px solid rgba(39,53,45,.13) !important;
+  background: rgba(250,246,237,.92) !important;
+  backdrop-filter: blur(15px);
+  box-shadow: 0 -8px 24px rgba(50,43,32,.05);
+}
+.composerInput {
+  min-height: 46px;
+  border-color: rgba(34,70,59,.18) !important;
+  border-radius: 12px !important;
+  background: #fffdf8 !important;
+  box-shadow: 0 3px 10px rgba(49,41,29,.06) inset;
+}
+.composerInput:focus { border-color: rgba(189,139,67,.72) !important; box-shadow: 0 0 0 3px rgba(189,139,67,.12) !important; }
+.sendButton { border-radius: 50% !important; background: linear-gradient(135deg,#173f35,#24594b) !important; box-shadow: 0 6px 14px rgba(22,63,52,.2); }
+.sendButton:hover { transform: translateY(-1px); }
+
+@media (max-width: 680px) {
+  .agentHeader { align-items: flex-start !important; gap: 10px; flex-wrap: wrap; }
+  .agentHeader > div:last-child { width: 100%; align-items: flex-start !important; }
+  .thread { padding: 20px 14px !important; }
+  .agentBubble, .userBubble { max-width: 88% !important; }
+  .composer { padding: 10px 12px !important; }
+}

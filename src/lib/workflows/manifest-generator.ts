@@ -11,6 +11,12 @@ import { ArtifactType, ActorType } from "@prisma/client";
 import { acquireLLMCallForRole } from "@/lib/llm/routing";
 import { getAgentForStage } from "@/lib/ui/agent-personas";
 import { getCommittedOutline } from "@/lib/repositories/outline-artifacts";
+import { getCurrentSourceAdmissions } from "@/lib/repositories/source-verification";
+import { isSourcePackAdmissionReady } from "@/lib/workflows/source-verification/admission-policy";
+import type { ChapterResearchDossier } from "@/lib/research-types";
+import type { ChapterExternalStoryDossier } from "@/lib/external-story-types";
+import { buildResearchEvidenceContract, getAdmissibleExternalStories, getAdmissibleResearchItems } from "@/lib/source-evidence-contract";
+import { BookOutlineSchema, parseArtifactWithSchema } from "@/lib/artifact-schemas";
 import {
   commitStageAndUnlockNext,
   ensureStageStarted,
@@ -41,15 +47,19 @@ export async function generateManifest(
   const outlineVersion = await getCommittedOutline(bookId);
   const outlineText = outlineVersion?.contentText ?? "";
   if (!outlineText) return { success: false, error: "No committed outline found. Commit the Outline stage before generating the manifest." };
+  const outline = parseArtifactWithSchema(outlineVersion?.contentJson, BookOutlineSchema);
+  let expectedChapterKeys = new Set(
+    outline?.sections.flatMap((section) => section.chapters.map((chapter) => chapter.id)) ?? [],
+  );
 
   // Load RESEARCH artifacts (all dossiers)
   const researchStage = await db.bookStage.findUnique({
     where: { bookId_stageKey: { bookId, stageKey: "RESEARCH" } },
     select: {
       artifacts: {
-        where: { artifactType: ArtifactType.RESEARCH_PACK },
-        select: { title: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
-        orderBy: { createdAt: "asc" },
+        where: { artifactType: ArtifactType.RESEARCH_PACK, committedVersionId: { not: null } },
+        select: { chapterId: true, title: true, committedVersionId: true, updatedAt: true, versions: { where: { lifecycleState: "COMMITTED" }, select: { id: true, contentJson: true } } },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       },
     },
   });
@@ -59,9 +69,9 @@ export async function generateManifest(
     where: { bookId_stageKey: { bookId, stageKey: "EXTERNAL_STORIES" } },
     select: {
       artifacts: {
-        where: { artifactType: ArtifactType.EXTERNAL_STORY_PACK },
-        select: { title: true, versions: { select: { contentText: true }, orderBy: { versionNumber: "desc" }, take: 1 } },
-        orderBy: { createdAt: "asc" },
+        where: { artifactType: ArtifactType.EXTERNAL_STORY_PACK, committedVersionId: { not: null } },
+        select: { chapterId: true, title: true, committedVersionId: true, updatedAt: true, versions: { where: { lifecycleState: "COMMITTED" }, select: { id: true, contentJson: true } } },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       },
     },
   });
@@ -89,13 +99,62 @@ export async function generateManifest(
   const cap = (text: string) => text.length > CAP ? text.slice(0, CAP) + "\n…[truncated for manifest]" : text;
 
   // Build source material sections
-  const researchSections = (researchStage?.artifacts ?? [])
-    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== SCOUT: ${a.title ?? "Research Dossier"} ===\n${cap(t)}` : null; })
-    .filter(Boolean).join("\n\n");
+  const canonicalByChapter = <T extends { chapterId: string | null }>(artifacts: T[]) => {
+    const selected = new Map<string, T>();
+    for (const artifact of artifacts) if (artifact.chapterId && !selected.has(artifact.chapterId)) selected.set(artifact.chapterId, artifact);
+    return [...selected.values()];
+  };
+  const researchArtifacts = canonicalByChapter(researchStage?.artifacts ?? []);
+  const externalArtifacts = canonicalByChapter(externalStage?.artifacts ?? []);
+  if (expectedChapterKeys.size === 0) {
+    // Legacy/text-only outlines predate structured chapter IDs. The stable
+    // chapter identities on the two committed source-pack sets are authoritative.
+    expectedChapterKeys = new Set([
+      ...researchArtifacts.map((artifact) => artifact.chapterId).filter((value): value is string => Boolean(value)),
+      ...externalArtifacts.map((artifact) => artifact.chapterId).filter((value): value is string => Boolean(value)),
+    ]);
+  }
 
-  const externalSections = (externalStage?.artifacts ?? [])
-    .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== CHRONICLE: ${a.title ?? "External Stories"} ===\n${cap(t)}` : null; })
-    .filter(Boolean).join("\n\n");
+  const researchParts = await Promise.all(researchArtifacts.map(async (artifact) => {
+    const version = artifact.versions.find((value) => value.id === artifact.committedVersionId);
+    const dossier = version?.contentJson as ChapterResearchDossier | undefined;
+    const chapterKey = artifact.chapterId ?? dossier?.chapterKey;
+    if (!version || !chapterKey || !dossier || !Array.isArray(dossier.factBank)) return null;
+    const admissions = await getCurrentSourceAdmissions({ bookId, chapterKey, artifactVersionIds: [version.id] });
+    const canonicalRecordCount = buildResearchEvidenceContract(dossier, admissions).records.length;
+    if (!isSourcePackAdmissionReady(canonicalRecordCount, admissions.values())) return null;
+    const admitted = getAdmissibleResearchItems(dossier, admissions).dossier;
+    if (admitted.verificationSummary.verifiedItems === 0) return null;
+    return `=== SCOUT: ${artifact.title ?? "Research Dossier"} ===\n${cap(JSON.stringify(admitted))}`;
+  }));
+  const researchSections = researchParts.filter((value): value is string => Boolean(value)).join("\n\n");
+
+  const externalParts = await Promise.all(externalArtifacts.map(async (artifact) => {
+    const version = artifact.versions.find((value) => value.id === artifact.committedVersionId);
+    const dossier = version?.contentJson as ChapterExternalStoryDossier | undefined;
+    const chapterKey = artifact.chapterId ?? dossier?.chapterKey;
+    if (!version || !chapterKey || !dossier || !Array.isArray(dossier.storyCandidates)) return null;
+    const admissions = await getCurrentSourceAdmissions({ bookId, chapterKey, artifactVersionIds: [version.id] });
+    if (!isSourcePackAdmissionReady(dossier.storyCandidates.length, admissions.values())) return null;
+    const admitted = getAdmissibleExternalStories(dossier, admissions).dossier;
+    if (admitted.verificationSummary.verifiedStories === 0) return null;
+    return `=== CHRONICLE: ${artifact.title ?? "External Stories"} ===\n${cap(JSON.stringify(admitted))}`;
+  }));
+  const externalSections = externalParts.filter((value): value is string => Boolean(value)).join("\n\n");
+
+  if (
+    !researchSections ||
+    !externalSections ||
+    researchParts.some((value) => value === null) ||
+    externalParts.some((value) => value === null) ||
+    expectedChapterKeys.size === 0 ||
+    [...expectedChapterKeys].some((chapterKey) =>
+      !researchArtifacts.some((artifact) => artifact.chapterId === chapterKey) ||
+      !externalArtifacts.some((artifact) => artifact.chapterId === chapterKey),
+    )
+  ) {
+    return { success: false, error: "Manifest generation is blocked until each included chapter has independently verified, current, human-admitted Research and External Stories." };
+  }
 
   const personalSections = (personalStage?.artifacts ?? [])
     .map((a) => { const t = a.versions[0]?.contentText; return t ? `=== PERSONAL: ${a.title ?? "Personal Stories"} ===\n${cap(t)}` : null; })

@@ -26,6 +26,7 @@ import { EditingDetailContent } from "./editing/editing-detail-content";
 import { TypesetDetailContent } from "./typeset/typeset-detail-content";
 import { FictionStageDetailContent } from "./fiction-stage-detail-content";
 import { getOvernightState } from "@/lib/workflows/overnight-build";
+import { isStudioStageLocked } from "@/lib/ui/stage-access-policy";
 
 export default async function BookWorkspacePage({
   params,
@@ -107,9 +108,12 @@ export default async function BookWorkspacePage({
     while (gateIdx >= 0 && tokens[gateIdx].key === "WORKBOOK_DESIGN") {
       gateIdx -= 1;
     }
-    const locked =
-      (gateIdx >= 0 && statusByTokenIdx[gateIdx] === "NOT_STARTED") ||
-      (requiresApprovedPhase1(t.key) && !approvedPhase1Brief);
+    const locked = isStudioStageLocked({
+      stageStatus: statusByTokenIdx[idx],
+      precedingRequiredStageStatus: gateIdx >= 0 ? statusByTokenIdx[gateIdx] : null,
+      requiresApprovedPhase1: requiresApprovedPhase1(t.key),
+      hasApprovedPhase1: Boolean(approvedPhase1Brief),
+    });
     return {
       key: t.key,
       number: t.number,
@@ -245,6 +249,7 @@ export default async function BookWorkspacePage({
         slug={slug}
         bookTitle={title}
         bookSubtitle={subtitle}
+        coverImageUrl={spine.book.coverImageUrl}
         stages={stages}
         groupKeys={groupKeys}
         defaultStageKey={defaultStage.key}

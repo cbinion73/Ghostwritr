@@ -492,7 +492,7 @@ export async function createResearchPackVersion(input: CreateResearchPackVersion
           extractedTextPath: source.extractedTextPath
             ? stripNullChars(source.extractedTextPath)
             : undefined,
-          metadataJson: toJsonValue(source.metadata),
+          metadataJson: toJsonValue({ ...(source.metadata ?? {}), artifactSourceId: source.id }),
         },
       });
       sourceIdMap.set(source.id, createdSource.id);
@@ -524,7 +524,11 @@ export async function createResearchPackVersion(input: CreateResearchPackVersion
           mappedSectionId: item.mappedSectionId ?? undefined,
           mappedChapterId: item.mappedChapterId ?? undefined,
           mappedParagraphId: item.mappedParagraphId ?? undefined,
-          metadataJson: toJsonValue(item.metadata),
+          metadataJson: toJsonValue({
+            ...(item.metadata ?? {}),
+            artifactRecordId: item.id,
+            artifactSourceId: item.sourceId,
+          }),
         },
       });
       itemIdMap.set(item.id, createdItem.id);

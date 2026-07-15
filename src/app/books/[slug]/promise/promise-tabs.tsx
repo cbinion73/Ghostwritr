@@ -47,6 +47,7 @@ import type {
   TransformationArtifact,
 } from "@/lib/promise-types";
 import type { ValidationScores } from "@/lib/validation/promise-validator";
+import roomStyles from "./promise-tabs.module.css";
 
 interface PromiseTabsProps {
   slug: string;
@@ -538,9 +539,9 @@ export function PromiseTabs({
                 : bookPromiseReportData?.metadata;
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className={roomStyles.promiseJourney}>
       {/* Section Status Tracker */}
-      <div style={styles.trackerSection}>
+      <div style={styles.trackerSection} className={roomStyles.trackerSection}>
         <SectionStatusTracker
           sections={sectionStatuses}
           isGenerating={isGenerating}
@@ -549,7 +550,7 @@ export function PromiseTabs({
       </div>
 
       {/* Tabs Bar */}
-      <div style={styles.tabsBar}>
+      <div style={styles.tabsBar} className={roomStyles.tabsBar}>
         {tabs.map((tab) => {
           const isUnlocked = isTabUnlocked(tab.id);
           const status = approvalStatuses[tab.id];
@@ -565,6 +566,7 @@ export function PromiseTabs({
               key={tab.id}
               onClick={() => isUnlocked && setActiveTab(tab.id)}
               disabled={!isUnlocked}
+              className={activeTab === tab.id ? roomStyles.activeTab : roomStyles.tab}
               style={{
                 ...styles.tab,
                 ...(activeTab === tab.id ? styles.tabActive : {}),
@@ -573,12 +575,12 @@ export function PromiseTabs({
               }}
               title={!isUnlocked ? `Complete step ${tab.stepNumber - 1} to unlock` : ""}
             >
-              <span style={{ fontSize: "12px", color: "#999", marginRight: "4px" }}>
-                ({tab.stepNumber}/7)
+              <span className={roomStyles.stepNumber} style={{ fontSize: "12px", color: "#999", marginRight: "4px" }}>
+                {String(tab.stepNumber).padStart(2, "0")}
               </span>
               <span>{tab.label}</span>
-              <span style={{ color: statusColor, marginLeft: "8px", fontSize: "14px" }}>
-                {isGen ? "🟡" : status === "approved" ? "🟢" : "🔴"}
+              <span className={roomStyles.statusMark} style={{ color: statusColor, marginLeft: "8px", fontSize: "14px" }}>
+                {isGen ? "◐" : status === "approved" ? "◆" : "○"}
               </span>
             </button>
           );
@@ -606,8 +608,8 @@ export function PromiseTabs({
       </div>
 
       {/* Content */}
-      <div style={styles.content}>
-        <div style={styles.usagePanel}>
+      <div style={styles.content} className={roomStyles.content}>
+        <div style={styles.usagePanel} className={roomStyles.usagePanel}>
           <div style={styles.usageLabel}>Model Usage</div>
           <div style={styles.usageValue}>{getUsageLabel(activeArtifactMetadata)}</div>
           <div style={styles.usageHint}>

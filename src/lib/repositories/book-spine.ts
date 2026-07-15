@@ -16,6 +16,7 @@ export type SpineData = {
     slug: string;
     titleWorking: string | null;
     subtitle: string | null;
+    coverImageUrl: string | null;
     workflowType: BookWorkflowType;
   };
   stages: SpineStageRow[];
@@ -35,6 +36,7 @@ export async function getBookSpine(slug: string): Promise<SpineData | null> {
       slug: true,
       titleWorking: true,
       subtitle: true,
+      coverImageUrl: true,
       workflowType: true,
       stages: {
         select: {
@@ -76,6 +78,7 @@ export async function getBookSpine(slug: string): Promise<SpineData | null> {
       slug: book.slug,
       titleWorking: book.titleWorking,
       subtitle: book.subtitle,
+      coverImageUrl: book.coverImageUrl,
       workflowType: book.workflowType,
     },
     stages,
@@ -96,6 +99,7 @@ export async function getBookSpineForUser(
       slug: true,
       titleWorking: true,
       subtitle: true,
+      coverImageUrl: true,
       workflowType: true,
       stages: {
         select: {
@@ -129,6 +133,7 @@ export async function getBookSpineForUser(
       slug: book.slug,
       titleWorking: book.titleWorking,
       subtitle: book.subtitle,
+      coverImageUrl: book.coverImageUrl,
       workflowType: book.workflowType,
     },
     stages: book.stages.map((s) => ({

@@ -322,7 +322,7 @@ export function validateQuillContextReadiness(input: {
   };
 }
 
-export async function getDraftInputs(bookId: string) {
+export async function getDraftInputs(bookId: string, targetChapterKeys?: string[]) {
   const phase1StrategicBriefVersion = await getCommittedPhase1StrategicBrief(bookId);
   const promiseVersion = await getCommittedPromiseBrief(bookId);
   const paragraphOutlineVersion = await getCommittedOutlineExpansion(bookId);
@@ -358,7 +358,7 @@ export async function getDraftInputs(bookId: string) {
     );
   }
 
-  const chapterContexts = paragraphOutline.sections.flatMap((section) =>
+  const allChapterContexts = paragraphOutline.sections.flatMap((section) =>
     section.chapters.map((chapter) => ({
       section,
       chapter,
@@ -366,6 +366,13 @@ export async function getDraftInputs(bookId: string) {
       craftNotes,
     })),
   );
+  const requested = targetChapterKeys?.length ? new Set(targetChapterKeys) : null;
+  const chapterContexts = requested
+    ? allChapterContexts.filter((context) => requested.has(context.chapter.chapterId))
+    : allChapterContexts;
+  if (requested && chapterContexts.length !== requested.size) {
+    throw new Error("One or more selected chapters do not exist in the committed paragraph outline.");
+  }
 
   const readinessChecks = await Promise.all(
     chapterContexts.map(async (context) => {

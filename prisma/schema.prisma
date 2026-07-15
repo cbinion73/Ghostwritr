@@ -39,6 +39,7 @@ enum StageKey {
   CHAPTER_DRAFT
   WORKBOOK_DESIGN
   EDITING
+  CITATION_AUDIT
   TYPESET
   AUDIO_PREP
   COURSE_DESIGN
@@ -87,6 +88,8 @@ enum ArtifactType {
   EDITORIAL_ASSESSMENT
   MANUSCRIPT_REVISION
   MANUSCRIPT_ASSEMBLY
+  CITATION_AUDIT_REPORT
+  CITATION_LEDGER
   LENGTH_ADJUSTMENT
   PUBLISHING_PACKAGE
   TYPESET_PACKAGE
@@ -131,6 +134,37 @@ enum WorkflowRunType {
   MARKET_ANALYSIS
   POSITIONING_RECOMMENDATIONS
   GENERAL
+}
+
+enum CitationStyle {
+  CHICAGO_17
+  APA_7
+  MLA_9
+}
+
+enum CitationAuditFindingKind {
+  SUPPORTED
+  MISSING_SOURCE
+  INACCESSIBLE
+  CONTRADICTED
+  DISTORTED
+  UNSUPPORTED
+  UNUSED
+}
+
+enum CitationAuditDecision {
+  APPROVE
+  MANUAL_EXCEPTION
+  REQUEST_REVISION
+  REOPEN
+}
+
+enum CitationAuditChapterStatus {
+  PENDING
+  READY_FOR_REVIEW
+  APPROVED
+  BLOCKED
+  STALE
 }
 
 enum WorkflowRunStatus {
@@ -178,6 +212,7 @@ enum ResearchVerificationStatus {
 enum ResearchVerifierType {
   FETCH_VALIDATOR
   LLM_VERIFIER
+  ADVERSARIAL_VERIFIER
   HUMAN_REVIEW
 }
 
@@ -207,7 +242,32 @@ enum StoryVerificationStatus {
 enum StoryVerifierType {
   FETCH_VALIDATOR
   LLM_VERIFIER
+  ADVERSARIAL_VERIFIER
   HUMAN_REVIEW
+}
+
+enum SourceEvidenceKind {
+  RESEARCH_CLAIM
+  EXTERNAL_STORY
+}
+
+enum SourceVerificationVerdict {
+  VERIFIED
+  VERIFIED_WITH_CORRECTION
+  NEEDS_CORROBORATION
+  NOT_FOUND
+  INACCESSIBLE
+  CONTRADICTED
+  REJECTED
+}
+
+enum SourceAdmissionDecision {
+  APPROVE
+  APPROVE_CORRECTED
+  REQUEST_CORROBORATION
+  REJECT
+  MANUAL_EXCEPTION
+  REOPEN
 }
 
 enum ExternalStoryType {
@@ -258,6 +318,10 @@ model User {
   decisions      Decision[]
   directionEvents DirectionEvent[]
   authorProfiles AuthorProfile[]
+  sourceAdmissionReviews SourceAdmissionReview[]
+  citationAuditReviews CitationAuditReview[]
+  citationLedgers CitationLedger[]
+  citationAuditChapterApprovals CitationAuditChapterState[]
 }
 
 model WriterPersona {
@@ -304,6 +368,7 @@ model Book {
   subtitle     String?
   status       BookStatus @default(DRAFT)
   workflowType BookWorkflowType @default(NONFICTION)
+  citationStyle CitationStyle @default(CHICAGO_17)
   metadataJson Json       @default("{}")
   ownerUserId  String?    @db.Uuid
   parentBookId String?    @db.Uuid
@@ -339,6 +404,12 @@ model Book {
   llmBudgetState BookLLMBudgetState?
   agentChatMessages AgentChatMessage[]
   chapterApprovalStates ChapterApprovalState[]
+  sourceVerificationResults SourceVerificationResult[]
+  sourceAdmissionDecisions SourceAdmissionReview[]
+  citationAuditFindings CitationAuditFinding[]
+  citationAuditReviews CitationAuditReview[]
+  citationAuditChapterStates CitationAuditChapterState[]
+  citationLedgers CitationLedger[]
 }
 
 model BookStage {
@@ -505,6 +576,11 @@ model ArtifactVersion {
   researchItems ResearchItem[]
   externalStorySources ExternalStorySource[]
   externalStoryItems ExternalStoryItem[]
+  sourceVerificationResults SourceVerificationResult[]
+  citationAuditFindings CitationAuditFinding[] @relation("CitationFindingFinalVersion")
+  citationAuditReviews CitationAuditReview[] @relation("CitationReviewFinalVersion")
+  citationAuditStates CitationAuditChapterState[] @relation("CitationStateFinalVersion")
+  sourceAdmissionReviews SourceAdmissionReview[]
 
   @@unique([artifactId, versionNumber])
   @@index([artifactId, lifecycleState])
@@ -534,6 +610,168 @@ model ChapterApprovalState {
   @@index([approvedDraftVersionId])
   @@index([finalRevisionPendingVersionId])
   @@index([approvedFinalVersionId])
+}
+
+model CitationAuditFinding {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  bookId                   String                   @db.Uuid
+  chapterKey               String
+  approvedFinalVersionId   String                   @db.Uuid
+  claimText                String
+  claimStart               Int
+  claimEnd                 Int
+  claimFingerprint         String
+  sourceLedgerFingerprint  String
+  policyVersion            String
+  findingFingerprint       String
+  kind                     CitationAuditFindingKind
+  evidenceKind             SourceEvidenceKind?
+  evidenceRecordId         String?
+  sourceRecordId           String?                  @db.Uuid
+  supportingExcerpt        String?
+  notes                    String?
+  workflowRunId            String?                  @db.Uuid
+  createdAt                DateTime                 @default(now())
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  reviews CitationAuditReview[]
+  approvedFinalVersion ArtifactVersion @relation("CitationFindingFinalVersion", fields: [approvedFinalVersionId], references: [id], onDelete: Restrict)
+  workflowRun WorkflowRun? @relation(fields: [workflowRunId], references: [id], onDelete: SetNull)
+
+  @@unique([bookId, chapterKey, approvedFinalVersionId, findingFingerprint], map: "CitationAuditFinding_exact_fingerprint_key")
+  @@index([bookId, chapterKey, approvedFinalVersionId, createdAt], map: "CitationAuditFinding_chapter_version_idx")
+  @@index([workflowRunId])
+}
+
+model CitationAuditReview {
+  id                       String                @id @default(uuid()) @db.Uuid
+  bookId                   String                @db.Uuid
+  chapterKey               String
+  findingId                String?               @db.Uuid
+  approvedFinalVersionId   String                @db.Uuid
+  findingFingerprint       String
+  sourceLedgerFingerprint  String
+  policyVersion            String
+  decision                 CitationAuditDecision
+  reviewerUserId           String?               @db.Uuid
+  reason                   String?
+  createdAt                DateTime               @default(now())
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  finding CitationAuditFinding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  reviewer User? @relation(fields: [reviewerUserId], references: [id], onDelete: SetNull)
+  approvedFinalVersion ArtifactVersion @relation("CitationReviewFinalVersion", fields: [approvedFinalVersionId], references: [id], onDelete: Restrict)
+
+  @@index([bookId, chapterKey, createdAt], map: "CitationAuditReview_chapter_created_idx")
+  @@index([findingFingerprint, createdAt], map: "CitationAuditReview_fingerprint_created_idx")
+}
+
+model CitationAuditChapterState {
+  id                       String                     @id @default(uuid()) @db.Uuid
+  bookId                   String                     @db.Uuid
+  chapterKey               String
+  approvedFinalVersionId   String                     @db.Uuid
+  sourceLedgerFingerprint  String
+  policyVersion            String
+  citationStyle            CitationStyle
+  auditFingerprint         String
+  currentWorkflowRunId     String?                    @db.Uuid
+  status                   CitationAuditChapterStatus @default(PENDING)
+  approvedAt               DateTime?
+  approvedByUserId         String?                    @db.Uuid
+  staleReason              String?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  approvedFinalVersion ArtifactVersion @relation("CitationStateFinalVersion", fields: [approvedFinalVersionId], references: [id], onDelete: Restrict)
+  currentWorkflowRun WorkflowRun? @relation(fields: [currentWorkflowRunId], references: [id], onDelete: SetNull)
+  approvedByUser User? @relation(fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([bookId, chapterKey])
+  @@index([bookId, status])
+  @@index([approvedFinalVersionId, auditFingerprint])
+}
+
+model CitationLedger {
+  id                      String        @id @default(uuid()) @db.Uuid
+  bookId                  String        @db.Uuid
+  ledgerFingerprint       String
+  finalVersionsFingerprint String
+  sourceLedgerFingerprint String
+  policyVersion           String
+  citationStyle           CitationStyle
+  entriesJson             Json
+  chapterAuditIdsJson     Json
+  lockedAt                DateTime      @default(now())
+  createdByUserId         String?       @db.Uuid
+  createdAt               DateTime      @default(now())
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  createdByUser User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([bookId, ledgerFingerprint])
+  @@index([bookId, lockedAt])
+}
+
+model SourceVerificationResult {
+  id                      String                    @id @default(uuid()) @db.Uuid
+  bookId                  String                    @db.Uuid
+  chapterKey              String
+  artifactVersionId       String                    @db.Uuid
+  evidenceKind            SourceEvidenceKind
+  evidenceRecordId        String
+  sourceRecordId          String                    @db.Uuid
+  workflowRunId           String?                   @db.Uuid
+  policyVersion           String
+  sourceFingerprint       String
+  claimFingerprint        String
+  inputFingerprint        String
+  verificationFingerprint String
+  verdict                 SourceVerificationVerdict
+  supportingExcerpt       String?
+  contradictingExcerpt    String?
+  reasonCodesJson         Json                      @default("[]")
+  correctionsJson         Json                      @default("[]")
+  notes                    String?
+  createdAt                DateTime                  @default(now())
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  admissionReviews SourceAdmissionReview[]
+  artifactVersion ArtifactVersion @relation(fields: [artifactVersionId], references: [id], onDelete: Restrict)
+  workflowRun WorkflowRun? @relation(fields: [workflowRunId], references: [id], onDelete: SetNull)
+
+  @@unique([artifactVersionId, evidenceKind, evidenceRecordId, verificationFingerprint], map: "SourceVerificationResult_version_kind_record_fingerprint_key")
+  @@index([bookId, chapterKey, artifactVersionId], map: "SourceVerificationResult_book_chapter_version_idx")
+  @@index([verificationFingerprint, verdict], map: "SourceVerificationResult_fingerprint_verdict_idx")
+  @@index([inputFingerprint, createdAt], map: "SourceVerificationResult_inputFingerprint_created_idx")
+  @@index([workflowRunId], map: "SourceVerificationResult_workflowRunId_idx")
+}
+
+model SourceAdmissionReview {
+  id                      String                  @id @default(uuid()) @db.Uuid
+  bookId                  String                  @db.Uuid
+  chapterKey              String
+  artifactVersionId       String                  @db.Uuid
+  evidenceKind            SourceEvidenceKind
+  evidenceRecordId        String
+  verificationResultId    String?                 @db.Uuid
+  verificationFingerprint String
+  decision                SourceAdmissionDecision
+  reviewerUserId          String?                 @db.Uuid
+  notes                   String?
+  createdAt               DateTime                @default(now())
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  verificationResult SourceVerificationResult? @relation(fields: [verificationResultId], references: [id], onDelete: SetNull)
+  artifactVersion ArtifactVersion @relation(fields: [artifactVersionId], references: [id], onDelete: Restrict)
+  reviewer User? @relation(fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@index([bookId, chapterKey, artifactVersionId, createdAt], map: "SourceAdmissionReview_book_chapter_version_created_idx")
+  @@index([evidenceKind, evidenceRecordId, createdAt], map: "SourceAdmissionReview_kind_record_created_idx")
+  @@index([verificationFingerprint, createdAt], map: "SourceAdmissionReview_fingerprint_created_idx")
+  @@index([verificationResultId], map: "SourceAdmissionReview_verificationResultId_idx")
+  @@index([reviewerUserId], map: "SourceAdmissionReview_reviewerUserId_idx")
 }
 
 model Decision {
@@ -579,6 +817,9 @@ model WorkflowRun {
 
   book  Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
   stage BookStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  sourceVerificationResults SourceVerificationResult[]
+  citationAuditFindings CitationAuditFinding[]
+  citationAuditStates CitationAuditChapterState[]
 
   @@index([bookId, stageId, status])
   @@index([status, leaseExpiresAt])

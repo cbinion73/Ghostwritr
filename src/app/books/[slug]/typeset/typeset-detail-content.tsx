@@ -10,6 +10,7 @@
 import { getPublishPipelineData } from "@/lib/workflows/publish-pipeline";
 import { PublishPackageExportButton } from "../publish/package-export-button";
 import { TypesetConfigModal } from "../publish/typeset-config-modal";
+import styles from "./typeset-detail-content.module.css";
 
 function chapterStatusLabel(status: string) {
   if (status === "COMMITTED") return { label: "Committed", color: "#4a7c59", symbol: "✓" };
@@ -40,10 +41,10 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
   }[overallStatus];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
-      <section className="glass-panel topbar">
+    <div className={styles.productionRoom} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
+      <section className={`glass-panel topbar ${styles.productionHero}`}>
         <div>
-          <div className="label">Deterministic Assembly</div>
+          <div className={styles.eyebrow}>The Production Room · Deterministic Assembly</div>
           <h2>Typeset &amp; Publish</h2>
           <div className="muted">
             Assembles committed chapter artifacts into structured export packages.
@@ -52,13 +53,14 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
           </div>
         </div>
 
-        <div className="button-row">
-          <a href={`/api/books/${slug}/workspace-export?format=docx`} download className="btn">
-            ↓ Word Document
-          </a>
-          <a href={`/api/books/${slug}/workspace-export?format=markdown`} download className="btn">
-            ↓ Markdown
-          </a>
+        <div className={`button-row ${styles.exportActions}`}>
+          {data.canExport ? <>
+            <a href={`/api/books/${slug}/workspace-export?format=docx`} download className="btn">↓ Word Document</a>
+            <a href={`/api/books/${slug}/workspace-export?format=manuscript`} download className="btn">↓ Markdown</a>
+          </> : <>
+            <span className="btn" aria-disabled="true" title="Approve Citation Audit and lock the bibliography first">Word Document locked</span>
+            <a href={`/api/books/${slug}/workspace-export?format=manuscript&mode=proof`} download className="btn">↓ Marked proof</a>
+          </>}
           <TypesetConfigModal
             slug={slug}
             trimSize={data.book.trimSize}
@@ -69,7 +71,14 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
         </div>
       </section>
 
-      <section className="glass-panel section-panel" style={{ marginTop: 18 }}>
+      <div className={styles.preflightStrip} data-status={overallStatus}>
+        <div><span>Preflight status</span><strong>{statusConfig.label}</strong></div>
+        <div><span>Committed chapters</span><strong>{data.summary.committedChapters}/{data.summary.totalChapters}</strong></div>
+        <div><span>Production words</span><strong>{data.summary.committedWords.toLocaleString()}</strong></div>
+        <div><span>Open issues</span><strong>{errors.length + warnings.length}</strong></div>
+      </div>
+
+      <section className={`glass-panel section-panel ${styles.productionPanel}`} style={{ marginTop: 18 }}>
         <div className="section-header">
           <div>
             <h3>Validation Report</h3>
@@ -152,7 +161,7 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
         )}
       </section>
 
-      <section className="glass-panel section-panel" style={{ marginTop: 18 }}>
+      <section className={`glass-panel section-panel ${styles.productionPanel}`} style={{ marginTop: 18 }}>
         <div className="section-header">
           <div>
             <h3>Chapter Readiness</h3>
@@ -180,7 +189,7 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
         {data.chapters.length === 0 ? (
           <div className="empty-state">No chapter drafts found. Complete the Chapter Draft stage first.</div>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table className={styles.readinessTable} style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid rgba(45,36,29,0.1)" }}>
                 <th style={{ textAlign: "left", padding: "6px 12px 6px 0", fontWeight: 600, color: "#6f6256", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>#</th>
@@ -225,7 +234,7 @@ export async function TypesetDetailContent({ slug }: { slug: string }) {
         )}
       </section>
 
-      <section className="workspace-grid" style={{ marginTop: 18, gridTemplateColumns: "1fr" }}>
+      <section className={`workspace-grid ${styles.packageGrid}`} style={{ marginTop: 18, gridTemplateColumns: "1fr" }}>
         <section className="glass-panel section-panel">
           <div className="section-header">
             <h3>Publish Package</h3>

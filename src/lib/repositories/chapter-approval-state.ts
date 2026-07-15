@@ -77,7 +77,7 @@ export async function markDraftApproved(input: VersionPointerInput) {
 
 export async function markFinalRevisionPending(input: VersionPointerInput) {
   const client = clientOrDefault(input.client);
-  return client.chapterApprovalState.upsert({
+  const result = await client.chapterApprovalState.upsert({
     where: {
       bookId_chapterId: {
         bookId: input.bookId,
@@ -101,11 +101,13 @@ export async function markFinalRevisionPending(input: VersionPointerInput) {
       staleAt: null,
     },
   });
+  await client.citationAuditChapterState.updateMany({ where: { bookId: input.bookId, chapterKey: input.chapterId, approvedFinalVersionId: { not: input.versionId } }, data: { status: "STALE", staleReason: "Approved final prose changed.", approvedAt: null, approvedByUserId: null } });
+  return result;
 }
 
 export async function markFinalRevisionApproved(input: VersionPointerInput) {
   const client = clientOrDefault(input.client);
-  return client.chapterApprovalState.upsert({
+  const result = await client.chapterApprovalState.upsert({
     where: {
       bookId_chapterId: {
         bookId: input.bookId,
@@ -129,6 +131,8 @@ export async function markFinalRevisionApproved(input: VersionPointerInput) {
       staleAt: null,
     },
   });
+  await client.citationAuditChapterState.updateMany({ where: { bookId: input.bookId, chapterKey: input.chapterId, approvedFinalVersionId: { not: input.versionId } }, data: { status: "STALE", staleReason: "Approved final prose changed.", approvedAt: null, approvedByUserId: null } });
+  return result;
 }
 
 export async function markChapterApprovalStale(input: {

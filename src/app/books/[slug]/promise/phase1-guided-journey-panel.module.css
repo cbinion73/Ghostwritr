@@ -1,0 +1,9 @@
+.foundationGate { margin: 14px 28px 0 !important; padding: 18px 20px !important; border: 1px solid rgba(54,47,36,.13) !important; border-radius: 10px !important; background: #f7f0e4 !important; box-shadow: none !important; }
+.gateHeader h3 { color: #203d34; font-size: 19px !important; }
+.ingredients { grid-template-columns: repeat(3,minmax(0,1fr)) !important; gap: 9px !important; }
+.ingredient { position: relative; min-height: 92px; border-radius: 5px 9px 9px 5px !important; border-left: 4px solid #b88845 !important; background: #fffdf8 !important; box-shadow: 0 5px 13px rgba(47,40,29,.05); transition: transform .17s ease,box-shadow .17s ease; }
+.ingredient[data-complete="true"] { border-left-color: #4f7862 !important; background: rgba(255,253,248,.95) !important; }
+.ingredient:hover { transform: translateY(-2px); box-shadow: 0 9px 20px rgba(47,40,29,.1); }
+.ingredient strong { display: flex; align-items: center; gap: 7px; color: #2d302a; font-family: Georgia,serif; }
+.ingredientNumber { color: #a57d42; font: 700 8px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing: .08em; }
+@media (max-width: 900px) { .foundationGate { margin: 12px 14px 0 !important; } .ingredients { grid-template-columns: 1fr !important; } }

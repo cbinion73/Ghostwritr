@@ -16,8 +16,9 @@ test("Publish package derives all print artifacts from the same canonical manusc
   assert.ok(route.includes("const { plan } = await buildTypesetPlanInput(slug);"));
   assert.ok(route.includes("const interiorHtml = buildTypesetInteriorHtml(payload, plan);"));
   assert.ok(route.includes("const printCss = buildPrintStylesheet(plan);"));
-  assert.ok(route.includes("const layoutManifest = buildTypesetLayoutManifest(payload, plan);"));
-  assert.ok(route.includes("const bibliography = await generateBibliography(book.id, payload.title);"));
+  assert.ok(route.includes("buildTypesetLayoutManifest(payload, plan)"));
+  assert.ok(route.includes("await generateBibliography(book.id, payload.title)"));
+  assert.ok(route.includes("requirePublicationCitationReady"));
   assert.ok(route.includes("typesetPlan: plan"));
   assert.ok(route.includes("typesettingPlan: plan"));
   assert.ok(route.includes("buildKdpDocx({"));

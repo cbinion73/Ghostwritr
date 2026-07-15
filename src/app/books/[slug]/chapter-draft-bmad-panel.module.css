@@ -1,0 +1,158 @@
+.writingRoom {
+  --ink: #25231d;
+  --forest: #173f35;
+  --brass: #bd8b43;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(189, 139, 67, 0.1), transparent 28rem),
+    linear-gradient(180deg, #f5f0e6 0%, #ebe2d3 100%) !important;
+}
+
+.masthead {
+  position: relative;
+  padding: 26px 30px 22px !important;
+  color: #f8f1e4;
+  border-bottom: 0 !important;
+  background:
+    linear-gradient(105deg, rgba(8, 27, 23, 0.97), rgba(23, 63, 53, 0.94)),
+    repeating-linear-gradient(90deg, transparent 0 6px, rgba(255,255,255,.015) 6px 7px) !important;
+  box-shadow: 0 12px 30px rgba(28, 31, 24, 0.18);
+}
+
+.masthead::after {
+  content: "";
+  position: absolute;
+  inset: auto 30px 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--brass), transparent 65%);
+}
+
+.mastheadCopy { min-width: 220px; }
+
+.eyebrow {
+  margin-bottom: 4px;
+  color: #d7b477;
+  font: 700 10px/1.2 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.mastheadCopy > div:nth-child(2) {
+  color: #fffaf0 !important;
+  font-size: clamp(22px, 2vw, 30px) !important;
+  font-weight: 500 !important;
+  letter-spacing: -.02em;
+}
+
+.mastheadCopy > div:nth-child(3) { color: rgba(255,250,240,.62) !important; }
+
+.mastheadActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.chapterShelf {
+  gap: 13px !important;
+  padding: 26px 30px 50px !important;
+  scroll-padding: 24px;
+}
+
+.chapterFolio {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(54, 47, 36, .13) !important;
+  border-radius: 3px 12px 12px 3px !important;
+  background:
+    linear-gradient(90deg, rgba(49,39,28,.06) 0 3px, transparent 3px),
+    #fffdf8 !important;
+  box-shadow: 0 5px 16px rgba(56, 48, 34, .07), 0 1px 0 rgba(255,255,255,.8) inset;
+  transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease !important;
+}
+
+.chapterFolio:hover {
+  transform: translateY(-2px);
+  border-color: rgba(189, 139, 67, .4) !important;
+  box-shadow: 0 12px 28px rgba(56, 48, 34, .12);
+}
+
+.chapterFolio[data-status="approved"] { border-left: 4px solid #567f68 !important; }
+.chapterFolio[data-status="review"] { border-left: 4px solid #c9953d !important; }
+.chapterFolio[data-status="error"] { border-left: 4px solid #a95146 !important; }
+
+.chapterRow { min-height: 74px; padding: 14px 18px !important; }
+
+.chapterNumber {
+  width: 54px !important;
+  height: 48px !important;
+  flex-direction: column;
+  gap: 1px;
+  border-right: 1px solid rgba(49,39,28,.14);
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--forest) !important;
+  font: 600 19px/1 Georgia, serif !important;
+}
+
+.chapterNumber span {
+  color: #927b5e;
+  font: 700 7px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.chapterRow > div:nth-child(2) > div:first-child {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  letter-spacing: -.01em;
+}
+
+.chapterActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chapterActions button { transition: transform .15s ease, box-shadow .15s ease; }
+.chapterActions button:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(43,38,29,.1); }
+
+.manuscriptTray {
+  padding: 28px clamp(18px, 5vw, 60px) 40px !important;
+  background: #e8e0d2;
+  border-top-color: rgba(49,39,28,.14) !important;
+}
+
+.manuscriptPage {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: clamp(28px, 6vw, 64px);
+  background: #fffdf8;
+  box-shadow: 0 14px 45px rgba(52,44,31,.16), 0 0 0 1px rgba(52,44,31,.06);
+  font-size: clamp(15px, 1.4vw, 17px) !important;
+  line-height: 1.82 !important;
+}
+
+.manuscriptPage > p:first-of-type::first-letter {
+  float: left;
+  margin: .08em .1em 0 0;
+  color: var(--forest);
+  font-size: 3.4em;
+  line-height: .72;
+}
+
+@media (max-width: 820px) {
+  .masthead { align-items: flex-start !important; padding: 22px 20px 18px !important; }
+  .mastheadActions { justify-content: flex-start; }
+  .chapterShelf { padding: 18px 14px 40px !important; }
+  .chapterRow { align-items: flex-start !important; flex-wrap: wrap; }
+  .chapterActions { width: 100%; justify-content: flex-start; padding-left: 66px; }
+  .manuscriptTray { padding: 16px 10px 28px !important; }
+  .manuscriptPage { padding: 26px 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chapterFolio, .chapterActions button { transition: none !important; }
+}

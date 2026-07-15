@@ -244,6 +244,42 @@ export async function failWorkflowRun(runId: string, errorText: string, outputJs
   });
 }
 
+/** Budget approval is a wait state, not a failed attempt. */
+export async function releaseWorkflowRunForBudgetConfirmation(runId: string, errorText: string) {
+  return db.workflowRun.update({
+    where: { id: runId },
+    data: {
+      status: WorkflowRunStatus.QUEUED,
+      attempt: { decrement: 1 },
+      finishedAt: null,
+      errorText,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+    },
+  });
+}
+
+export async function resetWorkflowRunForExplicitRerun(
+  runId: string,
+  inputJson: Prisma.InputJsonValue,
+) {
+  return db.workflowRun.update({
+    where: { id: runId },
+    data: {
+      status: WorkflowRunStatus.QUEUED,
+      attempt: 0,
+      inputJson,
+      outputJson: {},
+      errorText: null,
+      finishedAt: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+    },
+  });
+}
+
 export async function cancelWorkflowRun(
   runId: string,
   errorText?: string,

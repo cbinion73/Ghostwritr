@@ -1,0 +1,16 @@
+.promiseJourney { background: #fffdf8 !important; }
+.trackerSection { padding: 18px 24px !important; background: #f3ecdf !important; border-bottom-color: rgba(54,47,36,.11) !important; }
+.tabsBar { gap: 3px !important; padding: 0 16px !important; background: #173d33 !important; border-bottom: 0 !important; }
+.tab,.activeTab { position: relative; min-height: 55px; padding: 9px 13px !important; color: rgba(255,246,229,.6) !important; border-bottom: 3px solid transparent !important; font-family: Georgia,serif; }
+.activeTab { color: #fff7e8 !important; border-bottom-color: #d4aa62 !important; background: rgba(255,255,255,.055) !important; }
+.tab:disabled { color: rgba(255,246,229,.3) !important; }
+.stepNumber { color: #d4aa62 !important; font: 700 8px/1 ui-sans-serif,system-ui,sans-serif !important; letter-spacing: .08em; }
+.statusMark { margin-left: 3px !important; font-size: 10px !important; }
+.content { padding: 30px clamp(18px,4vw,44px) 44px !important; background: linear-gradient(180deg,#fffdf8,#f7f1e7); }
+.usagePanel { max-width: 980px !important; padding: 10px 14px !important; border-radius: 5px !important; border-left: 3px solid #b88845 !important; background: rgba(184,136,69,.07) !important; }
+@media (max-width: 720px) {
+  .trackerSection { padding: 14px !important; }
+  .tabsBar { padding: 0 8px !important; }
+  .tab,.activeTab { padding: 8px 10px !important; }
+  .content { padding: 20px 12px 36px !important; }
+}

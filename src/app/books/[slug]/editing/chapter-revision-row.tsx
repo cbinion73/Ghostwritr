@@ -7,6 +7,7 @@ import {
   rejectManuscriptRevision,
 } from "./actions";
 import { SubmitButton } from "@/app/components/submit-button";
+import styles from "./chapter-revision-row.module.css";
 
 const EDITORIAL_MODES = [
   { value: "structural-edit", label: "Structural Edit" },
@@ -65,9 +66,9 @@ export function ChapterRevisionRow({
   const toggle = (next: Mode) => setMode((current) => (current === next ? null : next));
 
   return (
-    <div style={chapterCardStyle(rowState)}>
-      <div style={chapterRowStyle}>
-        <div style={chapterNumStyle}>{index + 1}</div>
+    <div style={chapterCardStyle(rowState)} className={styles.chapterCard} data-state={rowState}>
+      <div style={chapterRowStyle} className={styles.chapterRow}>
+        <div style={chapterNumStyle} className={styles.chapterNumber}><span>Ch.</span>{index + 1}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={chapterTitleStyle}>{chapterLabel}</div>
           <div style={wordCountStyle}>
@@ -75,7 +76,7 @@ export function ChapterRevisionRow({
             {qualityScore != null ? ` · Quality ${qualityScore}/100` : ""}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div className={styles.actions}>
           <button style={actionBtnStyle(mode === "read")} onClick={() => toggle("read")}>
             Read
           </button>
@@ -111,7 +112,7 @@ export function ChapterRevisionRow({
       </div>
 
       {mode === "read" ? (
-        <div style={{ padding: "0 16px 14px" }}>
+        <div className={styles.readingTray}>
           {changeSummary ? <div style={{ ...wordCountStyle, marginBottom: 8 }}>{changeSummary}</div> : null}
           {approvedDraftVersionId ? (
             <div style={{ ...wordCountStyle, marginBottom: 8 }}>
@@ -130,10 +131,10 @@ export function ChapterRevisionRow({
           ) : null}
           {revisedText ? (
             <>
-              <div style={compareLabelStyle}>Before</div>
-              <ChapterReader content={originalText} />
-              <div style={{ ...compareLabelStyle, marginTop: 16 }}>After</div>
-              <ChapterReader content={revisedText} />
+              <div className={styles.comparison}>
+                <section><div style={compareLabelStyle}>Before</div><ChapterReader content={originalText} /></section>
+                <section className={styles.after}><div style={compareLabelStyle}>After · Proposed final</div><ChapterReader content={revisedText} /></section>
+              </div>
             </>
           ) : (
             <ChapterReader content={originalText} />
@@ -260,7 +261,7 @@ function StatusPip({ state }: { state: RowState }) {
 function ChapterReader({ content }: { content: string }) {
   const paragraphs = content.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
   return (
-    <div style={{ fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif', fontSize: 13, lineHeight: 1.7, color: "#2d241d" }}>
+    <div className={styles.chapterReader} style={{ fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif', fontSize: 13, lineHeight: 1.7, color: "#2d241d" }}>
       {paragraphs.map((p, i) => (
         <p key={i} style={{ margin: "0 0 12px" }}>
           {p}

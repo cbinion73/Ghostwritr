@@ -11,6 +11,7 @@ import { getStaleDependencyRecoveryHint, getStaleDependencyState } from "@/lib/s
 import { getEditingWorkspace } from "@/lib/workflows/editing-public";
 import { SubmitButton } from "@/app/components/submit-button";
 import { ChapterRevisionRow } from "./chapter-revision-row";
+import styles from "./editing-detail-content.module.css";
 
 /**
  * The Editing room — the real editorial pass content, shared between the
@@ -69,11 +70,11 @@ export async function EditingDetailContent({
           : "Pick a chapter below to revise, or Commit Editing Stage when you're satisfied.";
 
   return (
-    <div className="page-shell" style={{ gridTemplateColumns: "minmax(0,1fr)", flex: 1, minHeight: 0, overflow: "auto" }}>
-      <main className="main-column">
-        <section className="glass-panel topbar">
+    <div className={`page-shell ${styles.editorialRoom}`} style={{ gridTemplateColumns: "minmax(0,1fr)", flex: 1, minHeight: 0, overflow: "auto" }}>
+      <main className={`main-column ${styles.editorialDesk}`}>
+        <section className={`glass-panel topbar ${styles.editorialHero}`}>
           <div>
-            <div className="label">Stage Workspace</div>
+            <div className={styles.eyebrow}>The Editorial Suite</div>
             <h2>Editing</h2>
             <div className="muted">
               {workspace.book.workflowType === BookWorkflowType.FICTION
@@ -90,8 +91,8 @@ export async function EditingDetailContent({
               </div>
             ) : null}
             {nextStep ? (
-              <div className="recommendation" style={{ marginTop: 12, fontWeight: 600 }}>
-                Next step: {nextStep}
+              <div className={`recommendation ${styles.nextMove}`} style={{ marginTop: 12, fontWeight: 600 }}>
+                <span>Editor&apos;s next move</span>{nextStep}
               </div>
             ) : null}
             {staleDependency ? (
@@ -101,7 +102,7 @@ export async function EditingDetailContent({
               </div>
             ) : null}
           </div>
-          <div className="button-row">
+          <div className={`button-row ${styles.heroActions}`}>
             <form action={assembleManuscript.bind(null, slug)}>
               <SubmitButton
                 label={workspace.manuscriptAssembly ? "✓ Reassemble (Step 1 · Free)" : "Assemble (Step 1 · Free)"}
@@ -121,7 +122,13 @@ export async function EditingDetailContent({
           </div>
         </section>
 
-        <details style={{ marginTop: 4 }}>
+        <div className={styles.processRibbon} aria-label="Editorial workflow">
+          <div data-complete={Boolean(workspace.manuscriptAssembly)}><span>01</span><strong>Assemble</strong><small>Deterministic · Free</small></div>
+          <div data-complete={Boolean(workspace.latestAssessment)}><span>02</span><strong>Assess</strong><small>Whole-book read · Sonnet</small></div>
+          <div data-complete={false}><span>03</span><strong>Revise &amp; Polish</strong><small>Chapter approval · Opus</small></div>
+        </div>
+
+        <details className={styles.preferences} style={{ marginTop: 4 }}>
           <summary className="btn" style={{ display: "inline-block", cursor: "pointer" }}>
             ⚙ Settings
           </summary>
@@ -164,9 +171,10 @@ export async function EditingDetailContent({
           </section>
         </details>
 
-        <section style={stepThreePanelStyle}>
+        <section style={stepThreePanelStyle} className={styles.polishDesk}>
           <div style={{ marginBottom: 14 }}>
-            <div style={stepThreeTitleStyle}>Step 3 · Revise &amp; Polish — Claude Opus</div>
+            <div className={styles.deskEyebrow}>Chapter-by-chapter craftsmanship</div>
+            <div style={stepThreeTitleStyle}>Revise &amp; Polish</div>
             <div style={stepThreeSubtitleStyle}>
               One chapter at a time. Revise, read the proposed rewrite, then Apply or Reject —
               nothing changes in the manuscript until you accept it.

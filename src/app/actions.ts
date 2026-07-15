@@ -17,13 +17,9 @@ import {
 } from "@/lib/repositories/books";
 import { db } from "@/lib/db";
 import { getDefaultBookWorkspaceHref } from "@/lib/workflow-registry";
+import { COVER_UPLOAD_EXTENSIONS, getCoverUploadError } from "@/lib/cover-upload-policy";
 
 const COVER_UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "covers");
-const ALLOWED_COVER_TYPES: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/webp": ".webp",
-};
 
 function parseWorkflowType(value: FormDataEntryValue | null) {
   return value === BookWorkflowType.FICTION ? BookWorkflowType.FICTION : BookWorkflowType.NONFICTION;
@@ -141,10 +137,9 @@ export async function uploadBookCoverAction(formData: FormData) {
     return;
   }
 
-  const ext = ALLOWED_COVER_TYPES[file.type];
-  if (!ext) {
-    throw new Error(`Unsupported spine image type: ${file.type || "unknown"}. Use PNG, JPEG, or WebP.`);
-  }
+  const uploadError = getCoverUploadError(file);
+  if (uploadError) throw new Error(uploadError);
+  const ext = COVER_UPLOAD_EXTENSIONS[file.type];
 
   await mkdir(COVER_UPLOAD_DIR, { recursive: true });
   const filename = `${slug}-${randomUUID()}${ext}`;

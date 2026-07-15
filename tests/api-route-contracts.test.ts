@@ -156,3 +156,34 @@ test("durable run APIs are idempotent by reusing active stage runs", () => {
   assert.ok(workflowRuns.includes("bookId_stageId_idempotencyKey"));
   assert.ok(workflowRuns.includes("if (existing) return existing"));
 });
+
+test("source and citation mutation routes are bounded, ownership scoped, and stale-safe", () => {
+  for (const routePath of [
+    "src/app/api/books/[slug]/source-review/route.ts",
+    "src/app/api/books/[slug]/citation-audit/route.ts",
+  ]) {
+    const source = read(routePath);
+    assert.ok(source.includes("requireAuthenticatedAppUser"), routePath);
+    assert.ok(source.includes("getBookHeaderBySlugForUserOrThrow"), routePath);
+    assert.ok(source.includes("parseLimitedJson"), routePath);
+    assert.ok(source.includes("409"), routePath);
+  }
+});
+
+test("every final manuscript route executes the shared citation gate before document generation", () => {
+  for (const routePath of [
+    "src/app/api/books/[slug]/manuscript-export/route.ts",
+    "src/app/api/books/[slug]/publish-package/route.ts",
+    "src/app/api/books/[slug]/workspace-export/route.ts",
+  ]) {
+    const source = read(routePath);
+    const gate = source.indexOf("requirePublicationCitationReady");
+    assert.ok(gate >= 0, `${routePath} must execute the shared citation gate`);
+    const firstGenerator = Math.min(...["buildKdpDocx", "buildKdpPdfFromHtml", "buildManuscriptMarkdown", "writeFile("]
+      .map((needle) => source.indexOf(needle, gate + 1))
+      .filter((index) => index >= 0));
+    assert.ok(Number.isFinite(firstGenerator), `${routePath} must generate an output after the gate`);
+    assert.ok(gate < firstGenerator, `${routePath} must gate before output generation`);
+    assert.ok(source.includes('searchParams.get("mode") === "proof"'), `${routePath} must require explicit proof mode`);
+  }
+});

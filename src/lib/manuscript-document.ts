@@ -20,6 +20,8 @@ export type ManuscriptExportPayload = {
   trimSize?: string | null;
   frontMatter?: string[];
   backMatter?: string[];
+  bibliography?: string[];
+  proofNotice?: string | null;
   chapters: ManuscriptChapterExport[];
 };
 
@@ -109,6 +111,7 @@ export function sanitizeManuscriptFilename(title: string) {
 
 export function buildManuscriptMarkdown(input: ManuscriptExportPayload) {
   const parts: string[] = [
+    input.proofNotice ? `> **${input.proofNotice}**` : "",
     `# ${input.title}`,
     input.subtitle ? `${input.subtitle}\n` : "",
     `Generated manuscript export`,
@@ -148,6 +151,11 @@ export function buildManuscriptMarkdown(input: ManuscriptExportPayload) {
       parts.push(`- ${item}`);
     }
     parts.push("");
+  }
+
+  if (input.bibliography?.length) {
+    parts.push("## Bibliography", "");
+    for (const citation of input.bibliography) parts.push(citation, "");
   }
 
   return parts.filter(Boolean).join("\n");
@@ -283,6 +291,7 @@ export function buildManuscriptHtml(input: ManuscriptExportPayload) {
   <body>
     <main>
       <section class="title-block">
+        ${input.proofNotice ? `<div style="border:4px solid #a00;padding:12px;color:#a00;font-weight:bold">${escapeHtml(input.proofNotice)}</div>` : ""}
         <div class="kicker">Ghostwritr Manuscript Export</div>
         <h1>${escapeHtml(input.title)}</h1>
         ${input.subtitle ? `<p class="subtitle">${escapeHtml(input.subtitle)}</p>` : ""}
@@ -316,6 +325,7 @@ export function buildManuscriptHtml(input: ManuscriptExportPayload) {
         }
       </section>
       ${chapterMarkup}
+      ${input.bibliography?.length ? `<section class="chapter bibliography"><h2>Bibliography</h2>${input.bibliography.map((citation) => `<p>${escapeHtml(citation)}</p>`).join("")}</section>` : ""}
       ${
         input.backMatter?.length
           ? `<section class="matter-block"><strong>Back Matter</strong><ul>${input.backMatter
@@ -360,6 +370,7 @@ export function buildEbookSourceHtml(input: ManuscriptExportPayload) {
   </head>
   <body>
     <section class="title-page">
+      ${input.proofNotice ? `<p style="border:4px solid #a00;padding:1em;color:#a00;font-weight:bold">${escapeHtml(input.proofNotice)}</p>` : ""}
       <h1>${escapeHtml(input.title)}</h1>
       ${input.subtitle ? `<p>${escapeHtml(input.subtitle)}</p>` : ""}
     </section>
@@ -368,6 +379,7 @@ export function buildEbookSourceHtml(input: ManuscriptExportPayload) {
       <ol>${nav}</ol>
     </nav>
     ${chapterMarkup}
+    ${input.bibliography?.length ? `<section class="chapter bibliography"><h2>Bibliography</h2>${input.bibliography.map((citation) => `<p>${escapeHtml(citation)}</p>`).join("")}</section>` : ""}
   </body>
 </html>`;
 }
@@ -752,6 +764,7 @@ export function buildTypesetInteriorHtml(
   <body>
     <main class="book">
       <section class="title-page">
+        ${input.proofNotice ? `<div style="border:4pt solid #a00;padding:12pt;color:#a00;font-weight:bold">${escapeHtml(input.proofNotice)}</div>` : ""}
         <div class="meta-line">GHOSTWRITR Typeset Interior</div>
         <h1>${escapeHtml(input.title)}</h1>
         ${input.subtitle ? `<div class="subtitle">${escapeHtml(input.subtitle)}</div>` : ""}
@@ -800,6 +813,7 @@ export function buildTypesetInteriorHtml(
       }
 
       ${chapterMarkup}
+      ${input.bibliography?.length ? `<section class="back-matter-page bibliography"><h3>Bibliography</h3>${input.bibliography.map((citation) => `<p>${escapeHtml(citation)}</p>`).join("")}</section>` : ""}
 
       ${
         normalized.backMatter.length

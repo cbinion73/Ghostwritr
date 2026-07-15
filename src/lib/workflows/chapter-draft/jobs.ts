@@ -68,7 +68,8 @@ export async function enqueueChapterDraftWorkflow(
     return existing;
   }
 
-  const { chapterContexts } = await getDraftInputs(book.id);
+  const targetKeys = chapterKeys && chapterKeys.length > 0 ? chapterKeys : chapterKey ? [chapterKey] : undefined;
+  const { chapterContexts } = await getDraftInputs(book.id, targetKeys);
   const targetCount =
     chapterKeys && chapterKeys.length > 0
       ? chapterKeys.length

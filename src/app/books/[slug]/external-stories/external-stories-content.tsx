@@ -103,6 +103,9 @@ export async function ExternalStoriesContent({
           </div>
 
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}?stage=MANIFEST`}>
+              Review sources for Quill →
+            </Link>
             <Link className="btn" href={`/books/${slug}?stage=OUTLINE`}>
               Back to Outline
             </Link>

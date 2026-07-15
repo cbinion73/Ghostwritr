@@ -85,6 +85,17 @@ export async function ensureStageStarted(input: StageTransitionBaseInput) {
   return updated;
 }
 
+export async function reopenStageForRevision(input: StageTransitionBaseInput) {
+  const existing = await db.bookStage.findUnique({ where: { bookId_stageKey: { bookId: input.bookId, stageKey: input.stageKey } } });
+  if (!existing) return ensureStageStarted(input);
+  const updated = await db.bookStage.update({
+    where: { id: existing.id },
+    data: { status: StageStatus.IN_PROGRESS, committedAt: null, committedArtifactVersionId: null, ...(input.metadataJson !== undefined ? { metadataJson: input.metadataJson } : {}) },
+  });
+  await syncOperationalState({ ...input, stageId: updated.id, status: updated.status });
+  return updated;
+}
+
 export async function markStageReadyForReview(input: StageTransitionBaseInput) {
   const existing = await db.bookStage.findUnique({
     where: { bookId_stageKey: { bookId: input.bookId, stageKey: input.stageKey } },
@@ -113,6 +124,8 @@ export async function resetStageToNotStarted(input: StageTransitionBaseInput) {
     where: { bookId_stageKey: { bookId: input.bookId, stageKey: input.stageKey } },
     data: {
       status: StageStatus.NOT_STARTED,
+      committedAt: null,
+      committedArtifactVersionId: null,
       ...(input.metadataJson !== undefined ? { metadataJson: input.metadataJson } : {}),
     },
   });

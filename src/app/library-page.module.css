@@ -1,0 +1,71 @@
+.page {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  color: #ead9b9;
+  background:
+    radial-gradient(circle at 86% 8%, rgba(120, 55, 37, .24), transparent 28%),
+    radial-gradient(circle at 15% 32%, rgba(172, 116, 58, .08), transparent 32%),
+    #100c0a;
+}
+
+.ambient { position: fixed; inset: 0; pointer-events: none; opacity: .18; background-image: url("/textures/cloth-charcoal.jpg"); background-size: 260px; mix-blend-mode: soft-light; }
+.main { position: relative; z-index: 1; width: min(1540px, calc(100% - 64px)); margin: 0 auto; padding: 42px 0 90px; }
+
+.hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 42px; margin-bottom: 32px; padding: 0 5px 24px; border-bottom: 1px solid rgba(222,190,129,.14); }
+.kicker, .label { color: #a88758; font: 650 9px/1.2 ui-sans-serif, system-ui; letter-spacing: .19em; text-transform: uppercase; }
+.kicker { display: flex; align-items: center; gap: 9px; }
+.kicker span { width: 22px; height: 1px; background: #a88758; }
+.hero h1 { margin: 10px 0 8px; color: #f1dfbc; font: 500 clamp(42px, 4.6vw, 68px)/.9 "Baskerville", "Iowan Old Style", Georgia, serif; letter-spacing: -.035em; }
+.hero p { max-width: 630px; margin: 0; color: #81705d; font: italic 17px/1.55 "Iowan Old Style", Georgia, serif; }
+.collectionCount { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.collectionCount strong { color: #c49a59; font: 400 50px/.8 "Baskerville", Georgia, serif; }
+.collectionCount span { color: #75644f; font: 600 9px/1.45 ui-sans-serif, system-ui; letter-spacing: .13em; text-transform: uppercase; }
+
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: start; gap: 36px; }
+.commission { position: sticky; top: 76px; padding: 29px 27px 23px; overflow: hidden; color: #31261a; background: linear-gradient(135deg, #e9ddc4, #cbbb9d); box-shadow: 0 28px 70px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.55); clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%); }
+.commission::before { content: ""; position: absolute; inset: 0; opacity: .13; background-image: url("/textures/page-edge.jpg"); background-size: 90px; mix-blend-mode: multiply; pointer-events: none; }
+.folioTop { position: relative; display: flex; gap: 14px; align-items: center; padding-bottom: 21px; border-bottom: 1px solid rgba(67,47,27,.18); }
+.monogram { display: grid; place-items: center; width: 43px; height: 43px; flex-shrink: 0; border: 1px solid #8f6b3c; border-radius: 50%; color: #79572f; font: 600 11px Georgia, serif; }
+.commission .label { color: #86663e; font-size: 7px; }
+.commission h2 { margin: 5px 0 0; font: 600 20px/1.05 "Baskerville", Georgia, serif; }
+.invitation { position: relative; margin: 20px 0 23px; color: #6d5b45; font: italic 13px/1.55 Georgia, serif; }
+.form { position: relative; display: grid; gap: 15px; }
+.form label { display: grid; gap: 6px; }
+.form label > span { color: #765f43; font: 700 8px/1 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase; }
+.form input, .form select { width: 100%; box-sizing: border-box; padding: 10px 0 9px; border: 0; border-bottom: 1px solid rgba(70,48,25,.26); border-radius: 0; outline: none; color: #31261a; background: transparent; font: 14px Georgia, serif; }
+.form input:focus, .form select:focus { border-color: #8d5d25; }
+.form input::placeholder { color: #94836d; font-style: italic; }
+.form button { display: flex; justify-content: space-between; align-items: center; margin-top: 5px; padding: 13px 15px; border: 1px solid #3f2e1f; color: #f2dfbb; background: #332419; font: 650 10px ui-sans-serif, system-ui; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; transition: background 160ms, transform 160ms; }
+.form button:hover { background: #7e382b; transform: translateY(-1px); }
+.form button b { font-size: 16px; font-weight: 400; }
+.ideaLink { position: relative; display: block; margin-top: 18px; color: #735d42; font: italic 11px Georgia, serif; text-decoration: none; }
+.ideaLink:hover { color: #8f3f2d; }
+.folioNumber { position: relative; margin-top: 36px; padding-top: 10px; border-top: 1px solid rgba(67,47,27,.18); color: #9a8973; font: 700 6px ui-sans-serif, system-ui; letter-spacing: .17em; text-align: center; }
+
+.stacks { min-width: 0; }
+.sectionHead { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 1px 2px 18px; }
+.sectionHead h2 { margin: 7px 0 0; color: #deca9f; font: 500 28px/1 "Baskerville", Georgia, serif; }
+.sectionNote { color: #645646; font: italic 12px Georgia, serif; }
+.empty { min-height: 520px; display: grid; place-content: center; justify-items: center; padding: 50px; border: 1px solid rgba(218,188,128,.13); border-radius: 22px; background: radial-gradient(circle at center, rgba(180,119,59,.11), transparent 45%), #17100d; text-align: center; }
+.empty > span { color: #b68b4e; font-size: 25px; }
+.empty h2 { margin: 18px 0 8px; color: #e6d2ab; font: 500 30px Georgia, serif; }
+.empty p { max-width: 440px; margin: 0; color: #776754; font: italic 14px/1.5 Georgia, serif; }
+
+@media (max-width: 1050px) {
+  .layout { grid-template-columns: 1fr; }
+  .commission { position: relative; top: auto; display: grid; grid-template-columns: minmax(220px, .7fr) minmax(400px, 1.3fr); gap: 0 34px; }
+  .folioTop, .invitation, .ideaLink, .folioNumber { grid-column: 1; }
+  .form { grid-column: 2; grid-row: 1 / span 4; }
+}
+
+@media (max-width: 720px) {
+  .main { width: min(100% - 28px, 1540px); padding-top: 38px; }
+  .hero { align-items: flex-start; }
+  .hero p, .collectionCount span { display: none; }
+  .hero h1 { font-size: 48px; }
+  .collectionCount strong { font-size: 38px; }
+  .commission { display: block; }
+  .form { margin-top: 24px; }
+  .sectionNote { display: none; }
+}

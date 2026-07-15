@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { StageKey, StageStatus } from "@prisma/client";
 import type { StageGroup } from "@/lib/ui/stage-tokens";
+import { STAGE_STATE_DISPLAY } from "@/lib/ui/stage-tokens";
 import { StageNav } from "./stage-nav";
 import { AgentChatPanel } from "./agent-chat-panel";
 import { ChapterDraftBmadPanel } from "./chapter-draft-bmad-panel";
@@ -20,6 +21,7 @@ import { ReviewNotifier } from "./review-notifier";
 import { StageLiveFeed } from "./stage-live-feed";
 import { CollapsibleSidePanel } from "@/app/components/collapsible-side-panel";
 import type { MorningReport } from "@/lib/workflows/overnight-build";
+import styles from "./workspace-shell.module.css";
 
 export type WorkspaceStage = {
   key: StageKey;
@@ -38,6 +40,7 @@ interface WorkspaceShellProps {
   slug: string;
   bookTitle: string;
   bookSubtitle?: string | null;
+  coverImageUrl?: string | null;
   stages: WorkspaceStage[];
   groupKeys: StageGroup[];
   defaultStageKey: StageKey;
@@ -81,6 +84,7 @@ export function WorkspaceShell({
   slug,
   bookTitle,
   bookSubtitle,
+  coverImageUrl,
   stages,
   groupKeys,
   defaultStageKey,
@@ -125,6 +129,8 @@ export function WorkspaceShell({
   );
 
   const selectedStage = stages.find((s) => s.key === selectedKey) ?? stages[0];
+  const selectedState = selectedStage ? STAGE_STATE_DISPLAY[selectedStage.status] : null;
+  const journeyProgress = stages.length > 0 ? Math.round((totalCommitted / stages.length) * 100) : 0;
 
   // Poll while any stage is running (or an overnight build session is live,
   // so the Morning Report appears without a manual reload). router.refresh()
@@ -197,15 +203,62 @@ export function WorkspaceShell({
   }, [stages, selectStage]);
 
   return (
-    <div style={shellStyle}>
-      {/* ── Top bar ── */}
-      <div style={topBarStyle}>
-        {/* Left: library link + stage shortcuts + utility pages.
-            minWidth 0 + overflow lets this cluster shrink/scroll instead of
-            pushing the right cluster (progress/cost/Write-the-Book) off-screen. */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "nowrap", minWidth: 0, flex: 1, overflowX: "auto", scrollbarWidth: "none" }}>
-          <Link href="/" style={breadcrumbLinkStyle} title="Library">← Library</Link>
-          <span style={dividerStyle} />
+    <div className={styles.shell}>
+      <header className={styles.studioHeader}>
+        <div className={styles.bookBreadcrumb}>
+          <Link href="/" className={styles.libraryLink} title="Return to Library">
+            <span aria-hidden>‹</span>
+            <span>Library</span>
+          </Link>
+          <div className={styles.headerRule} />
+          <div className={styles.currentRoom}>
+            <span className={styles.roomKicker}>The {ROOM_NAMES[selectedStage?.key ?? "BOOK_SETUP"] ?? "Book"} Room</span>
+            <strong>{selectedStage?.label ?? "Book Studio"}</strong>
+            <small>{selectedStage?.description}</small>
+          </div>
+        </div>
+
+        <div className={styles.headerActions}>
+          <div className={styles.statusSeal} style={{ "--state-color": selectedState?.color ?? "#c9a24b" } as React.CSSProperties}>
+            <span>{selectedState?.shape}</span>
+            <div>
+              <small>Current state</small>
+              <strong>{selectedState?.label}</strong>
+            </div>
+          </div>
+          {hasRunning ? <span className={styles.runningPulse} title="An agent is working">Working</span> : null}
+          <div className={styles.progressMedallion} aria-label={`${journeyProgress}% of the book journey committed`}>
+            <span style={{ "--progress": `${journeyProgress * 3.6}deg` } as React.CSSProperties}>
+              <strong>{journeyProgress}%</strong>
+            </span>
+          </div>
+          <CostPaceBar slug={slug} />
+          <OvernightBuildControls slug={slug} active={overnightActive} />
+          <details className={styles.toolsMenu}>
+            <summary>Studio tools</summary>
+            <div className={styles.toolsPopover}>
+              <div className={styles.toolsTitle}>Book Studio</div>
+              {UTILITY_LINKS.map((utility) => (
+                <Link key={utility.href} href={`/books/${slug}${utility.href}`}>
+                  <span>{utility.label}</span><span aria-hidden>→</span>
+                </Link>
+              ))}
+              <div className={styles.toolsDivider} />
+              {totalCommitted > 0 ? <a href={`/api/books/${slug}/workspace-export?format=markdown`} download>Download working draft <span>↓</span></a> : null}
+              {stages.find((stage) => stage.key === "TYPESET")?.status === "COMMITTED" ? (
+                <>
+                  <a href={`/api/books/${slug}/workspace-export?format=docx`} download>Download Word edition <span>↓</span></a>
+                  <a href={`/api/books/${slug}/workspace-export?format=manuscript`} download>Download manuscript <span>↓</span></a>
+                </>
+              ) : null}
+            </div>
+          </details>
+        </div>
+      </header>
+
+      <nav className={styles.roomRail} aria-label="Book room shortcuts">
+        <span className={styles.railLabel}>Rooms</span>
+        <div className={styles.railScroll}>
           {NAV_SHORTCUTS.map((s) => {
             const stage = stages.find((st) => st.key === s.key);
             const isActive = selectedKey === s.key;
@@ -214,80 +267,22 @@ export function WorkspaceShell({
             return (
               <button
                 key={s.key}
-                style={navPillStyle(isActive, isLocked, isDone)}
+                className={`${styles.roomShortcut} ${isActive ? styles.roomShortcutActive : ""} ${isDone ? styles.roomShortcutDone : ""}`}
                 onClick={() => { if (!isLocked) selectStage(s.key as StageKey); }}
                 disabled={isLocked}
                 title={isLocked ? `${s.label} (locked)` : s.label}
               >
-                {isDone && !isActive ? <span style={{ marginRight: 3, opacity: 0.6 }}>✓</span> : null}
+                <span className={styles.shortcutDot}>{isDone ? "◆" : isActive ? "●" : "○"}</span>
                 {s.label}
               </button>
             );
           })}
-          <span style={dividerStyle} />
-          {UTILITY_LINKS.map((u) => (
-            <Link key={u.href} href={`/books/${slug}${u.href}`} style={utilityLinkStyle} title={u.label}>
-              {u.label}
-            </Link>
-          ))}
         </div>
-
-        {/* Right: progress + cost + export */}
-        <div style={progressStyle}>
-          {hasRunning && (
-            <span style={runningPulseStyle} title="Agent is working…">⟳</span>
-          )}
-          <span style={progressLabelStyle}>
-            {totalCommitted}/{stages.length} committed
-          </span>
-          <div style={progressTrackStyle}>
-            <div
-              style={{
-                ...progressFillStyle,
-                width: `${stages.length > 0 ? (totalCommitted / stages.length) * 100 : 0}%`,
-              }}
-            />
-          </div>
+        <div className={styles.railMeta}>
           <ActivityTicker slug={slug} />
-          <CostPaceBar slug={slug} />
-          <OvernightBuildControls slug={slug} active={overnightActive} />
-          {totalCommitted > 0 && (
-            <a
-              href={`/api/books/${slug}/workspace-export?format=markdown`}
-              download
-              style={exportBtnStyle}
-              title="Download draft as Markdown"
-            >
-              ↓ Draft
-            </a>
-          )}
-          {(() => {
-            const typesetStage = stages.find(s => s.key === "TYPESET");
-            const typesetCommitted = typesetStage?.status === "COMMITTED";
-            if (!typesetCommitted) return null;
-            return (
-              <>
-                <a
-                  href={`/api/books/${slug}/workspace-export?format=docx`}
-                  download
-                  style={docxBtnStyle}
-                  title="Download KDP-ready DOCX (Word)"
-                >
-                  ↓ DOCX
-                </a>
-                <a
-                  href={`/api/books/${slug}/workspace-export?format=manuscript`}
-                  download
-                  style={manuscriptBtnStyle}
-                  title="Download complete manuscript as Markdown"
-                >
-                  ↓ MD
-                </a>
-              </>
-            );
-          })()}
+          <span>{totalCommitted}/{stages.length} committed</span>
         </div>
-      </div>
+      </nav>
 
       {/* ── Morning Report (unacknowledged overnight-build digest) ── */}
       {morningReport && <MorningReportBanner slug={slug} report={morningReport} />}
@@ -301,11 +296,12 @@ export function WorkspaceShell({
       {selectedStage && <StageLiveFeed slug={slug} stageKey={selectedStage.key} />}
 
       {/* ── Body: sidebar + panels ── */}
-      <div style={bodyStyle}>
+      <div className={styles.body} data-stage={selectedStage?.key ?? "BOOK_SETUP"}>
         <StageNav
           slug={slug}
           title={bookTitle}
           subtitle={bookSubtitle}
+          coverImageUrl={coverImageUrl}
           items={stages}
           groupKeys={groupKeys}
           selectedKey={selectedKey}
@@ -779,6 +775,24 @@ export function WorkspaceShell({
 // ── Stage shortcuts shown in the top bar ─────────────────────────────────────
 // These are the stages authors actually navigate to. Everything else is
 // accessible via the sidebar when needed.
+const ROOM_NAMES: Partial<Record<StageKey, string>> = {
+  BOOK_SETUP: "Blueprint",
+  PROMISE: "Promise",
+  MARKET_ANALYSIS: "Market",
+  OUTLINE: "Architecture",
+  BASE_STORY: "Story",
+  RESEARCH: "Evidence",
+  EXTERNAL_STORIES: "Story Vault",
+  PERSONAL_STORIES: "Interview",
+  MANIFEST: "Cartography",
+  CHAPTER_DRAFT: "Writing",
+  FICTION_DRAFT: "Writing",
+  EDITING: "Editorial",
+  TYPESET: "Production",
+  AUDIO_PREP: "Audio",
+  COURSE_DESIGN: "Course",
+} as Partial<Record<StageKey, string>>;
+
 const NAV_SHORTCUTS: Array<{ key: string; label: string }> = [
   { key: "BOOK_SETUP",       label: "Setup"     },
   { key: "OUTLINE",          label: "Outline"   },
@@ -811,23 +825,30 @@ const shellStyle: React.CSSProperties = {
   height: "100vh",
   fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
   overflow: "hidden",
+  background: "#f1ece3",
+  color: "#30271f",
 };
 
 const topBarStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  padding: "10px 24px",
-  background: "#1a1410",
-  borderBottom: "1px solid rgba(255,255,255,0.06)",
+  minHeight: "58px",
+  padding: "8px 22px",
+  background: "linear-gradient(180deg, #17110e 0%, #100c0a 100%)",
+  borderBottom: "1px solid rgba(211,176,108,0.18)",
+  boxShadow: "0 9px 28px rgba(28,18,12,0.16)",
   flexShrink: 0,
   gap: "16px",
 };
 
 const breadcrumbLinkStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#8a7060",
+  fontSize: "10px",
+  color: "#c3a675",
   textDecoration: "none",
+  letterSpacing: "0.09em",
+  textTransform: "uppercase",
+  padding: "6px 8px 6px 0",
 };
 
 const progressStyle: React.CSSProperties = {
@@ -844,14 +865,16 @@ const runningPulseStyle: React.CSSProperties = {
 };
 
 const progressLabelStyle: React.CSSProperties = {
-  fontSize: "11px",
-  color: "#8a7060",
+  fontSize: "9px",
+  color: "#8e7a62",
   whiteSpace: "nowrap",
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
 };
 
 const progressTrackStyle: React.CSSProperties = {
   width: "120px",
-  height: "3px",
+  height: "2px",
   background: "rgba(255,255,255,0.08)",
   borderRadius: "2px",
   overflow: "hidden",
@@ -859,7 +882,8 @@ const progressTrackStyle: React.CSSProperties = {
 
 const progressFillStyle: React.CSSProperties = {
   height: "100%",
-  background: "#4a7c59",
+  background: "linear-gradient(90deg, #8e6435, #d2ad68)",
+  boxShadow: "0 0 8px rgba(210,173,104,0.45)",
   borderRadius: "2px",
   transition: "width 400ms ease",
 };
@@ -868,6 +892,10 @@ const bodyStyle: React.CSSProperties = {
   flex: 1,
   display: "flex",
   overflow: "hidden",
+  background: [
+    "radial-gradient(circle at 80% 0%, rgba(191,146,81,0.08), transparent 31%)",
+    "linear-gradient(135deg, #f5f0e8 0%, #ece5da 100%)",
+  ].join(", "),
 };
 
 const dividerStyle: React.CSSProperties = {
@@ -880,8 +908,8 @@ const dividerStyle: React.CSSProperties = {
 
 function navPillStyle(active: boolean, locked: boolean, done: boolean): React.CSSProperties {
   return {
-    padding: "3px 9px",
-    borderRadius: "4px",
+    padding: "6px 9px",
+    borderRadius: "999px",
     border: active
       ? "1px solid rgba(184,121,58,0.5)"
       : done
@@ -899,24 +927,27 @@ function navPillStyle(active: boolean, locked: boolean, done: boolean): React.CS
         : done
           ? "#6aaa83"
           : "#8a7060",
-    fontSize: "11px",
-    fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+    fontSize: "9px",
+    fontFamily: "ui-sans-serif, system-ui, sans-serif",
     cursor: locked ? "default" : "pointer",
     whiteSpace: "nowrap" as const,
-    fontWeight: active ? 600 : 400,
+    fontWeight: active ? 700 : 550,
+    letterSpacing: "0.035em",
     transition: "all 150ms ease",
     flexShrink: 0,
   };
 }
 
 const utilityLinkStyle: React.CSSProperties = {
-  fontSize: "11px",
+  fontSize: "9px",
   color: "#5a4a3a",
   textDecoration: "none",
   padding: "3px 6px",
   whiteSpace: "nowrap",
   flexShrink: 0,
-  fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif',
+  fontFamily: "ui-sans-serif, system-ui, sans-serif",
+  letterSpacing: "0.045em",
+  textTransform: "uppercase",
 };
 
 const exportBtnStyle: React.CSSProperties = {

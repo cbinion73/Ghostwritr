@@ -115,6 +115,9 @@ export async function EvidenceRoomContent({
           </div>
 
           <div className="button-row">
+            <Link className="btn" href={`/books/${slug}?stage=MANIFEST`}>
+              Review sources for Quill →
+            </Link>
             <Link className="btn" href={`/books/${slug}/outline`}>
               Back to Outline
             </Link>

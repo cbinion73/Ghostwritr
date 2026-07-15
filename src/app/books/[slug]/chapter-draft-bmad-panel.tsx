@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { StageKey, StageStatus } from "@prisma/client";
 import { ChapterLinkedNotes } from "./chapter-linked-notes";
+import styles from "./chapter-draft-bmad-panel.module.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -373,16 +374,17 @@ export function ChapterDraftBmadPanel({
   }
 
   return (
-    <div style={panelStyle}>
+    <div style={panelStyle} className={styles.writingRoom}>
       {/* Header */}
-      <div style={headerStyle}>
-        <div>
+      <div style={headerStyle} className={styles.masthead}>
+        <div className={styles.mastheadCopy}>
+          <div className={styles.eyebrow}>The Writing Room</div>
           <div style={titleStyle}>Chapter Draft</div>
           <div style={subtitleStyle}>
             {bookTitle} · {totalChapters} chapters
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <div className={styles.mastheadActions}>
           {generationRunning && (
             <span style={runningBadgeStyle}>
               <span style={spinnerStyle}>⟳</span> Durable job running…
@@ -440,16 +442,16 @@ export function ChapterDraftBmadPanel({
       </div>
 
       {/* Chapter list */}
-      <div style={listStyle}>
+      <div style={listStyle} className={styles.chapterShelf}>
         {chapters.map((chapter, idx) => {
           const isExpanded = expanded?.key === chapter.key;
           const mode = isExpanded ? expanded!.mode : null;
           const wordCount = chapter.content ? chapter.content.trim().split(/\s+/).length : 0;
           return (
-            <div key={chapter.key} style={chapterCardStyle(chapter.status)}>
+            <div key={chapter.key} style={chapterCardStyle(chapter.status)} className={styles.chapterFolio} data-status={chapter.status}>
               {/* Chapter row */}
-              <div style={chapterRowStyle}>
-                <div style={chapterNumStyle}>{idx + 1}</div>
+              <div style={chapterRowStyle} className={styles.chapterRow}>
+                <div style={chapterNumStyle} className={styles.chapterNumber}><span>Chapter</span>{idx + 1}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={chapterTitleStyle}>{chapter.title}</div>
                   {chapter.status === "drafting" && (
@@ -473,7 +475,7 @@ export function ChapterDraftBmadPanel({
                     <div style={errorTextStyle}>{chapter.errorMsg}</div>
                   )}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <div className={styles.chapterActions}>
                   <StatusPip status={chapter.status} />
                   {(chapter.status === "review" || chapter.status === "approved") && (
                     <>
@@ -546,7 +548,7 @@ export function ChapterDraftBmadPanel({
 
               {/* READ mode */}
               {isExpanded && mode === "read" && (
-                <div style={expandedContentStyle}>
+                <div style={expandedContentStyle} className={styles.manuscriptTray}>
                   {chapter.content
                     ? <ChapterReader content={chapter.content} />
                     : <div style={{ fontSize: 13, color: "#8a7a6a", fontStyle: "italic" }}>No content loaded — try regenerating this chapter.</div>
@@ -556,7 +558,7 @@ export function ChapterDraftBmadPanel({
 
               {/* EDIT mode */}
               {isExpanded && mode === "edit" && (
-                <div style={expandedContentStyle}>
+                <div style={expandedContentStyle} className={styles.manuscriptTray}>
                   <textarea
                     style={editTextareaStyle}
                     value={editDraft}
@@ -583,7 +585,7 @@ export function ChapterDraftBmadPanel({
 
               {/* REVISE mode */}
               {isExpanded && mode === "revise" && (
-                <div style={expandedContentStyle}>
+                <div style={expandedContentStyle} className={styles.manuscriptTray}>
                   <div style={{ fontSize: 12, color: "#6f6256", marginBottom: 8, fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif' }}>
                     Browser-side Quill revision has been retired. Use the durable workflow to regenerate this chapter, then make any surgical author edits with the Edit panel.
                   </div>
@@ -607,7 +609,7 @@ export function ChapterDraftBmadPanel({
 
               {/* NOTES mode — completeness issues flagged by validator */}
               {isExpanded && mode === "notes" && chapter.completenessNote && (
-                <div style={expandedContentStyle}>
+                <div style={expandedContentStyle} className={styles.manuscriptTray}>
                   <div style={{ fontSize: "12px", color: "#b07d2a", fontWeight: 600, marginBottom: "8px", fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif' }}>
                     ⚠ Quill flagged these gaps after drafting:
                   </div>
@@ -622,7 +624,7 @@ export function ChapterDraftBmadPanel({
 
               {/* BRAIN mode — the digital brain: research + external stories behind this committed chapter */}
               {isExpanded && mode === "brain" && (
-                <div style={expandedContentStyle}>
+                <div style={expandedContentStyle} className={styles.manuscriptTray}>
                   <ChapterLinkedNotes slug={slug} chapterKey={chapter.key} />
                 </div>
               )}
@@ -663,7 +665,7 @@ function StatusPip({ status }: { status: ChapterStatus }) {
 function ChapterReader({ content }: { content: string }) {
   const paragraphs = content.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
   return (
-    <div style={{ fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif', fontSize: 14, lineHeight: 1.75, color: "#2d241d" }}>
+    <div className={styles.manuscriptPage} style={{ fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif', fontSize: 14, lineHeight: 1.75, color: "#2d241d" }}>
       {paragraphs.map((p, i) => {
         if (/^#{1,3} /.test(p)) {
           const level = (p.match(/^(#+)/)?.[1].length ?? 1);

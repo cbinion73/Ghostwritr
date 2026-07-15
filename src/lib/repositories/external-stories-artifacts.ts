@@ -337,7 +337,7 @@ export async function createExternalStoryPackVersion(input: CreateExternalStoryP
           extractedTextPath: source.extractedTextPath
             ? stripNullChars(source.extractedTextPath)
             : undefined,
-          metadataJson: toJsonValue(source.metadata),
+          metadataJson: toJsonValue({ ...(source.metadata ?? {}), artifactSourceId: source.id }),
         },
       });
       sourceMap.set(source.id, created.id);
@@ -369,7 +369,11 @@ export async function createExternalStoryPackVersion(input: CreateExternalStoryP
           verificationStatus: story.verificationStatus as StoryVerificationStatus,
           mappedSectionId: story.mappedSectionId ?? undefined,
           mappedChapterId: story.mappedChapterId ?? undefined,
-          metadataJson: toJsonValue(story.metadata),
+          metadataJson: toJsonValue({
+            ...(story.metadata ?? {}),
+            artifactRecordId: story.id,
+            artifactSourceId: story.sourceId,
+          }),
         },
       });
       storyMap.set(story.id, created.id);

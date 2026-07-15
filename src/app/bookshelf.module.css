@@ -187,8 +187,10 @@
 .actions form { display: inline; }
 .actions button, .archive button { padding: 0; border: 0; color: #8f7a60; background: none; font: 600 9px/1.4 ui-sans-serif, system-ui; cursor: pointer; }
 .actions button:hover, .archive button:hover { color: #e0bc78; }
+.actions button:disabled { cursor: wait; opacity: .65; }
 .actions .danger:hover, .archive .danger:hover { color: #d67a72; }
 .hiddenInput { display: none; }
+.uploadError { flex-basis: 100%; margin: 2px 0 0; color: #e39186; font: 600 10px/1.35 ui-sans-serif, system-ui; text-align: center; }
 
 .archive { margin-top: 46px; overflow: hidden; border: 1px solid rgba(190,150,90,.18); border-radius: 5px 5px 16px 16px; background: rgba(9,6,5,.3); }
 .archiveHandle { width: 100%; min-height: 76px; display: flex; align-items: center; gap: 16px; padding: 14px 20px !important; color: #a9926f !important; text-align: left; border-bottom: 1px solid rgba(255,255,255,.04) !important; background: linear-gradient(180deg, rgba(100,57,31,.45), rgba(43,24,16,.5)) !important; }

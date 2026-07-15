@@ -8,12 +8,16 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 test("cover uploads have a framework envelope above the application limit", () => {
   const config = read("next.config.ts");
-  const action = read("src/app/actions.ts");
+  const route = read("src/app/api/books/[slug]/cover/route.ts");
   const library = read("src/app/bookshelf.tsx");
 
   assert.match(config, /serverActions:\s*\{[\s\S]*bodySizeLimit:\s*"9mb"/);
-  assert.match(action, /getCoverUploadError\(file\)/);
+  assert.match(route, /getCoverUploadError\(file\)/);
+  assert.match(route, /getBookHeaderBySlugForUserOrThrow\(slug, user\.id\)/);
+  assert.match(route, /MAX_COVER_MULTIPART_BYTES/);
   assert.match(library, /getCoverUploadError\(file\)/);
+  assert.match(library, /fetch\(`\/api\/books\/\$\{encodeURIComponent\(book\.slug\)\}\/cover`/);
+  assert.doesNotMatch(library, /action=\{uploadBookCoverAction\}/);
 });
 
 test("cover policy accepts ordinary images and rejects oversized or unsupported files", () => {

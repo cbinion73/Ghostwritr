@@ -1,7 +1,6 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { unlink } from "node:fs/promises";
 import path from "node:path";
 
 import { revalidatePath } from "next/cache";
@@ -17,9 +16,6 @@ import {
 } from "@/lib/repositories/books";
 import { db } from "@/lib/db";
 import { getDefaultBookWorkspaceHref } from "@/lib/workflow-registry";
-import { COVER_UPLOAD_EXTENSIONS, getCoverUploadError } from "@/lib/cover-upload-policy";
-
-const COVER_UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "covers");
 
 function parseWorkflowType(value: FormDataEntryValue | null) {
   return value === BookWorkflowType.FICTION ? BookWorkflowType.FICTION : BookWorkflowType.NONFICTION;
@@ -127,40 +123,6 @@ export async function cloneBookAction(formData: FormData) {
   const cloned = await cloneBookBySlug(source.slug);
   revalidatePath("/");
   redirect(getDefaultBookWorkspaceHref(cloned.workflowType, cloned.slug));
-}
-
-export async function uploadBookCoverAction(formData: FormData) {
-  const user = await requireAuthenticatedAppUser();
-  const slug = String(formData.get("slug") ?? "").trim();
-  const file = formData.get("cover");
-  if (!slug || !(file instanceof File) || file.size === 0) {
-    return;
-  }
-
-  const uploadError = getCoverUploadError(file);
-  if (uploadError) throw new Error(uploadError);
-  const ext = COVER_UPLOAD_EXTENSIONS[file.type];
-
-  await mkdir(COVER_UPLOAD_DIR, { recursive: true });
-  const filename = `${slug}-${randomUUID()}${ext}`;
-  const bytes = Buffer.from(await file.arrayBuffer());
-  await writeFile(path.join(COVER_UPLOAD_DIR, filename), bytes);
-
-  const book = await getBookBySlugForUserOrThrow(slug, user.id);
-  const existing = await db.book.findUnique({ where: { id: book.id }, select: { coverImageUrl: true } });
-  await db.book.update({
-    where: { id: book.id },
-    data: { coverImageUrl: `/uploads/covers/${filename}` },
-  });
-
-  if (existing?.coverImageUrl) {
-    const oldPath = path.join(process.cwd(), "public", existing.coverImageUrl);
-    await unlink(oldPath).catch(() => {
-      // Best-effort cleanup — a missing old file shouldn't block the new upload.
-    });
-  }
-
-  revalidatePath("/");
 }
 
 export async function removeBookCoverAction(formData: FormData) {

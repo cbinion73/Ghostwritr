@@ -8,7 +8,6 @@ import {
   deleteBookAction,
   removeBookCoverAction,
   restoreBookAction,
-  uploadBookCoverAction,
 } from "./actions";
 import styles from "./bookshelf.module.css";
 import { getCoverUploadError } from "@/lib/cover-upload-policy";
@@ -102,35 +101,57 @@ function BookCover({ book }: { book: ShelfBook }) {
 }
 
 function BookActions({ book }: { book: ShelfBook }) {
-  const coverFormRef = useRef<HTMLFormElement>(null);
+  const router = useRouter();
   const coverFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function uploadCover(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    if (!file || uploading) return;
+    const policyError = getCoverUploadError(file);
+    if (policyError) {
+      setUploadError(policyError);
+      input.value = "";
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.set("cover", file);
+      const response = await fetch(`/api/books/${encodeURIComponent(book.slug)}/cover`, {
+        method: "POST",
+        body: formData,
+      });
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(result?.error || `Cover upload failed (${response.status}).`);
+      router.refresh();
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Cover upload failed. Please try again.");
+    } finally {
+      setUploading(false);
+      input.value = "";
+    }
+  }
 
   return (
     <div className={styles.actions}>
-      <form ref={coverFormRef} action={uploadBookCoverAction}>
-        <input name="slug" type="hidden" value={book.slug} />
+      <div>
         <input
           ref={coverFileInputRef}
-          name="cover"
           type="file"
           accept="image/png,image/jpeg,image/webp"
           className={styles.hiddenInput}
           onChange={(event) => {
-            const file = event.currentTarget.files?.[0];
-            if (!file) return;
-            const uploadError = getCoverUploadError(file);
-            if (uploadError) {
-              window.alert(uploadError);
-              event.currentTarget.value = "";
-              return;
-            }
-            coverFormRef.current?.requestSubmit();
+            void uploadCover(event.currentTarget);
           }}
         />
-        <button type="button" onClick={() => coverFileInputRef.current?.click()}>
-          {book.coverImageUrl ? "Replace cover" : "Add cover"}
+        <button type="button" disabled={uploading} onClick={() => coverFileInputRef.current?.click()}>
+          {uploading ? "Uploading…" : book.coverImageUrl ? "Replace cover" : "Add cover"}
         </button>
-      </form>
+      </div>
       {book.coverImageUrl ? (
         <form action={removeBookCoverAction}>
           <input name="slug" type="hidden" value={book.slug} />
@@ -153,6 +174,7 @@ function BookActions({ book }: { book: ShelfBook }) {
           Discard
         </button>
       </form>
+      {uploadError ? <p className={styles.uploadError} role="alert">{uploadError}</p> : null}
     </div>
   );
 }

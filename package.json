@@ -19,7 +19,7 @@
     "qa:artifact-contracts": "tsx scripts/artifact-contract-regression.ts",
     "qa:autopilot": "tsx scripts/autopilot-regression.ts",
     "qa:editing-trust": "tsx scripts/editing-trust-regression.ts",
-    "qa:publication-pass": "tsx --test tests/publication-pass.test.ts",
+    "qa:publication-pass": "tsx --test tests/publication-pass.test.ts tests/chapter-integrity.test.ts",
     "qa:manuscript-length": "tsx scripts/manuscript-length-regression.ts",
     "qa:promise-phase2": "tsx scripts/promise-phase2-regression.ts",
     "qa:prod-runtime": "node tests/production-runtime-smoke.mjs",

@@ -316,6 +316,8 @@ export const ChapterDraftBundleSchema = z.object({
     externalStories: StringArraySchema,
     personalStories: StringArraySchema,
     baseStory: StringArraySchema,
+    researchItemIds: StringArraySchema,
+    externalStoryItemIds: StringArraySchema,
   }),
   quality: z
     .object({
@@ -332,6 +334,40 @@ export const ChapterDraftBundleSchema = z.object({
           }),
         )
         .default([]),
+      integrity: z
+        .object({
+          policyVersion: z.string(),
+          status: z.enum(["pass", "warn", "fail"]),
+          issues: z.array(z.object({
+            code: z.enum([
+              "UNTRACEABLE_SOURCE_ID",
+              "MISSING_SOURCE_TRACE",
+              "UNTRACEABLE_AUTHORITY",
+              "UNTRACEABLE_QUOTATION",
+              "UNTRACEABLE_NUMERIC_CLAIM",
+              "UNTRACEABLE_HISTORICAL_CLAIM",
+              "UNTRACEABLE_ORIGINAL_LANGUAGE",
+              "DUPLICATED_SENTENCE",
+              "STYLE_VIOLATION",
+            ]),
+            severity: z.enum(["blocker", "required", "recommended"]),
+            exactText: z.string(),
+            reason: z.string(),
+          })).default([]),
+          usedEvidenceIds: StringArraySchema,
+          namedAuthorities: StringArraySchema,
+          directQuotationCount: z.number().default(0),
+          originalLanguageCount: z.number().default(0),
+        })
+        .default({
+          policyVersion: "chapter-integrity-v1",
+          status: "warn",
+          issues: [],
+          usedEvidenceIds: [],
+          namedAuthorities: [],
+          directQuotationCount: 0,
+          originalLanguageCount: 0,
+        }),
     })
     .default({
       score: 0,
@@ -339,6 +375,15 @@ export const ChapterDraftBundleSchema = z.object({
       needsRevision: true,
       revisionPasses: 0,
       signals: [],
+      integrity: {
+        policyVersion: "chapter-integrity-v1",
+        status: "warn",
+        issues: [],
+        usedEvidenceIds: [],
+        namedAuthorities: [],
+        directQuotationCount: 0,
+        originalLanguageCount: 0,
+      },
     }),
 });
 

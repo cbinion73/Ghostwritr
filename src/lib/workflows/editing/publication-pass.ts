@@ -19,7 +19,7 @@ import { buildSourceDraftSignature } from "./revision-support";
 import { parseJson, parseJsonWithSchema } from "./workspace-support";
 import { ManuscriptAssemblySchema } from "./workspace-schemas";
 
-export const PUBLICATION_PASS_POLICY_VERSION = "publication-pass-v1";
+export const PUBLICATION_PASS_POLICY_VERSION = "publication-pass-v2";
 
 const PublicationPassCategorySchema = z.enum([
   "developmental",
@@ -179,12 +179,70 @@ function normalizeFindings(input: {
   return { findings, invalid };
 }
 
+function normalizedRepetitionKey(value: string) {
+  return value
+    .toLocaleLowerCase()
+    .replace(/[“”‘’'".,:;!?()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function findCrossChapterRepetition(
+  chapters: Array<{ chapterKey: string; chapterLabel: string; chapterText: string }>,
+) {
+  const firstUse = new Map<string, { chapterKey: string; chapterLabel: string; text: string }>();
+  const findings: PublicationPassFinding[] = [];
+
+  for (const chapter of chapters) {
+    const units = chapter.chapterText
+      .split(/\n\s*\n|(?<=[.!?])\s+/)
+      .map((value) => value.trim())
+      .filter((value) => value.split(/\s+/).length >= 16);
+    const seenInChapter = new Set<string>();
+    for (const unit of units) {
+      const key = normalizedRepetitionKey(unit);
+      if (!key || seenInChapter.has(key)) continue;
+      seenInChapter.add(key);
+      const prior = firstUse.get(key);
+      if (!prior) {
+        firstUse.set(key, { chapterKey: chapter.chapterKey, chapterLabel: chapter.chapterLabel, text: unit });
+        continue;
+      }
+      if (prior.chapterKey === chapter.chapterKey) continue;
+      const locator = paragraphLocator(chapter.chapterText, unit, chapter.chapterLabel);
+      if (!locator) continue;
+      findings.push({
+        id: hash(`cross-chapter-repetition:${prior.chapterKey}:${chapter.chapterKey}:${key}`),
+        chapterKey: chapter.chapterKey,
+        chapterLabel: chapter.chapterLabel,
+        locator,
+        category: "repetition",
+        severity: "recommended",
+        findThis: unit,
+        changeTo: null,
+        reason: `This passage repeats wording already used in ${prior.chapterLabel}. Decide whether the echo earns its place; otherwise compress, recast, or delete it.`,
+        sourceTitle: null,
+        sourceUrl: null,
+        confidence: "high",
+        disposition: "open",
+        resolutionNote: null,
+        adversarialNote: null,
+      });
+    }
+  }
+
+  return findings;
+}
+
 export function evaluatePublicationPassReport(
   report: PublicationPassReport | null,
   currentSourceDraftSignature: string,
 ) {
   if (!report) {
     return { status: "blocked" as const, blockers: ["A publication pass has not been run on the final manuscript."] };
+  }
+  if (report.policyVersion !== PUBLICATION_PASS_POLICY_VERSION) {
+    return { status: "stale" as const, blockers: ["The publication policy changed after this pass. Run it again."] };
   }
   if (report.sourceDraftSignature !== currentSourceDraftSignature) {
     return { status: "stale" as const, blockers: ["The manuscript changed after the publication pass. Run it again."] };
@@ -283,8 +341,16 @@ Rules:
 - Populate sourceTitle or sourceUrl only when that exact value already appears in the supplied chapter. The separate Citation Audit verifies current external evidence.
 - Use author-decision when truth depends on consent, identity, lived experience, or author intent.
 - A factual claim lacking evidence is needs-source work: explain that in reason; never mark it verified from memory.
+- Every named authority must have traceable evidence for the particular work, quotation, paraphrase, or claim attributed to that authority. A generic bibliography entry does not cure an unsupported anecdote or quotation.
+- Distinguish later traditions from first-century evidence, suggestive images from documented history, related but different historical practices from one another, and theological application from historical fact.
+- Treat exact dates, percentages, device-use figures, interruption findings, scientific mechanisms, biographical episodes, and attributed sayings as source-sensitive claims.
+- Audit both directions of the citation relationship: every authority used must be represented in the source record, and source material must not appear in a reader bibliography unless the final prose actually uses it.
+- For direct quotations, require exact wording, translation or edition where relevant, and a traceable source. Never repair an unverified quotation by merely removing quotation marks.
+- Do not let a citation conceal overstatement. Narrow the prose to what the source actually supports.
 - Give exact replacement text when safe. Use null when the author or a verified source must decide.
 - Greek or Hebrew should remain only where it materially advances the argument; correct morphology and transliteration.
+- Count and examine all non-English terms. Prefer a clear English sentence when the original language is ornamental rather than argumentative.
+- Read as a human reader as well as a copyeditor: flag repeated openings, repeated scenes, conclusion drag, over-explanation, and material that has already earned its point elsewhere.
 - Return no praise and no generic advice. Return only actionable findings grounded in the supplied prose.
           `),
           new HumanMessage(JSON.stringify({
@@ -317,6 +383,8 @@ Rules:
       invalidFindingCount += normalized.invalid;
     }
   }
+
+  findings.push(...findCrossChapterRepetition(manuscript.chapters));
 
   findings = [...new Map(findings.map((finding) => [
     `${finding.chapterKey}:${finding.category}:${finding.findThis.toLocaleLowerCase()}:${finding.changeTo ?? ""}`,

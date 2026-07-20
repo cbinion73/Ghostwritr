@@ -22,6 +22,7 @@ import { countWords } from "../../manuscript-metrics";
 import type { PersonalStoryEncyclopedia } from "../../personal-story-types";
 import type { Phase1StrategicBrief } from "../../phase1-strategic-brief";
 import type { PromiseBrief } from "../../promise-types";
+import type { ChapterEvidenceRecord } from "../../source-evidence-contract";
 import {
   getBookBySlugOrThrow,
   updateStageForBook,
@@ -43,6 +44,7 @@ import {
   hasMetaDraftLanguage,
   type SourceWeaveRequirements,
 } from "./execution-support";
+import { auditChapterDraftIntegrity } from "./integrity";
 import {
   enforceFinishedBookProse,
   generateDraft,
@@ -71,6 +73,7 @@ type DraftQualityAssessment = {
     detail: string;
   }>;
   concerns: string[];
+  integrity: ChapterDraftBundle["quality"]["integrity"];
 };
 
 function assessNonfictionDraftQuality(
@@ -85,6 +88,7 @@ function assessNonfictionDraftQuality(
   },
   context: ChapterContext,
   sourceWeaveFocus: SourceWeaveRequirements,
+  evidence: ChapterEvidenceRecord[],
 ): DraftQualityAssessment {
   const sourceCategoriesUsed = [
     draft.sourceUsage.research.length > 0,
@@ -111,7 +115,19 @@ function assessNonfictionDraftQuality(
   );
   const missingAvailableCategories: string[] = [];
   const concerns: string[] = [];
+  const integrity = auditChapterDraftIntegrity({ draft, evidence });
   let score = 100;
+
+  if (integrity.status === "fail") {
+    const blockingIssues = integrity.issues.filter(
+      (issue) => issue.severity === "blocker" || issue.severity === "required",
+    );
+    concerns.push(...blockingIssues.map((issue) => `${issue.reason} FIND THIS: ${issue.exactText}`));
+    score -= Math.min(40, blockingIssues.length * 12);
+  } else if (integrity.status === "warn") {
+    concerns.push(...integrity.issues.map((issue) => issue.reason));
+    score -= Math.min(15, integrity.issues.length * 5);
+  }
 
   if (chapterTarget) {
     if (draftWordCount < chapterTarget.minimumWords || draftWordCount > chapterTarget.maximumWords) {
@@ -300,15 +316,23 @@ function assessNonfictionDraftQuality(
           ? `${review.aiAuthorshipFlags.length} AI-authorship flag(s) still need attention.`
           : review.overallAssessment,
     },
+    {
+      label: "Publication integrity",
+      state: integrity.status === "pass" ? "pass" : integrity.status === "warn" ? "warn" : "fail",
+      detail: integrity.status === "pass"
+        ? `All used evidence IDs are admitted; ${integrity.namedAuthorities.length} named authority reference(s), ${integrity.directQuotationCount} direct quotation(s), and ${integrity.originalLanguageCount} original-language occurrence(s) cleared the continuous audit.`
+        : `${integrity.issues.length} source, quotation, authority, language, repetition, or style issue(s) require attention before bulk approval.`,
+    },
   ] as DraftQualityAssessment["signals"];
   const normalizedScore = Math.max(0, score);
 
   return {
     score: normalizedScore,
     readiness: normalizedScore >= 85 ? "strong" : normalizedScore >= 65 ? "watch" : "needs attention",
-    needsRevision: review.verdict === "needs_revision" || normalizedScore < 78,
+    needsRevision: integrity.status === "fail" || review.verdict === "needs_revision" || normalizedScore < 78,
     signals,
     concerns,
+    integrity,
   };
 }
 
@@ -328,6 +352,22 @@ async function generateSingleChapterDraftImpl(
     getCommittedExternalStoriesDossier(bookId, context.chapter.chapterId),
   ]);
   const baseStoryChapter = findBaseStoryChapter(baseStory, context.chapter.chapterId);
+  const contextReadiness = validateQuillContextReadiness({
+    phase1StrategicBrief,
+    context,
+    research,
+    externalStories,
+    personalStories,
+    baseStoryChapter,
+    bookSetupProfile,
+  });
+  if (!contextReadiness.ok) {
+    throw new Error(`Quill context is not ready for ${context.chapter.chapterTitle}: ${contextReadiness.issues.join(" ")}`);
+  }
+  const evidence = [
+    ...contextReadiness.packet.evidence.research,
+    ...contextReadiness.packet.evidence.externalStories,
+  ];
   const relevantPersonalStories = findPersonalStoryCards(
     personalStories,
     { chapterKey: context.chapter.chapterId, chapterTitle: context.chapter.chapterTitle },
@@ -373,6 +413,7 @@ async function generateSingleChapterDraftImpl(
     sourceAvailability,
     context,
     sourceWeaveFocus,
+    evidence,
   );
   let revisionPasses = 0;
 
@@ -412,6 +453,7 @@ async function generateSingleChapterDraftImpl(
       sourceAvailability,
       context,
       sourceWeaveFocus,
+      evidence,
     );
   }
 
@@ -436,6 +478,7 @@ async function generateSingleChapterDraftImpl(
     sourceAvailability,
     context,
     sourceWeaveFocus,
+    evidence,
   );
   const finalDraftWithQuality: ChapterDraftBundle = {
     ...polishedDraft,
@@ -445,6 +488,7 @@ async function generateSingleChapterDraftImpl(
       needsRevision: quality.needsRevision,
       revisionPasses,
       signals: quality.signals,
+      integrity: quality.integrity,
     },
   };
 
@@ -587,6 +631,10 @@ export async function expandSingleChapterDraftTowardTarget(params: {
       `Quill context is not ready for ${context.chapter.chapterTitle}: ${readiness.issues.join(" ")}`,
     );
   }
+  const evidence = [
+    ...readiness.packet.evidence.research,
+    ...readiness.packet.evidence.externalStories,
+  ];
   const relevantPersonalStories = findPersonalStoryCards(
     personalStories,
     { chapterKey: context.chapter.chapterId, chapterTitle: context.chapter.chapterTitle },
@@ -639,6 +687,7 @@ export async function expandSingleChapterDraftTowardTarget(params: {
     sourceAvailability,
     context,
     sourceWeaveFocus,
+    evidence,
   );
   const finalDraft: ChapterDraftBundle = {
     ...expandedDraft,
@@ -648,6 +697,7 @@ export async function expandSingleChapterDraftTowardTarget(params: {
       needsRevision: quality.needsRevision,
       revisionPasses: (latestDraft.quality?.revisionPasses ?? 0) + 1,
       signals: quality.signals,
+      integrity: quality.integrity,
     },
   };
 

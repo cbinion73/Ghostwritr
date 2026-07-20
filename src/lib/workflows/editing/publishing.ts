@@ -36,6 +36,7 @@ import {
   buildProvenanceReport,
   buildPublishingPackage,
 } from "./publishing-support";
+import { generatePublicationPassWorkflow } from "./publication-pass";
 
 export async function syncPublishDerivedArtifacts(params: {
   bookId: string;
@@ -204,6 +205,18 @@ export async function preparePublishingPackageWorkflow(
       revisionPlanExecution,
       refreshDerivedOnly: true,
     });
+  }
+
+  // Run the full publication-grade review automatically once ordinary
+  // editorial readiness says the manuscript is ready to commit. The pass is
+  // signature-cached, so repeated package refreshes do not pay for the same
+  // manuscript twice. Its independent findings remain author-resolvable in
+  // Editing and continue to gate final export.
+  if (
+    book.workflowType === BookWorkflowType.NONFICTION &&
+    editorialReadinessGate.recommendation === "ready_for_commit"
+  ) {
+    await generatePublicationPassWorkflow(bookSlug);
   }
 
   return publishingPackage;

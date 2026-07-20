@@ -4,6 +4,7 @@ import test from "node:test";
 import type { PublicationPassFinding, PublicationPassReport } from "../src/lib/editing-types";
 import {
   evaluatePublicationPassReport,
+  findCrossChapterRepetition,
   PublicationPassReportSchema,
 } from "../src/lib/workflows/editing/publication-pass";
 import {
@@ -35,7 +36,7 @@ function finding(overrides: Partial<PublicationPassFinding> = {}): PublicationPa
 
 function report(overrides: Partial<PublicationPassReport> = {}): PublicationPassReport {
   return {
-    policyVersion: "publication-pass-v1",
+    policyVersion: "publication-pass-v2",
     auditedAt: "2026-07-20T12:00:00.000Z",
     sourceDraftSignature: "sig-1",
     status: "ready",
@@ -96,4 +97,17 @@ test("Dust benchmark requires confirmed editorial categories and rejects invente
   const failing = scorePublicationPassBenchmark(report({ findings: benchmarkFindings }));
   assert.equal(failing.fabricatedSourceCount, 1);
   assert.equal(failing.passes, false);
+});
+
+test("publication pass catches exact prose repeated across different chapters", () => {
+  const repeated = "The dust was not the point because the dust was the visible evidence that the disciple had remained close.";
+  const findings = findCrossChapterRepetition([
+    { chapterKey: "ch-1", chapterLabel: "Chapter One", chapterText: `Opening thought. ${repeated}` },
+    { chapterKey: "ch-2", chapterLabel: "Chapter Two", chapterText: `A different opening. ${repeated}` },
+  ]);
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0]?.category, "repetition");
+  assert.equal(findings[0]?.chapterKey, "ch-2");
+  assert.match(findings[0]?.reason ?? "", /Chapter One/);
 });

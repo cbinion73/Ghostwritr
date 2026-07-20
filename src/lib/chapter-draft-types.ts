@@ -17,6 +17,33 @@ export type ChapterDraftQualitySummary = {
   needsRevision: boolean;
   revisionPasses: number;
   signals: ChapterDraftQualitySignal[];
+  integrity: ChapterDraftIntegritySummary;
+};
+
+export type ChapterDraftIntegrityIssue = {
+  code:
+    | "UNTRACEABLE_SOURCE_ID"
+    | "MISSING_SOURCE_TRACE"
+    | "UNTRACEABLE_AUTHORITY"
+    | "UNTRACEABLE_QUOTATION"
+    | "UNTRACEABLE_NUMERIC_CLAIM"
+    | "UNTRACEABLE_HISTORICAL_CLAIM"
+    | "UNTRACEABLE_ORIGINAL_LANGUAGE"
+    | "DUPLICATED_SENTENCE"
+    | "STYLE_VIOLATION";
+  severity: "blocker" | "required" | "recommended";
+  exactText: string;
+  reason: string;
+};
+
+export type ChapterDraftIntegritySummary = {
+  policyVersion: string;
+  status: "pass" | "warn" | "fail";
+  issues: ChapterDraftIntegrityIssue[];
+  usedEvidenceIds: string[];
+  namedAuthorities: string[];
+  directQuotationCount: number;
+  originalLanguageCount: number;
 };
 
 export type ChapterDraftBundle = {

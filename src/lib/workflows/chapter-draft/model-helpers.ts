@@ -361,6 +361,15 @@ function normalizeDraftResult(
       needsRevision: true,
       revisionPasses: 0,
       signals: [],
+      integrity: {
+        policyVersion: "chapter-integrity-v1",
+        status: "warn",
+        issues: [],
+        usedEvidenceIds: [],
+        namedAuthorities: [],
+        directQuotationCount: 0,
+        originalLanguageCount: 0,
+      },
     },
   };
 }
@@ -454,6 +463,14 @@ Citation trace (required):
 - in sourceUsage.researchItemIds, list the exact id of every research entry whose substance you actually used in the prose
 - in sourceUsage.externalStoryItemIds, list the exact id of every external story you actually told or referenced
 - copy ids verbatim; never invent ids; leave the arrays empty if you used none
+- every paragraph sourceNotes array must contain only the exact evidence item IDs used in that paragraph; never put prose descriptions in sourceNotes
+- do not name a scholar, historian, theologian, scientist, study, institution, book, report, or historical person unless that authority appears in the admitted evidence supplied for this chapter
+- do not create a historical anecdote, attributed saying, blessing, quotation, statistic, date, etymology, Greek/Hebrew claim, or scientific mechanism from memory
+- if admitted evidence does not support the exact statement you want to make, omit it or state the narrower supported claim
+- distinguish the author's theological interpretation from documented history
+- use direct quotation marks only when the quoted wording appears in the admitted supporting excerpt; otherwise paraphrase and preserve the evidence ID
+- keep Greek or Hebrew only when it materially advances the argument and admitted lexical or textual evidence supports the form, transliteration, and gloss
+- before returning the chapter, silently compare it with every standing craft note and remove any mistake the author has already corrected
       `,
           sharedContext,
           "1h",

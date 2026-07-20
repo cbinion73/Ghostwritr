@@ -742,6 +742,40 @@ export default async function ChapterDraftStagePage({
           )}
         </div>
 
+        {selected?.draft?.quality.integrity ? (
+          <div className="card">
+            <div className="label">Publication Integrity</div>
+            <h3 style={{ marginTop: 6 }}>
+              {selected.draft.quality.integrity.status === "pass"
+                ? "Evidence and Style Checks Passed"
+                : "Corrections Required"}
+            </h3>
+            <div className="stack" style={{ padding: 0 }}>
+              <div className="recommendation">
+                {selected.draft.quality.integrity.issues.length === 0
+                  ? "No unsupported claims, quotations, source traces, repetition, or prohibited style were detected."
+                  : `${selected.draft.quality.integrity.issues.length} exact issue${selected.draft.quality.integrity.issues.length === 1 ? "" : "s"} must be reviewed before bulk approval.`}
+              </div>
+              {selected.draft.quality.integrity.issues.length > 0 ? (
+                <ul className="clean-list">
+                  {selected.draft.quality.integrity.issues.map((issue, index) => (
+                    <li key={`${issue.code}-${issue.exactText}-${index}`}>
+                      <strong>{issue.severity.toUpperCase()}: {issue.code.replaceAll("_", " ")}</strong>
+                      <br />
+                      Find: “{issue.exactText}”
+                      <br />
+                      {issue.reason}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="muted">
+                Evidence records used: {selected.draft.quality.integrity.usedEvidenceIds.length} • Named authorities checked: {selected.draft.quality.integrity.namedAuthorities.length} • Direct quotations checked: {selected.draft.quality.integrity.directQuotationCount} • Original-language uses checked: {selected.draft.quality.integrity.originalLanguageCount}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="card">
           <div className="label">Reviewer Feedback</div>
           <h3 style={{ marginTop: 6 }}>Editorial Notes</h3>

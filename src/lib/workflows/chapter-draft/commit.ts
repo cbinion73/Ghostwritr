@@ -64,7 +64,10 @@ export async function commitAllChapterDraftsWorkflow(bookSlug: string) {
     // individually (an explicit human override) via commitChapterDraftWorkflow.
     if (latestVersion.lifecycleState !== ArtifactStatus.COMMITTED) {
       const latestDraft = parseArtifactWithSchema(latestVersion.contentJson, ChapterDraftBundleSchema);
-      if (latestDraft?.quality?.needsRevision) {
+      if (
+        latestDraft?.quality?.needsRevision ||
+        latestDraft?.quality?.integrity?.status !== "pass"
+      ) {
         needsRevisionChapterKeys.push(context.chapter.chapterId);
         continue;
       }

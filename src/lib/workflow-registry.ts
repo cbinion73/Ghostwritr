@@ -404,7 +404,7 @@ export const STAGE_OPERATIONAL_METADATA: Partial<
       ArtifactType.MANUSCRIPT_REVISION,
       ArtifactType.MANUSCRIPT_ASSEMBLY,
     ],
-    stageRoles: ["final-editor:assess", "final-editor:polish"],
+    stageRoles: ["final-editor:assess", "final-editor:polish", "publication-pass:specialist", "publication-pass:adjudicator"],
     approvalMode: "chapter",
     staleArtifactTypes: [ArtifactType.MANUSCRIPT_REVISION],
   },

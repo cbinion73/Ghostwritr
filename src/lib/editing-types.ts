@@ -142,6 +142,63 @@ export type EditorialReadinessGate = {
   nextActions: string[];
 };
 
+export type PublicationPassCategory =
+  | "developmental"
+  | "repetition"
+  | "copyedit"
+  | "theology"
+  | "history"
+  | "greek-hebrew"
+  | "scripture"
+  | "citation"
+  | "formatting"
+  | "author-decision";
+
+export type PublicationPassFinding = {
+  id: string;
+  chapterKey: string;
+  chapterLabel: string;
+  locator: string;
+  category: PublicationPassCategory;
+  severity: "blocker" | "required" | "recommended" | "advisory";
+  findThis: string;
+  changeTo: string | null;
+  reason: string;
+  sourceTitle: string | null;
+  sourceUrl: string | null;
+  confidence: "high" | "medium" | "low";
+  disposition: "open" | "resolved" | "accepted-risk" | "rejected";
+  resolutionNote: string | null;
+  adversarialNote: string | null;
+};
+
+export type PublicationPassReport = {
+  policyVersion: string;
+  auditedAt: string;
+  sourceDraftSignature: string;
+  status: "ready" | "needs-changes" | "blocked" | "stale";
+  modelStatus: "complete" | "specialist-unavailable" | "adjudicator-unavailable" | "partial";
+  adversarialReviewed: boolean;
+  summary: string;
+  findings: PublicationPassFinding[];
+  specialistPasses: Array<{
+    key: PublicationPassCategory;
+    label: string;
+    status: "pass" | "warn" | "fail";
+    findingCount: number;
+    summary: string;
+  }>;
+  styleSheet: {
+    voicePrinciples: string[];
+    capitalization: string[];
+    scripture: string[];
+    originalLanguages: string[];
+    citations: string[];
+  };
+  blockers: string[];
+  invalidFindingCount: number;
+};
+
 export type ManuscriptRevisionChange = {
   chapterKey: string;
   chapterLabel: string;

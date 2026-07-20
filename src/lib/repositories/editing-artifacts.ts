@@ -17,6 +17,7 @@ import { markFinalRevisionPending } from "./chapter-approval-state";
 
 type EditingArtifactType =
   | "EDITORIAL_ASSESSMENT"
+  | "EDITORIAL_REVIEW"
   | "MANUSCRIPT_REVISION"
   | "MANUSCRIPT_ASSEMBLY"
   | "PUBLISHING_PACKAGE"
@@ -46,6 +47,8 @@ function artifactLabel(type: EditingArtifactType) {
   switch (type) {
     case ArtifactType.EDITORIAL_ASSESSMENT:
       return "Editorial Assessment";
+    case ArtifactType.EDITORIAL_REVIEW:
+      return "Publication Pass";
     case ArtifactType.MANUSCRIPT_REVISION:
       return "Manuscript Revision";
     case ArtifactType.MANUSCRIPT_ASSEMBLY:

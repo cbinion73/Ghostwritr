@@ -71,6 +71,8 @@ export type StageRole =
   | "length-adjustment:author"
   | "final-editor:assess"
   | "final-editor:polish"
+  | "publication-pass:specialist"
+  | "publication-pass:adjudicator"
   | "manifest:generate"
   | "typeset:plan"
   | "launch:listing"
@@ -99,6 +101,8 @@ const ROLE_OUTPUT_TOKENS: Partial<Record<StageRole, number>> = {
   "chapter-draft:revise":  16000,
   "final-editor:assess":   16000,
   "final-editor:polish":   16000,
+  "publication-pass:specialist": 16000,
+  "publication-pass:adjudicator": 16000,
   "fiction:draft":         16000,
   "base-story:author":     12000,
   "manifest:generate":     16000,
@@ -162,6 +166,8 @@ const DEFAULT_ROUTING: Record<StageRole, string> = {
   "length-adjustment:author": "anthropic:claude-sonnet-4-6",
   "final-editor:assess": "anthropic:claude-sonnet-4-6",  // full manuscript audit — analytical, Sonnet sufficient
   "final-editor:polish": "anthropic:claude-opus-4-8",    // prose revision of specific chapters — Opus quality justified
+  "publication-pass:specialist": "anthropic:claude-opus-4-8", // publication-grade chapter audit
+  "publication-pass:adjudicator": "openai:gpt-5.4", // independent family challenges proposed corrections
   "manifest:generate": "anthropic:claude-haiku-4-5-20251001",  // classification task — Haiku is sufficient, ~4x cheaper than Sonnet
   "typeset:plan": "openai:gpt-5.4-mini",  // web search for current KDP/B&N specs — search capability matters, not reasoning depth
   "launch:listing":   "openai:gpt-5.4-mini",   // web search for current KDP categories/keyword trends
@@ -203,6 +209,18 @@ export function assertIndependentSourceVerificationRouting() {
     );
   }
   return { adversarial, researchVerifier };
+}
+
+export function assertIndependentPublicationPassRouting() {
+  const specialist = resolveModelSpec("publication-pass:specialist");
+  const adjudicator = resolveModelSpec("publication-pass:adjudicator");
+  const provider = (spec: string) => spec.split(":", 1)[0];
+  if (provider(specialist) === provider(adjudicator)) {
+    throw new Error(
+      "Publication Pass adjudication must use a different provider family from the specialist audit.",
+    );
+  }
+  return { specialist, adjudicator };
 }
 
 /**

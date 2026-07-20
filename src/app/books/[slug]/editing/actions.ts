@@ -14,9 +14,11 @@ import {
   executeEditorialRevisionPlanWorkflow,
   generateEditorialAssessmentWorkflow,
   generateManuscriptRevisionWorkflow,
+  generatePublicationPassWorkflow,
   generateSuggestedRevisionFromConversationWorkflow,
   preparePublishingPackageWorkflow,
   rejectManuscriptRevisionWorkflow,
+  resolvePublicationPassFindingWorkflow,
   sendEditingMessageWorkflow,
   updateEditorialPreferencesWorkflow,
 } from "@/lib/workflows/editing-public";
@@ -27,6 +29,25 @@ export async function assembleManuscript(slug: string) {
   await assembleManuscriptWorkflow(slug);
   revalidatePath(`/books/${slug}`);
   revalidatePath(`/books/${slug}/dashboard`);
+}
+
+export async function generatePublicationPass(slug: string) {
+  await generatePublicationPassWorkflow(slug);
+  revalidatePath(`/books/${slug}`);
+  revalidatePath(`/books/${slug}/publish`);
+}
+
+export async function resolvePublicationPassFinding(slug: string, formData: FormData) {
+  const findingId = String(formData.get("findingId") ?? "").trim();
+  const disposition = String(formData.get("disposition") ?? "resolved") as
+    | "resolved"
+    | "accepted-risk"
+    | "rejected";
+  const resolutionNote = String(formData.get("resolutionNote") ?? "").trim();
+  if (!findingId) return;
+  await resolvePublicationPassFindingWorkflow(slug, findingId, disposition, resolutionNote);
+  revalidatePath(`/books/${slug}`);
+  revalidatePath(`/books/${slug}/publish`);
 }
 
 export async function commitEditingStage(slug: string) {

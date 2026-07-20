@@ -31,6 +31,11 @@ import {
   parseJson,
   parseJsonWithSchema,
 } from "./workspace-support";
+import { buildSourceDraftSignature } from "./revision-support";
+import {
+  evaluatePublicationPassReport,
+  PublicationPassReportSchema,
+} from "./publication-pass";
 
 // 8.2e2a workspace extraction map.
 //
@@ -141,6 +146,10 @@ export async function getEditingWorkspace(bookSlug: string) {
     ArtifactType.EDITORIAL_ASSESSMENT,
     5,
   );
+  const publicationPassVersion = await getLatestEditingArtifactVersion(
+    book.id,
+    ArtifactType.EDITORIAL_REVIEW,
+  );
   // Every "Generate Revision" click for any chapter shares one Artifact row
   // and appends a new version, so a small take limit here silently drops
   // older chapters' revisions from the queue once enough other chapters get
@@ -169,6 +178,14 @@ export async function getEditingWorkspace(bookSlug: string) {
   const latestAssessment = parseJsonWithSchema(
     assessmentVersions[0]?.contentJson,
     EditorialAssessmentSchema,
+  );
+  const publicationPass = parseJsonWithSchema(
+    publicationPassVersion?.contentJson,
+    PublicationPassReportSchema,
+  );
+  const publicationPassEvaluation = evaluatePublicationPassReport(
+    publicationPass,
+    manuscriptAssembly ? buildSourceDraftSignature(manuscriptAssembly.chapters) : "",
   );
   const suggestedRevisionTarget = parseJsonWithSchema(
     metadata.suggestedRevisionTarget,
@@ -296,6 +313,8 @@ export async function getEditingWorkspace(bookSlug: string) {
     provenanceReport,
     marketingHandoffPackage,
     latestAssessment,
+    publicationPass,
+    publicationPassEvaluation,
     manuscriptHistory,
     publishingHistory,
     revisionQueue: revisions,

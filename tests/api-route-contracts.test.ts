@@ -170,7 +170,7 @@ test("source and citation mutation routes are bounded, ownership scoped, and sta
   }
 });
 
-test("every final manuscript route executes the shared citation gate before document generation", () => {
+test("every final manuscript route executes citation and publication-pass gates before document generation", () => {
   for (const routePath of [
     "src/app/api/books/[slug]/manuscript-export/route.ts",
     "src/app/api/books/[slug]/publish-package/route.ts",
@@ -179,11 +179,14 @@ test("every final manuscript route executes the shared citation gate before docu
     const source = read(routePath);
     const gate = source.indexOf("requirePublicationCitationReady");
     assert.ok(gate >= 0, `${routePath} must execute the shared citation gate`);
+    const publicationPassGate = source.indexOf("requirePublicationPassReady");
+    assert.ok(publicationPassGate >= 0, `${routePath} must execute the shared Publication Pass gate`);
     const firstGenerator = Math.min(...["buildKdpDocx", "buildKdpPdfFromHtml", "buildManuscriptMarkdown", "writeFile("]
       .map((needle) => source.indexOf(needle, gate + 1))
       .filter((index) => index >= 0));
     assert.ok(Number.isFinite(firstGenerator), `${routePath} must generate an output after the gate`);
     assert.ok(gate < firstGenerator, `${routePath} must gate before output generation`);
+    assert.ok(publicationPassGate < firstGenerator, `${routePath} must run Publication Pass gate before output generation`);
     assert.ok(source.includes('searchParams.get("mode") === "proof"'), `${routePath} must require explicit proof mode`);
   }
 });

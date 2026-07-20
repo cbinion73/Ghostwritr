@@ -31,6 +31,7 @@ import { getLatestEditingArtifactVersion } from "@/lib/repositories/editing-arti
 import { ArtifactType } from "@prisma/client";
 import { generateBibliography } from "@/lib/workflows/bibliography-generator";
 import { buildPublicationProofMetadata, requirePublicationCitationReady } from "@/lib/publication-citation-gate";
+import { requirePublicationPassReady } from "@/lib/publication-pass-gate";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,6 +50,7 @@ export async function GET(
     const book = await getBookHeaderBySlugForUserOrThrow(slug, user.id);
     const proofMode = new URL(_request.url).searchParams.get("mode") === "proof";
     const citationGate = await requirePublicationCitationReady(book.id, proofMode);
+    const publicationPassGate = await requirePublicationPassReady(book.id, proofMode);
     const payload = await buildManuscriptExportPayload(slug);
     const { plan } = await buildTypesetPlanInput(slug);
     const publishingPackage = await getLatestPublishingPackage(slug);
@@ -56,7 +58,7 @@ export async function GET(
       ? await generateBibliography(book.id, payload.title)
       : { citations: [] as string[], html: `<!doctype html><html><body><h1>${citationGate.proofNotice}</h1></body></html>`, report: { generatedAt: new Date().toISOString(), citations: [] as string[], sourceCount: 0, incompleteCitations: citationGate.blockers.map((detail) => ({ severity: "fail" as const, chapterKey: "publication", chapterLabel: "Publication", detail })) } };
     payload.bibliography = bibliography.citations;
-    payload.proofNotice = citationGate.proofNotice;
+    payload.proofNotice = [citationGate.proofNotice, publicationPassGate.proofNotice].filter(Boolean).join(" · ") || null;
     const [provenanceVersion, marketingVersion] = await Promise.all([
       getLatestEditingArtifactVersion(book.id, ArtifactType.PROVENANCE_REPORT),
       getLatestEditingArtifactVersion(book.id, ArtifactType.MARKETING_HANDOFF_PACKAGE),
@@ -65,7 +67,7 @@ export async function GET(
     const html = buildManuscriptHtml(payload);
     const interiorHtml = buildTypesetInteriorHtml(payload, plan);
     const printCss = buildPrintStylesheet(plan);
-    const publicationMetadata = buildPublicationProofMetadata({ ready: citationGate.ready, proofOnly: citationGate.proofOnly, proofNotice: citationGate.proofNotice, citationStyle: citationGate.citationStyle, ledgerFingerprint: citationGate.ledger?.ledgerFingerprint, bibliography: bibliography.citations });
+    const publicationMetadata = buildPublicationProofMetadata({ ready: citationGate.ready && publicationPassGate.ready, proofOnly: citationGate.proofOnly || publicationPassGate.proofOnly, proofNotice: payload.proofNotice, citationStyle: citationGate.citationStyle, ledgerFingerprint: citationGate.ledger?.ledgerFingerprint, bibliography: bibliography.citations });
     const layoutManifest = { ...buildTypesetLayoutManifest(payload, plan), ...publicationMetadata };
     const coverBrief = buildCoverBrief(payload, plan);
     const distributionManifest = { ...buildDistributionManifest(payload, plan), ...publicationMetadata };
@@ -117,6 +119,8 @@ export async function GET(
       interiorHtml,
       includedFiles,
       pdfRendered: true,
+      publicationPassReady: publicationPassGate.ready,
+      publicationPassBlockers: publicationPassGate.blockers,
     });
 
     await mkdir(bundleDir, { recursive: true });
@@ -246,21 +250,21 @@ export async function GET(
       "utf8",
     );
 
-    const zipPath = join(tempDir, `${filenameBase}${citationGate.proofOnly ? "-PROOF-ONLY" : ""}-publish-package.zip`);
+    const zipPath = join(tempDir, `${filenameBase}${publicationMetadata.proofOnly ? "-PROOF-ONLY" : ""}-publish-package.zip`);
     await execFileAsync("zip", ["-qjr", zipPath, bundleDir]);
     const zipBuffer = await readFile(zipPath);
 
     return new Response(new Uint8Array(zipBuffer), {
       headers: {
         "content-type": "application/zip",
-        "content-disposition": contentDisposition(`${filenameBase}${citationGate.proofOnly ? "-PROOF-ONLY" : ""}-publish-package.zip`),
+        "content-disposition": contentDisposition(`${filenameBase}${publicationMetadata.proofOnly ? "-PROOF-ONLY" : ""}-publish-package.zip`),
       },
     });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to export publish package.";
     const status =
-      /required before manuscript export|No chapter drafts exist yet|PUBLICATION_CITATION_BLOCKED/i.test(message) ? 409 : 500;
+      /required before manuscript export|No chapter drafts exist yet|PUBLICATION_(?:CITATION|PASS)_BLOCKED/i.test(message) ? 409 : 500;
     return new Response(message, { status });
   } finally {
     await rm(tempDir, { recursive: true, force: true });

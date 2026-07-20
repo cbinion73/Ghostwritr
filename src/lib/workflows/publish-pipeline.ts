@@ -15,6 +15,13 @@ import { isLikelyGarbageChapterContent } from "@/lib/repositories/artifact-lifec
 import { getArtifactChapterId } from "@/lib/repositories/chapter-identity";
 import type { BookFormatTarget } from "@/lib/book-setup-types";
 import type { ParagraphOutline } from "@/lib/paragraph-outline-types";
+import { getLatestEditingArtifactVersion } from "@/lib/repositories/editing-artifacts";
+import { buildSourceDraftSignature } from "@/lib/workflows/editing/revision-support";
+import {
+  evaluatePublicationPassReport,
+  PublicationPassReportSchema,
+} from "@/lib/workflows/editing/publication-pass";
+import { ManuscriptAssemblySchema } from "@/lib/workflows/editing/workspace-schemas";
 
 export type ValidationLevel = "error" | "warning" | "notice";
 
@@ -234,6 +241,22 @@ export async function getPublishPipelineData(slug: string): Promise<PublishPipel
       code: "EDITING_NOT_COMMITTED",
       message:
         "Reed's editing stage is not committed. The manuscript has not received a final editorial pass.",
+    });
+  }
+
+  const manuscriptAssemblyVersion = await getLatestEditingArtifactVersion(book.id, ArtifactType.MANUSCRIPT_ASSEMBLY);
+  const manuscriptAssembly = ManuscriptAssemblySchema.safeParse(manuscriptAssemblyVersion?.contentJson).data ?? null;
+  const publicationPassVersion = await getLatestEditingArtifactVersion(book.id, ArtifactType.EDITORIAL_REVIEW);
+  const publicationPass = PublicationPassReportSchema.safeParse(publicationPassVersion?.contentJson).data ?? null;
+  const publicationPassGate = evaluatePublicationPassReport(
+    publicationPass,
+    manuscriptAssembly ? buildSourceDraftSignature(manuscriptAssembly.chapters) : "",
+  );
+  if (publicationPassGate.status !== "ready") {
+    validation.push({
+      level: "error",
+      code: "PUBLICATION_PASS_NOT_READY",
+      message: `Final downloads are locked until the current manuscript passes specialist and independent adversarial review. ${publicationPassGate.blockers.join(" ")}`,
     });
   }
 

@@ -7,6 +7,11 @@ export {
 } from "./editing/assessment";
 
 export {
+  generatePublicationPassWorkflow,
+  resolvePublicationPassFindingWorkflow,
+} from "./editing/publication-pass";
+
+export {
   applyManuscriptRevisionWorkflow,
   executeEditorialRevisionPlanWorkflow,
   generateEditorialRevisionPlanWorkflow,

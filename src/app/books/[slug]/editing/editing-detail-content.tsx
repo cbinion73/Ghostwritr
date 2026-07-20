@@ -3,6 +3,8 @@ import {
   commitEditingStage,
   expandDraftTowardTarget,
   generateEditorialAssessment,
+  generatePublicationPass,
+  resolvePublicationPassFinding,
   updateEditorialPreferences,
 } from "./actions";
 
@@ -18,9 +20,10 @@ import styles from "./editing-detail-content.module.css";
  * Book Studio (rendered as the EDITING stage slot) and the retired
  * standalone view. Server component: fetches the editing workspace itself.
  *
- * Redesigned 2026-07-08 around three explicit steps at three explicit cost
+ * Redesigned around four explicit steps with explicit cost and trust boundaries:
  * tiers: Assemble (free, deterministic) -> Assess (Sonnet, whole-book read)
- * -> Revise & Polish (Opus, one chapter at a time — matching the Chapter
+ * -> Revise & Polish (Opus, one chapter at a time) -> Publication Pass
+ * (chapter specialist plus independent-provider adjudication — matching the Chapter
  * Draft pattern: read the proposed rewrite, Apply or Reject it yourself,
  * rather than an opaque "run the full loop" auto-apply button). Everything
  * that isn't one of those three steps (draft-quality dashboards, manuscript
@@ -126,6 +129,7 @@ export async function EditingDetailContent({
           <div data-complete={Boolean(workspace.manuscriptAssembly)}><span>01</span><strong>Assemble</strong><small>Deterministic · Free</small></div>
           <div data-complete={Boolean(workspace.latestAssessment)}><span>02</span><strong>Assess</strong><small>Whole-book read · Sonnet</small></div>
           <div data-complete={false}><span>03</span><strong>Revise &amp; Polish</strong><small>Chapter approval · Opus</small></div>
+          <div data-complete={workspace.publicationPassEvaluation.status === "ready"}><span>04</span><strong>Publication Pass</strong><small>Specialist + adversarial review</small></div>
         </div>
 
         <details className={styles.preferences} style={{ marginTop: 4 }}>
@@ -232,13 +236,81 @@ export async function EditingDetailContent({
                 className="btn btn-primary"
                 label="Commit Editing Stage"
                 pendingLabel="Committing…"
-                disabled={!workspace.manuscriptAssembly}
+                disabled={!workspace.manuscriptAssembly || workspace.publicationPassEvaluation.status !== "ready"}
               />
             </form>
             <a className="btn" href={`/books/${slug}?stage=TYPESET`}>
               Open Typeset →
             </a>
           </div>
+        </section>
+
+        <section className="glass-panel section-panel" style={{ marginTop: 18 }}>
+          <div className="section-header">
+            <div>
+              <div className={styles.deskEyebrow}>Final evidence gate</div>
+              <h3>Publication Pass</h3>
+              <div className="muted">
+                Audits the current manuscript chapter by chapter, validates exact FIND THIS anchors,
+                and sends every proposed correction to an independent adjudicator. Any prose change
+                makes this report stale.
+              </div>
+            </div>
+            <form action={generatePublicationPass.bind(null, slug)}>
+              <SubmitButton
+                className="btn btn-primary"
+                label={workspace.publicationPass ? "Run Publication Pass Again" : "Run Publication Pass"}
+                pendingLabel="Auditing every chapter…"
+                disabled={!workspace.manuscriptAssembly || hasPendingRevision}
+              />
+            </form>
+          </div>
+
+          <div className="card" style={{ marginTop: 12 }}>
+            <strong>Status: {workspace.publicationPassEvaluation.status.replace("-", " ")}</strong>
+            {workspace.publicationPass?.summary ? <div className="muted" style={{ marginTop: 6 }}>{workspace.publicationPass.summary}</div> : null}
+            {workspace.publicationPassEvaluation.blockers.length > 0 ? (
+              <ul className="clean-list" style={{ marginTop: 10 }}>
+                {workspace.publicationPassEvaluation.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+              </ul>
+            ) : null}
+          </div>
+
+          {workspace.publicationPass ? (
+            <>
+              <div className="stack" style={{ padding: 0, marginTop: 12 }}>
+                {workspace.publicationPass.specialistPasses.map((pass) => (
+                  <div className="card" key={pass.key}>
+                    <strong>{pass.status === "pass" ? "✓" : pass.status === "fail" ? "✕" : "!"} {pass.label}</strong>
+                    <div className="muted">{pass.summary}</div>
+                  </div>
+                ))}
+              </div>
+
+              {workspace.publicationPass.findings.filter((finding) => finding.disposition === "open").map((finding) => (
+                <details className="card" key={finding.id} style={{ marginTop: 10 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                    {finding.severity.toUpperCase()} · {finding.locator} · {finding.category}
+                  </summary>
+                  <div style={{ marginTop: 10 }}><strong>FIND THIS</strong><div>{finding.findThis}</div></div>
+                  <div style={{ marginTop: 10 }}><strong>CHANGE TO</strong><div>{finding.changeTo ?? "Author or verified source must decide."}</div></div>
+                  <div className="muted" style={{ marginTop: 10 }}>{finding.reason}</div>
+                  {finding.sourceTitle ? <div className="muted" style={{ marginTop: 6 }}>Source: {finding.sourceTitle}{finding.sourceUrl ? ` — ${finding.sourceUrl}` : ""}</div> : null}
+                  {finding.adversarialNote ? <div className="muted" style={{ marginTop: 6 }}>Adjudicator: {finding.adversarialNote}</div> : null}
+                  <form action={resolvePublicationPassFinding.bind(null, slug)} className="stack" style={{ padding: 0, marginTop: 12 }}>
+                    <input type="hidden" name="findingId" value={finding.id} />
+                    <select name="disposition" defaultValue="resolved">
+                      <option value="resolved">Resolved in manuscript</option>
+                      <option value="accepted-risk">Accept with author rationale</option>
+                      <option value="rejected">Reject this finding</option>
+                    </select>
+                    <input name="resolutionNote" required placeholder="Record the evidence or author decision" />
+                    <SubmitButton label="Record resolution" pendingLabel="Recording…" />
+                  </form>
+                </details>
+              ))}
+            </>
+          ) : null}
         </section>
       </main>
     </div>

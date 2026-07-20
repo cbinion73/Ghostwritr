@@ -21,6 +21,8 @@ type BuildTypesetPreflightInput = {
   interiorHtml: string;
   includedFiles: string[];
   pdfRendered: boolean;
+  publicationPassReady?: boolean;
+  publicationPassBlockers?: string[];
 };
 
 function check(name: string, status: TypesetPreflightCheck["status"], detail: string): TypesetPreflightCheck {
@@ -53,6 +55,18 @@ export function buildTypesetPreflightReport(input: BuildTypesetPreflightInput): 
       `${input.payload.draftedChapterCount}/${input.payload.chapterCount} canonical final chapters are present.`,
     ),
   );
+
+  if (typeof input.publicationPassReady === "boolean") {
+    checks.push(
+      check(
+        "Publication Pass",
+        input.publicationPassReady ? "pass" : "fail",
+        input.publicationPassReady
+          ? "The current manuscript passed specialist and independent adversarial review."
+          : input.publicationPassBlockers?.join(" ") || "The Publication Pass is incomplete or stale.",
+      ),
+    );
+  }
 
   checks.push(
     check(

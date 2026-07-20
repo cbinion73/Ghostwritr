@@ -7,6 +7,7 @@ import { buildManuscriptExportPayload, buildTypesetPlanInput } from "@/lib/manus
 import { buildManuscriptMarkdown, sanitizeManuscriptFilename } from "@/lib/manuscript-document";
 import { getBookHeaderBySlugForUserOrThrow } from "@/lib/repositories/books";
 import { requirePublicationCitationReady } from "@/lib/publication-citation-gate";
+import { requirePublicationPassReady } from "@/lib/publication-pass-gate";
 import { generateBibliography } from "@/lib/workflows/bibliography-generator";
 
 export const runtime = "nodejs";
@@ -75,7 +76,12 @@ export async function GET(
   const url = new URL(req.url);
   const format: string = url.searchParams.get("format") ?? "markdown";
   let citationGate;
-  try { citationGate = await requirePublicationCitationReady(book.id, url.searchParams.get("mode") === "proof"); }
+  let publicationPassGate;
+  try {
+    const proofMode = url.searchParams.get("mode") === "proof";
+    citationGate = await requirePublicationCitationReady(book.id, proofMode);
+    publicationPassGate = await requirePublicationPassReady(book.id, proofMode);
+  }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Publication is blocked." }, { status: 409 }); }
 
   const title = book.titleWorking ?? "Untitled Book";
@@ -93,7 +99,7 @@ export async function GET(
     const payload = await buildManuscriptExportPayload(slug);
     const bibliography = citationGate.ledger ? await generateBibliography(book.id, payload.title) : null;
     payload.bibliography = bibliography?.citations ?? [];
-    payload.proofNotice = citationGate.proofNotice;
+    payload.proofNotice = [citationGate.proofNotice, publicationPassGate.proofNotice].filter(Boolean).join(" · ") || null;
 
     const manuscriptFilename = sanitizeManuscriptFilename(title) + "-manuscript.md";
 
